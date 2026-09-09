@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: #000;
+  /* Notch / home-bar safe areas on all phones */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  overscroll-behavior-y: none;
+  min-height: 100dvh;
+}
+
+/* Bottom tab bar clearance so content is never hidden behind it (mobile only) */
+@media (max-width: 767px) {
+  .tabbar-clearance {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* Thumb-friendly minimum touch target */
+button, a, select, input[type='checkbox'], input[type='range'] {
+  min-height: 24px;
+}
+button, a {
+  min-width: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

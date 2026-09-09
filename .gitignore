@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Builds
+.next/
+out/
+.open-next/
+dist/
+build/
+
+# Env (keep .env.example files only)
+.env
+.env.local
+.env.*.local
+*.dev.vars
+
+# Runtime data
+data/
+*.db
+*.db-journal
+*.sqlite*
+
+# Cloudflare
+.wrangler/
+.dev.vars
+
+# Logs / OS / test output
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+coverage/
+.opencode/

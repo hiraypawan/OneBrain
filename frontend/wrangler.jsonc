@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "onebrain",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-20",
+  "workers_dev": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  }
+}
