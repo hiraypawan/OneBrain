@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund --legacy-peer-deps
         working-directory: frontend
       - run: PAGES_EXPORT=1 npm run build
         working-directory: frontend
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
         working-directory: workers/api
       - run: npx -y wrangler@4 deploy
         working-directory: workers/api
