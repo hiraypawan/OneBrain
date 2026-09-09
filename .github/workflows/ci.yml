@@ -8,7 +8,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: { node-version: '22' }
+      - run: node --version && npm --version && ls
+        working-directory: frontend
       - run: npm ci || npm install
         working-directory: frontend
       - run: npm test
