@@ -20,7 +20,7 @@ HTTP adapters exist for Calendar, Sheets, Gmail, Telegram, Slack, Todoist, Notio
 
 ## Verification
 
-- Audit pass: 227 frontend unit tests, 47 Workers tests, one Express integration test, 53 production-browser tests and 48 Chromium compatibility scenarios passed locally. Cross-engine CI results are tracked in the [full audit report](docs/AUDIT-2026-09-11.md).
+- [Audit CI passed](https://github.com/hiraypawan/OneBrain/actions/runs/34567432168): 227 frontend unit tests, 47 Workers tests, one Express integration test, 53 product browser tests and 144 compatibility checks across six Chromium/Firefox/WebKit desktop/mobile/tablet profiles. See the [full audit report](docs/AUDIT-2026-09-11.md) for limits and remaining work.
 - Next 15.5.25 production build and frontend/Workers/legacy Express TypeScript checks pass.
 - Full dependency audits, including development tools: zero reported vulnerabilities across all three packages on 2026-09-11. This is not an independent application-security audit.
 - Real phones/earbuds, live providers, production deployment, enterprise compliance, billing and the other unfinished requirements remain explicitly tracked.
