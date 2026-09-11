@@ -5,7 +5,7 @@ import { Icon } from "./ui/Icon";
 export function AppHeader({ active }: { active: "today" | "space" }) {
   return (
     <header className="app-header">
-      <Link href="/" className="app-brand" aria-label="OneBrain home">
+      <Link prefetch={false} href="/" className="app-brand" aria-label="OneBrain home">
         <svg
           width="30"
           height="30"

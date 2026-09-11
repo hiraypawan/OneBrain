@@ -5,6 +5,7 @@ import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { useAssistantStore } from "@/store/assistant";
 import {
   ACTION_EXAMPLES,
+  PlatformRequestError,
   platformApi as api,
   type Space,
   type SharedRecord,
@@ -12,6 +13,7 @@ import {
   type Job,
 } from "@/lib/platform";
 import "@/app/operations/operations.css";
+const mergeRows = <T extends {id:string},>(a:T[],b:T[]) => [...new Map([...a,...b].map(r=>[r.id,r])).values()];
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 function download(name: string, value: unknown) {
   const url = URL.createObjectURL(
@@ -40,6 +42,8 @@ const KINDS = [
   "invoice",
 ];
 export default function Operations() {
+  const [bootstrapError,setBootstrapError] = useState(false);
+  const [bootstrapAttempt,setBootstrapAttempt] = useState(0);
   const [caps, setCaps] = useState<any>(null),
     [user, setUser] = useState<any>(null),
     [checking, setChecking] = useState(true),
@@ -50,6 +54,8 @@ export default function Operations() {
     [spaceName, setSpaceName] = useState(""),
     [tab, setTab] = useState("records");
   const [loadingSection, setLoadingSection] = useState(false);
+  const [nextJobs,setNextJobs] = useState<string|null>(null);
+  const [receiptDone,setReceiptDone] = useState<Record<string,boolean>>({});
   const [nextRecords, setNextRecords] = useState<string | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const currentTab = useRef(tab); currentTab.current = tab;
@@ -91,10 +97,10 @@ export default function Operations() {
     setLoadingSection(true);
     try {
       const route = section === 'actions' ? 'jobs' : section === 'team' ? 'members' : section;
-      const data = await api(`/spaces/${target}/${route}${section === 'records' ? '?pageSize=100' : ''}`);
+      const data = await api(`/spaces/${target}/${route}${section === 'records' ? '?pageSize=100' : section === 'actions' ? '?pageSize=25' : ''}`);
       if (generation !== epoch.current || currentSpace.current !== target) return;
       if (section === 'records') { setRecords(data.records); setNextRecords(data.nextCursor); }
-      if (section === 'actions') { setJobs(data.jobs); setReceipts(data.receipts); }
+      if (section === 'actions') { setJobs(data.jobs); setReceipts(data.receipts); setNextJobs(data.nextCursor); setReceiptDone({}); }
       if (section === 'connections') {
         setConnections(data.connections);
         const capabilities = await api('/capabilities');
@@ -117,6 +123,7 @@ export default function Operations() {
   }
   useEffect(() => {
     let alive = true;
+    setChecking(true); setBootstrapError(false);
     void (async () => {
       try {
         const authRevision=useAssistantStore.getState().authRevision;
@@ -127,6 +134,7 @@ export default function Operations() {
           setSpaces(me.spaces); setSpace(me.spaces[0]?.id || "");
         }
       } catch (e) {
+        if(alive){setBootstrapError(!(e instanceof PlatformRequestError && e.status===401));setUser(null);}
         if (alive && !(e instanceof Error && /Sign in|Session/.test(e.message)))
           setNotice(e instanceof Error ? e.message : "Server unavailable.");
       } finally {
@@ -137,7 +145,7 @@ export default function Operations() {
       alive = false;
       epoch.current++;
     };
-  }, []);
+  }, [bootstrapAttempt]);
   useEffect(() => {
     epoch.current++;
     setImportPreview(null);
@@ -145,7 +153,7 @@ export default function Operations() {
     setEndpoint("");
     setConnectionName("");
     setRecords([]); setEditorRecords([]); setNextRecords(null);
-    setJobs([]);
+    setJobs([]); setReceipts([]); setNextJobs(null); setReceiptDone({});
     setConnections([]);
     setMembers([]);
     setInbox([]);
@@ -216,6 +224,12 @@ export default function Operations() {
       )}
       {checking ? (
         <p role="status">Checking server workspace…</p>
+      ) : bootstrapError ? (
+        <section className="ops-card">
+          <h2>Shared connection unavailable</h2>
+          <p>A busy server is not a sign-out. Retry after the capacity notice; device-local capture is still available.</p>
+          <button onClick={()=>setBootstrapAttempt(n=>n+1)}>Retry shared connection</button>
+        </section>
       ) : !user ? (
         <GoogleSignIn />
       ) : (
@@ -526,6 +540,7 @@ export default function Operations() {
                     a background phone alert. API acknowledgement does not prove
                     recipient delivery.
                   </p>
+                  <p className="ops-muted">Showing loaded actions and their latest receipt. Load older actions or receipt history when needed.</p>
                   {jobs.map((j) => (
                     <article className="ops-card ops-job" key={j.id}>
                       <div>
@@ -566,6 +581,16 @@ export default function Operations() {
                               <pre>{pretty(r.evidence)}</pre>
                             </div>
                           ))}
+                        {!receiptDone[j.id] && receipts.some(r=>r.job_id===j.id) && Math.min(...receipts.filter(r=>r.job_id===j.id).map(r=>r.run_number))>1 && (
+                          <button disabled={busy} aria-label={`Load older receipts for ${j.plan.name}`} onClick={()=>perform(async()=>{
+                            const target=space,generation=epoch.current;
+                            const before=Math.min(...receipts.filter(r=>r.job_id===j.id).map(r=>r.run_number));
+                            const page=await api(`${base}/jobs/${j.id}/receipts?beforeRun=${before}&pageSize=10`);
+                            if(currentSpace.current!==target||epoch.current!==generation)return;
+                            setReceipts(old=>mergeRows(old,page.receipts));
+                            setReceiptDone(old=>({...old,[j.id]:page.nextBeforeRun===null}));
+                          })}>Load older receipts</button>
+                        )}
                       </div>
                       <div className="ops-actions">
                         {admin && j.status === "draft" && (
@@ -628,7 +653,13 @@ export default function Operations() {
                       </div>
                     </article>
                   ))}
-                  {!jobs.length && (
+                  {nextJobs && <button disabled={busy||loadingSection} onClick={()=>perform(async()=>{
+                    const target=space,generation=epoch.current;
+                    const page=await api(`${base}/jobs?pageSize=25&cursor=${encodeURIComponent(nextJobs)}`);
+                    if(currentSpace.current!==target||epoch.current!==generation)return;
+                    setJobs(old=>mergeRows(old,page.jobs));setReceipts(old=>mergeRows(old,page.receipts));setNextJobs(page.nextCursor);
+                  })}>Load older actions</button>}
+                  {!loadingSection && !jobs.length && (
                     <div className="ops-empty">
                       <h3>No hidden automation.</h3>
                       <p>

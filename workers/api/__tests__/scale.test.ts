@@ -5,6 +5,7 @@ import { app } from '../src/index';
 import { hash, rateLimit } from '../src/platform/core';
 import { maintenance } from '../src/platform/maintenance';
 import { jsonRequest } from '../src/platform/connectors';
+import { validateRecord } from '../src/platform/records';
 import { runDue } from '../src/platform/jobs';
 let mf:Miniflare, env:any, token='a'.repeat(64), scope='scale-space';
 const allow={limit:vi.fn(async()=>({success:true}))};
@@ -14,7 +15,7 @@ async function request(path:string,method='GET',body?:unknown, override=env) {
 beforeAll(async()=>{
  mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-08-06',d1Databases:['DB']});
  const DB=await mf.getD1Database('DB');
- for(const name of ['0001_schema','0002_platform','0003_session_versions','0004_atomic_allowances','0005_google_identity','0006_free_tier_indexes']) {
+ for(const name of ['0001_schema','0002_platform','0003_session_versions','0004_atomic_allowances','0005_google_identity','0006_free_tier_indexes','0007_action_history_pages']) {
   const sql=readFileSync(new URL(`../migrations/${name}.sql`,import.meta.url),'utf8').replace(/--[^\n]*/g,'');
   const triggers=[...sql.matchAll(/CREATE TRIGGER[\s\S]*?\nEND;/g)].map(m=>m[0]);
   await DB.batch([...sql.replace(/CREATE TRIGGER[\s\S]*?\nEND;/g,'').split(';').filter(s=>s.trim()),...triggers].map(s=>DB.prepare(s)));
@@ -104,6 +105,45 @@ describe('free-tier regression boundaries (local, not a production load test)',(
   const queries:string[]=[];const DB={prepare:(sql:string)=>{queries.push(sql);return env.DB.prepare(sql);},batch:(q:any)=>env.DB.batch(q)};
   expect((await request(`/spaces/${scope}/records`,'POST',{kind:'note',title:'One insert, not two writes'},{...env,DB})).status).toBe(201);
   expect(queries.some(sql=>sql.startsWith('UPDATE space_records'))).toBe(false);
+ });
+ it('looks up only referenced records and traverses only reachable dependencies',async()=>{
+  const target='query-scale';
+  await env.DB.prepare("INSERT INTO spaces(id,name,owner_id,created_at) VALUES(?,'Query fixture','scale-user',1)").bind(target).run();
+  await env.DB.prepare("INSERT INTO space_members VALUES(?,'scale-user','owner',1)").bind(target).run();
+  await env.DB.prepare("INSERT INTO space_records(id,space_id,kind,title,data,created_by,created_at,updated_at,mutation_id) SELECT 'q-'||value,?,'task','Noise',json_object('body',?,'status','active','links',json('[]'),'dependencies',json('[]')),'scale-user',1,1,'q-'||value FROM json_each(?)").bind(target,'x'.repeat(3000),JSON.stringify(Array.from({length:2000},(_,i)=>i))).run();
+  let read=0;const queries:string[]=[];
+  const DB={prepare:(sql:string)=>{queries.push(sql);return {bind:(...args:any[])=>{
+   const q=env.DB.prepare(sql).bind(...args);
+   const all=async()=>{const result=await q.all();read+=result.meta.rows_read;return result;};
+   return {all,first:async()=>(await all()).results[0]||null};
+  }};}};
+  const old=await env.DB.prepare('SELECT id,data FROM space_records WHERE space_id=?').bind(target).all();
+  await validateRecord({...env,DB},target,{kind:'note',title:'One link',data:{links:['q-1999']}});
+  expect(read).toBeLessThan(20);expect(queries).toHaveLength(1);
+  console.log('LOCAL relationship rows_read / 2,000-record catalog:',JSON.stringify({targeted:read,previous:old.meta.rows_read}));
+  await expect(validateRecord({...env,DB},target,{kind:'note',title:'Other scope',data:{links:['page-204']}})).rejects.toMatchObject({status:400});
+  for(const [id,dep] of [['q-0','q-1'],['q-1','q-2']])await env.DB.prepare("UPDATE space_records SET data=json_set(data,'$.dependencies',json(?)) WHERE id=?").bind(JSON.stringify([dep]),id).run();
+  read=0;
+  await expect(validateRecord({...env,DB},target,{kind:'task',title:'Cycle',data:{dependencies:['q-0']}},'q-2')).rejects.toMatchObject({status:409});
+  expect(read).toBeLessThan(100);
+  await expect(validateRecord({...env,DB},target,{kind:'task',title:'Not done',data:{status:'done',dependencies:['q-1']}})).rejects.toMatchObject({status:409});
+ });
+ it('pages equal-time jobs, returns just latest receipts, and exposes older receipt history',async()=>{
+  const target='query-scale',jobs=Array.from({length:31},(_,i)=>`query-job-${String(i).padStart(2,'0')}`);
+  await env.DB.prepare("INSERT INTO jobs(id,space_id,action,payload,plan,plan_hash,status,created_by,created_at,updated_at,next_run,runs,mutation_id) SELECT value,?,'local.notify','{}','{}','fixture','verified','scale-user',7,7,7,30,value FROM json_each(?)").bind(target,JSON.stringify(jobs)).run();
+  await env.DB.prepare("INSERT INTO job_receipts(id,job_id,space_id,run_number,at,status,evidence) SELECT j.value||'-'||r.value,j.value,?,r.value,7,'verified','{}' FROM json_each(?) j CROSS JOIN json_each(?) r").bind(target,JSON.stringify(jobs),JSON.stringify(Array.from({length:30},(_,i)=>i+1))).run();
+  const first:any=await (await request(`/spaces/${target}/jobs?pageSize=25`)).json();
+  expect(first.jobs).toHaveLength(25);expect(first.receipts).toHaveLength(25);expect(first.receipts.every((r:any)=>r.run_number===30)).toBe(true);
+  const second:any=await (await request(`/spaces/${target}/jobs?pageSize=25&cursor=${encodeURIComponent(first.nextCursor)}`)).json();
+  expect(second.jobs).toHaveLength(6);expect(second.nextCursor).toBeNull();expect(new Set([...first.jobs,...second.jobs].map(r=>r.id)).size).toBe(31);
+  const legacy:any=await (await request(`/spaces/${target}/jobs`)).json();expect(legacy.jobs).toHaveLength(31);expect(legacy.receipts).toHaveLength(930);
+  let before:number|null=30;const seen=[30];
+  do {const history:any=await (await request(`/spaces/${target}/jobs/query-job-30/receipts?pageSize=10&beforeRun=${before}`)).json();seen.push(...history.receipts.map((r:any)=>r.run_number));before=history.nextBeforeRun;}while(before!==null);
+  expect(seen).toEqual(Array.from({length:30},(_,i)=>30-i));
+  const other:any=await (await request(`/spaces/${scope}/jobs/query-job-30/receipts`)).json();expect(other.receipts).toEqual([]);
+  expect((await request('/spaces/not-a-member/jobs/query-job-30/receipts')).status).toBe(403);
+  for(const path of [`/spaces/${target}/jobs?pageSize=101`,`/spaces/${target}/jobs?cursor=bad`,`/spaces/${target}/jobs/query-job-30/receipts?beforeRun=NaN`])expect((await request(path)).status).toBe(400);
+  const plan=await env.DB.prepare("EXPLAIN QUERY PLAN SELECT * FROM jobs WHERE space_id=? AND (created_at,id)<(?,?) ORDER BY created_at DESC,id DESC LIMIT 26").bind(target,7,'query-job-06').all();expect(JSON.stringify(plan.results)).toContain('jobs_scope');expect(JSON.stringify(plan.results)).not.toContain('TEMP B-TREE');
  });
  it('pauses writes or all server data before DB access while keeping logout possible',async()=>{
   const DB={prepare:vi.fn(()=>{throw new Error('D1 must not be reached');})};

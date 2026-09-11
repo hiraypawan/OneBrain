@@ -56,7 +56,7 @@ export function ControlCenter() {
         {Panel && entry ? (
           <>
             <div className="control-breadcrumb">
-              <Link href="/control">
+              <Link prefetch={false} href="/control">
                 <Icon name="back" />
                 Your space
               </Link>
@@ -110,7 +110,7 @@ export function ControlCenter() {
                   <section key={group}>
                     <h2>{group}</h2>
                     {rows.map((e) => (
-                      <Link
+                      <Link prefetch={false}
                         className="control-entry"
                         href={`/control?panel=${e.id}`}
                         key={e.id}

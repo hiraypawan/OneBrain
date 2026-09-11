@@ -92,3 +92,14 @@ npm --prefix frontend run test:edge
 ```
 
 Independent security review, live OAuth/secret rotation, physical device/background behavior and the broader incomplete feature ledger remain release gates. This optimization does not change their completion status.
+
+## Follow-up optimization before merge (2026-09-11)
+
+- Disabled speculative Next.js link prefetching; browser checks verify unopened control pages do not issue RSC requests. Navigation remains functional. This is not a fully static Pages conversion.
+- Relationship validation now looks up referenced IDs/status only and traverses the reachable dependency graph. A local 2,000-record fixture measured **2 rows read versus 2,001 previously** for attaching one link. Malformed relationships are rejected before catalog/member lookups; tenant checks, completion rules and transactional cycle guards remain.
+- Actions load **25 jobs with their latest receipts**, with explicit older-action and per-job receipt-history pagination. Existing explicit unpaged clients retain their bounded legacy response. Migration **0007** replaces the job-list index for stable keyset ordering; apply migrations in order. Only the local database was migrated here.
+- Actual D1 capacity errors open an advisory **60-second per-isolate/database cooldown**. Subsequent shared requests avoid additional D1 attempts while cooling down; scheduled work pauses too. Logout can still attempt real revocation. This is not a global quota reservation or a guarantee against bursts/cold isolates.
+- Temporary session-check failures now offer a shared-connection retry rather than prompting a fresh Google login.
+- `node scripts/capacity-budget.mjs --burst` models simultaneous demand separately from DAU. Its default hypothetical 10,000-user, two-call opening burst at 2.5 SQL queries/call and 1 ms/query implies **50 seconds of serial database service time**, not a five-second completion promise. The duration is an assumption, not a measured cloud benchmark; a non-fitting scenario exits with code 2.
+
+Follow-up local results: **236 frontend tests, 70 Worker tests, eight budget tests, 59 product browser checks and 15 native Workers browser checks passed**. Next/OpenNext build passed. These replace the earlier functional counts above; they do not certify deployed free-tier CPU, concurrent throughput or live OAuth. The broader incomplete feature ledger remains unchanged.

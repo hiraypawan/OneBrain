@@ -24,26 +24,35 @@ export async function validateRecord(env: PlatformEnv, space: string, input: unk
     if (!Array.isArray(data.milestones) || data.milestones.length > 30) fail(400,'Use at most 30 milestones.');
     data.milestones = data.milestones.map((m: any) => ({ title: text(m.title,'Milestone',120), done: m.done === true }));
   }
+  // Reject malformed/oversized relationships before any catalog/member lookup.
+  for (const field of ['links','dependencies']) {
+    const values = data[field] ?? [];
+    if (!Array.isArray(values) || values.length > 50 || values.some((v: unknown) => typeof v !== 'string' || !v.length || v.length > 200 || v === recordId)) fail(400,'Relationships must reference other records in this workspace.');
+    data[field] = [...new Set(values)];
+  }
   if (data.assignee) {
     if (memberIds ? !memberIds.has(text(data.assignee,'Assignee')) : !await env.DB.prepare('SELECT 1 FROM space_members WHERE space_id=? AND user_id=?').bind(space,text(data.assignee,'Assignee')).first()) fail(400,'Assign only a current workspace member.');
   }
-  const rows = (data.links?.length || data.dependencies?.length) ? await env.DB.prepare('SELECT id,data FROM space_records WHERE space_id=?').bind(space).all<{id:string;data:string}>() : {results:[]};
-  const records = new Map(rows.results.map(r => [r.id,JSON.parse(r.data)]));
-  for (const field of ['links','dependencies']) {
-    const values = data[field] || [];
-    if (!Array.isArray(values) || values.length > 50 || values.some((v: any) => typeof v !== 'string' || v === recordId || !records.has(v))) fail(400,'Relationships must reference other records in this workspace.');
-    data[field] = [...new Set(values)];
-  }
+  const references = [...new Set<string>([...data.links,...data.dependencies])];
+  // Reference IDs drive primary-key lookups. Do not read/parse every note body
+  // in a 2,000-record workspace merely to attach one link.
+  const rows = references.length ? await env.DB.prepare(
+    "SELECT r.id,json_extract(r.data,'$.status') AS status FROM json_each(?) refs CROSS JOIN space_records r ON r.id=refs.value WHERE r.space_id=?"
+  ).bind(JSON.stringify(references),space).all<{id:string;status:string}>() : {results:[]};
+  const records = new Map(rows.results.map(r => [r.id,r]));
+  if (references.some(ref => !records.has(ref))) fail(400,'Relationships must reference other records in this workspace.');
   if (data.status === 'done' && data.dependencies.some((dep: string) => records.get(dep)?.status !== 'done')) fail(409,'Complete the dependencies before completing this task.');
-  if (recordId) {
-    const seen = new Set<string>();
-    const visit = (target: string): boolean => {
-      if (target === recordId) return true;
-      if (seen.has(target)) return false;
-      seen.add(target);
-      return (records.get(target)?.dependencies || []).some(visit);
-    };
-    if (data.dependencies.some(visit)) fail(409,'Circular task dependencies are not allowed.');
+  if (recordId && data.dependencies.length) {
+    // Follow only the reachable dependency graph; UNION deduplicates cycles.
+    // Database triggers still enforce this inside the write transaction.
+    const cycle = await env.DB.prepare(`WITH RECURSIVE reachable(id) AS (
+      SELECT value FROM json_each(?)
+      UNION
+      SELECT d.value FROM reachable x
+      JOIN space_records r ON r.id=x.id AND r.space_id=?
+      JOIN json_each(r.data,'$.dependencies') d
+    ) SELECT id FROM reachable WHERE id=? LIMIT 1`).bind(JSON.stringify(data.dependencies),space,recordId).first();
+    if (cycle) fail(409,'Circular task dependencies are not allowed.');
   }
   return { kind, title, data };
 }

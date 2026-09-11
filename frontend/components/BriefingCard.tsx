@@ -29,7 +29,7 @@ export function BriefingCard() {
   return (
     <div className="space-y-3 mb-8">
       {!onboarded && (
-        <Link href="/welcome" className="block p-4 bg-green-900 border border-green-700 rounded-xl font-bold">
+        <Link prefetch={false} href="/welcome" className="block p-4 bg-green-900 border border-green-700 rounded-xl font-bold">
           👋 New here? 1-minute setup →
         </Link>
       )}

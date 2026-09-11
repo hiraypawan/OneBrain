@@ -7,7 +7,7 @@ import {hash} from '../src/platform/core';
 let mf:Miniflare,env:any,keys:any,jwk:any;
 beforeAll(async()=>{
  mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-08-06',d1Databases:['DB']});const DB=await mf.getD1Database('DB');
- for(const file of ['0001_schema.sql','0002_platform.sql','0003_session_versions.sql','0004_atomic_allowances.sql','0005_google_identity.sql','0006_free_tier_indexes.sql']){
+ for(const file of ['0001_schema.sql','0002_platform.sql','0003_session_versions.sql','0004_atomic_allowances.sql','0005_google_identity.sql','0006_free_tier_indexes.sql','0007_action_history_pages.sql']){
   const sql=readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8').replace(/--[^\n]*/g,''),triggers=[...sql.matchAll(/CREATE TRIGGER[\s\S]*?\nEND;/g)].map(m=>m[0]);
   await DB.batch([...sql.replace(/CREATE TRIGGER[\s\S]*?\nEND;/g,'').split(';').filter(x=>x.trim()),...triggers].map(q=>DB.prepare(q)));
  }

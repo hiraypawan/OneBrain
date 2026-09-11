@@ -30,7 +30,19 @@ export function estimate(input={}) {
  const scheduler={requested:x.scheduledJobs,maxCandidatesPerDay:cron*x.jobBatch,fits:x.scheduledJobs<=cron*x.jobBatch};
  return {assumptions:x,budgets,scheduler,fits:Object.values(budgets).every(v=>v.fits)&&scheduler.fits,notice:'An assumed daily budget, NOT proof of 10,000 concurrent users. CPU, bursts, D1 queueing, auth rate limits, abusive traffic and other account usage still need measurement.'};
 }
+// A throughput model, deliberately separate from the daily budget. The query
+// duration must be measured on the deployed workload before drawing conclusions.
+export function estimateBurst(input={}) {
+ const x={concurrentUsers:10000,apiCallsPerUser:2,sqlQueriesPerApi:2.5,meanSqlMs:1,targetSeconds:5,...input};
+ const allowed=['concurrentUsers','apiCallsPerUser','sqlQueriesPerApi','meanSqlMs','targetSeconds'];
+ for(const [key,value] of Object.entries(x))if(!allowed.includes(key)||typeof value!=='number'||!Number.isFinite(value)||value<0)throw new Error(`Invalid burst assumption: ${key}`);
+ if(!Number.isSafeInteger(x.concurrentUsers)||!x.meanSqlMs||!x.targetSeconds)throw new Error('Use an integer user count and positive timing assumptions.');
+ const sqlQueries=x.concurrentUsers*x.apiCallsPerUser*x.sqlQueriesPerApi;
+ const serialDatabaseSeconds=sqlQueries*x.meanSqlMs/1000;
+ if(!Number.isFinite(serialDatabaseSeconds))throw new Error('Burst assumptions overflow the model.');
+ return {assumptions:x,sqlQueries,serialDatabaseSeconds,requiredSqlQueriesPerSecond:sqlQueries/x.targetSeconds,idealSqlQueriesPerSecond:1000/x.meanSqlMs,fitsSerialTime:serialDatabaseSeconds<=x.targetSeconds,notice:'Hypothetical single-primary SQL service time, NOT measured concurrent users, p95 latency, CPU compliance, or an SLA. Network, Worker overhead, writes and other traffic can make it worse.'};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
- try{const result=estimate(process.argv[2]?JSON.parse(readFileSync(process.argv[2],'utf8')):{});console.log(JSON.stringify(result,null,2));if(!result.fits)process.exitCode=2;}
+ try{const burst=process.argv[2]==='--burst',file=process.argv[burst?3:2],input=file?JSON.parse(readFileSync(file,'utf8')):{};const result=burst?estimateBurst(input):estimate(input);console.log(JSON.stringify(result,null,2));if(!(burst?result.fitsSerialTime:result.fits))process.exitCode=2;}
  catch(e){console.error(e.message);process.exitCode=1;}
 }

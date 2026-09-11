@@ -1,3 +1,4 @@
+import { noteD1Failure, capacityRetryAfter } from './capacity';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
@@ -5,10 +6,11 @@ import { startGoogleLogin, finishGoogleLogin, googleConfigured, sessionUser } fr
 import { actor, audit, fail, hash, id, membership, number, object, publicConnection, randomToken, rateLimit, seal, text, unseal, type PlatformContext } from './core';
 import { jsonRequest, PROVIDERS, validateConnection, type Provider } from './connectors';
 import { prepareJob, runDue } from './jobs';
+import { readPage, pageResult } from './pages';
 import { RECORD_KINDS, validateRecord } from './records';
 export const platform = new Hono<PlatformContext>();
 platform.onError((error,c) => {
-  if(/exceeded D1|D1.*(?:overloaded|too many requests|exceeded|quota)/i.test(error.message)) { c.header('Retry-After','60'); return c.json({error:'Server capacity is temporarily unavailable. Device-local capture still works; no server save is claimed.'},503); }
+  if(noteD1Failure(c.env.DB,error)) { c.header('Retry-After','60'); return c.json({error:'Server capacity is temporarily unavailable. Device-local capture still works; no server save is claimed.'},503); }
   if(error instanceof HTTPException) return c.json({error:error.message},error.status);
   if(/(?:Workspace|Record|Connection|Job) allowance reached/.test(error.message))return c.json({error:'Workspace allowance reached. Nothing extra was saved; no paid overflow was enabled.'},429);
   if(error instanceof SyntaxError)return c.json({error:'Invalid JSON request.'},400);
@@ -16,6 +18,12 @@ platform.onError((error,c) => {
   if(/Invalid scoped relationship|Circular dependency|dependent links/.test(error.message))return c.json({error:'A related record changed concurrently. Reload and review dependencies.'},409);
   console.error('Platform operation failed:',error.name);
   return c.json({error:'Server operation failed. No success is claimed.'},500);
+});
+platform.use('*',async(c,next)=>{
+  const exempt=['/api/platform/capabilities','/api/platform/logout','/api/platform/logout-all','/api/platform/login','/api/platform/register'].includes(c.req.path);
+  const retry=capacityRetryAfter(c.env.DB);
+  if(!exempt&&retry){c.header('Retry-After',String(retry));c.header('Cache-Control','no-store');return c.json({error:'Shared server capacity is recovering. Wait before retrying; device-local capture still works. No server save is claimed.'},503);}
+  await next();
 });
 platform.use('*',bodyLimit({maxSize:750000,onError:c=>c.json({error:'Request exceeds 750 KB.'},413)}));
 platform.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
@@ -137,8 +145,29 @@ platform.get('/oauth/google/callback',async c=>{
   await c.env.DB.batch([c.env.DB.prepare('INSERT INTO connections (id,space_id,provider,name,config,secret,status,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(connection,row.space_id,row.provider,PROVIDERS[row.provider as Provider].label,JSON.stringify({verification:'OAuth consent granted',scopes:token.scope}),secret,'connected',actor(c).id,now,now),audit(c.env,row.space_id,actor(c).id,'connection.oauth',connection,{provider:row.provider})]);return c.json({ok:true,connectionId:connection,notice:'Connection authorized. Return to Operations to review actions.'});
 });
 platform.get('/spaces/:space/jobs',async c=>{
-  const space=c.req.param('space');await membership(c,space);const rows=await c.env.DB.prepare('SELECT * FROM jobs WHERE space_id=? ORDER BY created_at DESC LIMIT 500').bind(space).all<any>(),receipts=await c.env.DB.prepare('SELECT * FROM job_receipts WHERE space_id=? ORDER BY at DESC LIMIT 1000').bind(space).all<any>();return c.json({jobs:rows.results.map(r=>({...r,payload:JSON.parse(r.payload),plan:JSON.parse(r.plan)})),receipts:receipts.results.map(r=>({...r,evidence:JSON.parse(r.evidence)}))});
+  const space=c.req.param('space');await membership(c,space);
+  if(c.req.query('pageSize')===undefined&&c.req.query('cursor')===undefined){
+    // Backward compatibility for explicit full-list/export clients.
+    const rows=await c.env.DB.prepare('SELECT * FROM jobs WHERE space_id=? ORDER BY created_at DESC LIMIT 500').bind(space).all<any>(),receipts=await c.env.DB.prepare('SELECT * FROM job_receipts WHERE space_id=? ORDER BY at DESC LIMIT 1000').bind(space).all<any>();
+    return c.json({jobs:rows.results.map(r=>({...r,payload:JSON.parse(r.payload),plan:JSON.parse(r.plan)})),receipts:receipts.results.map(r=>({...r,evidence:JSON.parse(r.evidence)}))});
+  }
+  const {limit,after}=readPage(c.req.query('pageSize'),c.req.query('cursor'));
+  const rows=await c.env.DB.prepare('SELECT * FROM jobs WHERE space_id=?'+(after?' AND (created_at,id)<(?,?)':'')+' ORDER BY created_at DESC,id DESC LIMIT ?').bind(space,...(after||[]),limit+1).all<any>();
+  const page=pageResult(rows.results,limit,r=>r.created_at);
+  // One latest receipt per visible job, rather than all workspace history.
+  // The unique (job_id,run_number) index supports each backwards lookup.
+  const receipts=page.items.length?await c.env.DB.prepare("SELECT r.* FROM json_each(?) j CROSS JOIN job_receipts r ON r.id=(SELECT id FROM job_receipts WHERE job_id=j.value AND space_id=? ORDER BY run_number DESC LIMIT 1)").bind(JSON.stringify(page.items.map(j=>j.id)),space).all<any>():{results:[]};
+  return c.json({jobs:page.items.map(r=>({...r,payload:JSON.parse(r.payload),plan:JSON.parse(r.plan)})),receipts:receipts.results.map(r=>({...r,evidence:JSON.parse(r.evidence)})),nextCursor:page.nextCursor,receiptView:'latest-per-job'});
 });
+platform.get('/spaces/:space/jobs/:job/receipts',async c=>{
+  const space=c.req.param('space');await membership(c,space);
+  const {limit}=readPage(c.req.query('pageSize'),undefined,10),raw=c.req.query('beforeRun'),before=raw===undefined?null:Number(raw);
+  if(before!==null&&(!Number.isSafeInteger(before)||before<1))fail(400,'Invalid receipt cursor.');
+  const rows=await c.env.DB.prepare('SELECT * FROM job_receipts WHERE job_id=? AND space_id=?'+(before===null?'':' AND run_number<?')+' ORDER BY run_number DESC LIMIT ?').bind(c.req.param('job'),space,...(before===null?[]:[before]),limit+1).all<any>();
+  const items=rows.results.slice(0,limit);
+  return c.json({receipts:items.map(r=>({...r,evidence:JSON.parse(r.evidence)})),nextBeforeRun:rows.results.length>limit?items.at(-1)!.run_number:null});
+});
+
 platform.post('/spaces/:space/jobs',async c=>{
   const space=c.req.param('space');await membership(c,space,'write');const raw=object(await c.req.json()),requestKey=raw.requestId?'job:'+text(raw.requestId,'Request ID',64):null,fingerprint=await hash(JSON.stringify(raw));
   if(requestKey){const previous=await c.env.DB.prepare('SELECT fingerprint,result FROM space_imports WHERE space_id=? AND id=?').bind(space,requestKey).first<{fingerprint:string;result:string}>();if(previous){if(previous.fingerprint!==fingerprint)fail(409,'Request ID already belongs to another draft.');return c.json(JSON.parse(previous.result));}}

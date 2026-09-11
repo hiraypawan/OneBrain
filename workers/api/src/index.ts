@@ -3,6 +3,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { sessionUser } from './platform/google-auth';
 import { platform } from './platform';
+import { capacityRetryAfter, noteD1Failure } from './platform/capacity';
 import { maintenance } from './platform/maintenance';
 import { runDue } from './platform/jobs';
 import type { PlatformEnv } from './platform/core';
@@ -597,9 +598,9 @@ app.delete('/api/user/delete-account', requireAuth, async (c) => {
 
 app.route('/api/platform', platform);
 export default { fetch: app.fetch, scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
-  if (env.PLATFORM_MODE && env.PLATFORM_MODE !== 'normal') return;
+  if ((env.PLATFORM_MODE && env.PLATFORM_MODE !== 'normal') || capacityRetryAfter(env.DB)) return;
   const batch=Math.max(1,Math.min(20,Number(env.SCHEDULED_JOB_BATCH_SIZE)||2));
-  ctx.waitUntil(runDue(env,undefined,event.scheduledTime,batch));
-  if (new Date(event.scheduledTime).getUTCMinutes() === 0) ctx.waitUntil(maintenance(env,event.scheduledTime));
+  ctx.waitUntil(runDue(env,undefined,event.scheduledTime,batch).catch(error=>{noteD1Failure(env.DB,error);throw error;}));
+  if (new Date(event.scheduledTime).getUTCMinutes() === 0) ctx.waitUntil(maintenance(env,event.scheduledTime).catch(error=>{noteD1Failure(env.DB,error);throw error;}));
 } };
 export { app };

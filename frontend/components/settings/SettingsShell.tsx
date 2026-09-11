@@ -28,7 +28,7 @@ export function SettingsShell({
       <div className="embedded-settings">
         <nav className="settings-subnav" aria-label="Settings sections">
           {sections.map(([key, label]) => (
-            <Link
+            <Link prefetch={false}
               key={key}
               href={`/control?panel=${key}`}
               aria-current={active === key ? "page" : undefined}
