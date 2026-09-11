@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DEFAULT_PROACTIVE, normalizeProactive } from '../lib/proactive';
+import { defaultSettings, normalizeSettings } from '../lib/settings';
 import type { AssistantStatus, Conversation, Message, Reminder, User, UserSettings } from '@/lib/types';
 import { db, getRecentMessages, deleteConversationLocal, clearAllLocal } from '@/lib/db';
 import type { BgState, BgEvent } from '@/lib/background';
@@ -8,6 +8,7 @@ import { pushBgEvent } from '@/lib/background';
 interface AssistantState {
   user: User | null;
   isAuthenticated: boolean;
+  authRevision: number;
   isActive: boolean;
   currentStatus: AssistantStatus;
   conversations: Conversation[];
@@ -18,6 +19,7 @@ interface AssistantState {
   apiKey: string;
   setApiKey: (k: string) => void;
   micNotice: string | null;
+  storageNotice: string | null;
   setMicNotice: (m: string | null) => void;
   hydrate: () => Promise<void>;
   voiceBaseline: number | null;
@@ -39,30 +41,17 @@ interface AssistantState {
   setIsActive: (v: boolean) => void;
   setCurrentStatus: (s: AssistantStatus) => void;
   addMessage: (role: 'user' | 'assistant', content: string, meta?: string) => void;
-  removeLastExchange: () => void;
-  deleteConversation: (id: string) => void;
-  updateReminder: (id: string, patch: Partial<Reminder>) => void;
+  removeLastExchange: () => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
+  updateReminder: (id: string, patch: Partial<Reminder>) => Promise<void>;
   wipeAll: () => Promise<void>;
   loginBackend: (u: { id: string; email: string; displayName?: string }) => void;
   reloadFromDb: () => Promise<void>;
   newConversation: () => void;
   updateSettings: (p: Partial<UserSettings>) => void;
-  addReminder: (r: Reminder) => void;
-  dismissReminder: (id: string) => void;
+  addReminder: (r: Reminder) => Promise<void>;
+  dismissReminder: (id: string) => Promise<void>;
 }
-
-const defaultSettings: UserSettings = {
-  memoryEnabled: true,
-  voiceSpeed: 1.0,
-  language: 'hinglish',
-  verbosity: 'short',
-  theme: 'dark',
-  nightMode: false,
-  autoDeleteDays: 0,
-  ownerOnly: false,
-  proactive: DEFAULT_PROACTIVE,
-  silentMode: false,
-};
 
 const SETTINGS_KEY = 'onebrain-settings';
 
@@ -77,6 +66,7 @@ function loadPersisted(): {
   voiceBaseline: number | null;
   micDeviceId: string | null;
   speakerDeviceId: string | null;
+  storageNotice?: string | null;
 } {
   const fallback = { apiKey: '', settings: defaultSettings, voiceBaseline: null, micDeviceId: null, speakerDeviceId: null };
   if (typeof window === 'undefined') return fallback;
@@ -86,19 +76,21 @@ function loadPersisted(): {
     const base = raw ? JSON.parse(raw) : {};
     const dv = dev ? JSON.parse(dev) : {};
     return {
-      apiKey: typeof base.apiKey === 'string' ? base.apiKey : '',
-      settings: { ...defaultSettings, ...(base.settings || {}), proactive: normalizeProactive(base.settings?.proactive) },
-      voiceBaseline: typeof base.voiceBaseline === 'number' ? base.voiceBaseline : null,
-      micDeviceId: typeof dv.micDeviceId === 'string' && dv.micDeviceId ? dv.micDeviceId : null,
-      speakerDeviceId: typeof dv.speakerDeviceId === 'string' && dv.speakerDeviceId ? dv.speakerDeviceId : null,
+      apiKey: typeof base?.apiKey === 'string' ? base.apiKey : '',
+      settings: normalizeSettings(base?.settings),
+      voiceBaseline: typeof base?.voiceBaseline === 'number' && Number.isFinite(base.voiceBaseline) && base.voiceBaseline > 0 ? base.voiceBaseline : null,
+      micDeviceId: typeof dv?.micDeviceId === 'string' && dv.micDeviceId ? dv.micDeviceId : null,
+      speakerDeviceId: typeof dv?.speakerDeviceId === 'string' && dv.speakerDeviceId ? dv.speakerDeviceId : null,
     };
-  } catch {}
-  return fallback;
+  } catch {
+    return { ...fallback, settings: { ...defaultSettings, memoryEnabled: false }, storageNotice: 'Saved preferences could not be read. New memory is paused; check browser storage before enabling it.' };
+  }
 }
 
 export const useAssistantStore = create<AssistantState>((set) => ({
   user: null,
   isAuthenticated: false,
+  authRevision: 0,
   isActive: false,
   currentStatus: 'idle',
   conversations: [],
@@ -109,27 +101,26 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   apiKey: '',
   setApiKey: (apiKey) => set({ apiKey }),
   micNotice: null,
+  storageNotice: null,
   setMicNotice: (micNotice) => set({ micNotice }),
   hydrate: async () => {
     // Cheap prefs first (sync-feeling), then heavy IndexedDB restore.
     set(loadPersisted());
     try {
-      const [messages, reminders, convos, userRow, summaryRow] = await Promise.all([
+      const [messages, reminders, convos] = await Promise.all([
         getRecentMessages(500),
         db.reminders.orderBy('createdAt').toArray(),
         db.conversations.orderBy('createdAt').reverse().toArray(),
-        db.kv.get('user'),
-        db.kv.get('sessionSummary'),
       ]);
-      const mapped = messages.map((m) => ({
-        id: `db-${m.id}`,
+      const mapped = messages.filter(m => useAssistantStore.getState().settings.memoryEnabled && m.conversationId === convos[0]?.id).map((m) => ({
+        id: m.uuid || `db-${m.id}`,
         role: m.role,
         content: m.content,
         createdAt: m.createdAt,
         meta: m.meta,
       }));
       // Rebuild a rolling summary if the restored history is long.
-      let summary: string | null = typeof summaryRow?.value === 'string' ? summaryRow.value : null;
+      let summary: string | null = null;
       if (!summary && mapped.length > 20) {
         try {
           const { extractiveSummary } = await import('@/lib/summarize');
@@ -143,12 +134,10 @@ export const useAssistantStore = create<AssistantState>((set) => ({
           active: r.active, lastFired: r.lastFired,
         })),
         conversations: convos.map((c) => ({ id: c.id, title: c.title, createdAt: c.createdAt, messages: [] })),
-        user: userRow?.value || null,
-        isAuthenticated: false,
-        currentConversationId: convos[0]?.id || `${Date.now()}`,
+        currentConversationId: convos[0]?.id || crypto.randomUUID(),
         sessionSummary: summary,
       });
-    } catch {}
+    } catch { set({ storageNotice: 'Saved conversations and reminders could not be loaded. Check browser storage; an empty list does not mean your data was deleted.' }); }
   },
   voiceBaseline: null,
   setVoiceBaseline: (voiceBaseline) => set({ voiceBaseline }),
@@ -183,7 +172,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   },
   login: () => { throw new Error('Password/local account sign-in is retired. Use Google.'); },
   logout: () => {
-    set({ user: null, isAuthenticated: false, isActive: false, currentStatus: 'idle' });
+    set(s => ({ authRevision: s.authRevision + 1, user: null, isAuthenticated: false, isActive: false, currentStatus: 'idle' }));
     db.kv.delete('user').catch(() => {});
   },
   setIsActive: (isActive) => set({ isActive }),
@@ -215,16 +204,14 @@ export const useAssistantStore = create<AssistantState>((set) => ({
     if (!st.settings.memoryEnabled) return;
     const after = useAssistantStore.getState();
     const conv = after.conversations.find((c) => c.id === cid);
-    db.conversations
-      .put({ id: cid, title: conv?.title || 'Conversation', createdAt: conv?.createdAt || Date.now() })
-      .catch(() => {});
-    db.messages
-      .add({ uuid: msg.id, conversationId: cid, role, content, meta, createdAt: msg.createdAt })
-      .catch(() => {});
+    void db.transaction('rw', db.conversations, db.messages, async () => {
+      await db.conversations.put({ id: cid, title: conv?.title || 'Conversation', createdAt: conv?.createdAt || Date.now() });
+      await db.messages.add({ uuid: msg.id, conversationId: cid, role, content, meta, createdAt: msg.createdAt });
+    }).catch(() => set({ micNotice: 'Conversation could not be saved. It is available for this session only; check browser storage.' }));
   },
   // "Wasn't talking to you" undo: drop the last user+assistant pair,
   // from state AND disk, so a stray pickup vanishes completely.
-  removeLastExchange: () => {
+  removeLastExchange: async () => {
     const msgs = useAssistantStore.getState().messages;
     if (!msgs.length) return;
     const dropIds = new Set<string>();
@@ -232,22 +219,32 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       dropIds.add(msgs[i].id);
       if (msgs[i].role === 'user') break;
     }
-    set((s) => ({ messages: s.messages.filter((m) => !dropIds.has(m.id)) }));
-    const uuids = [...dropIds].map((id) => id.replace(/^db-/, ''));
-    db.messages.where('uuid').anyOf(uuids).delete().catch(() => {});
+    const uuids = [...dropIds];
+    const legacyIds = [...dropIds].filter(id => /^db-\d+$/.test(id)).map(id => Number(id.slice(3)));
+    await db.transaction('rw', db.messages, db.kv, async () => {
+      await db.messages.where('uuid').anyOf(uuids).delete();
+      for (const id of legacyIds) {
+        const row = await db.messages.get(id);
+        if (row && !row.uuid) await db.messages.delete(id);
+      }
+      await db.kv.delete('sessionSummary');
+    });
+    set((s) => ({ messages: s.messages.filter((m) => !dropIds.has(m.id)), sessionSummary: null }));
   },
-  deleteConversation: (id) => {
+  deleteConversation: async (id) => {
+    await deleteConversationLocal(id);
     set((s) => ({
       conversations: s.conversations.filter((c) => c.id !== id),
       messages: s.currentConversationId === id ? [] : s.messages,
-      currentConversationId: s.currentConversationId === id ? `${Date.now()}` : s.currentConversationId,
+      currentConversationId: s.currentConversationId === id ? crypto.randomUUID() : s.currentConversationId,
+      sessionSummary: s.currentConversationId === id ? null : s.sessionSummary,
     }));
-    deleteConversationLocal(id).catch(() => {});
   },
   newConversation: () => {
-    const id = `${Date.now()}`;
+    const id = crypto.randomUUID();
     set((s) => ({
       messages: [],
+      sessionSummary: null,
       currentConversationId: id,
       conversations: [{ id, title: 'Conversation', createdAt: Date.now(), messages: [] }, ...s.conversations],
     }));
@@ -258,29 +255,22 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       }
     } catch {}
   },
-  updateSettings: (p) => set((s) => ({ settings: { ...s.settings, ...p } })),
-  addReminder: (r) => {
-    set((s) => ({ reminders: [...s.reminders, r] }));
-    db.reminders.put({ ...r, createdAt: Date.now() }).catch(() => {});
-    // Asking now (on tap) is the only reliable moment for permission.
-    try {
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
-      }
-    } catch {}
+  updateSettings: (p) => set((s) => ({ settings: normalizeSettings({ ...s.settings, ...p }) })),
+  addReminder: async (r) => {
+    if (!useAssistantStore.getState().settings.memoryEnabled) throw new Error('Memory is off. Enable saved memory before scheduling a reminder.');
+    if (!r.title.trim() || r.title.length > 200 || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(r.time)) throw new Error('Enter a reminder title and a valid time.');
+    if (r.date && (!/^\d{4}-\d{2}-\d{2}$/.test(r.date) || Number.isNaN(Date.parse(`${r.date}T00:00:00`)))) throw new Error('Enter a valid reminder date.');
+    await db.reminders.add({ ...r, createdAt: Date.now() });
+    set((s) => ({ reminders: [...s.reminders.filter(old => old.id !== r.id), r] }));
+    // Notification consent is requested only by the explicit permission button.
   },
-  dismissReminder: (id) => {
+  dismissReminder: async (id) => {
+    await db.reminders.delete(id);
     set((s) => ({ reminders: s.reminders.filter((r) => r.id !== id) }));
-    db.reminders.delete(id).catch(() => {});
   },
-  updateReminder: (id, patch) => {
+  updateReminder: async (id, patch) => {
+    await db.reminders.update(id, patch);
     set((s) => ({ reminders: s.reminders.map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
-    db.reminders
-      .get(id)
-      .then((row) => {
-        if (row) db.reminders.put({ ...row, ...patch }).catch(() => {});
-      })
-      .catch(() => {});
   },
   wipeAll: async () => {
     await clearAllLocal();
@@ -293,14 +283,14 @@ export const useAssistantStore = create<AssistantState>((set) => ({
     set({
       settings: defaultSettings, sessionSummary: null,
       messages: [], conversations: [], reminders: [], user: null,
-      isAuthenticated: false, isActive: false, currentStatus: 'idle',
+      isAuthenticated: false, authRevision: useAssistantStore.getState().authRevision + 1, isActive: false, currentStatus: 'idle',
       currentConversationId: `${Date.now()}`, apiKey: '', voiceBaseline: null, micNotice: null,
       bgLog: [], sessionStart: null,
     });
   },
   loginBackend: (u) => {
     const user = { id: u.id, email: u.email, displayName: u.displayName || u.email.split('@')[0] };
-    set({ user, isAuthenticated: true });
+    set(s => ({ user, isAuthenticated: true, authRevision: s.authRevision + 1 }));
     db.kv.put({ key: 'user', value: user }).catch(() => {});
   },
   // Refresh lists from disk without touching the live session (post-sync).
@@ -311,8 +301,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
         db.conversations.orderBy('createdAt').reverse().toArray(),
       ]);
       set({
-        messages: messages.map((m) => ({
-          id: `db-${m.id}`, role: m.role, content: m.content, createdAt: m.createdAt, meta: m.meta,
+        messages: messages.filter(m => m.conversationId === useAssistantStore.getState().currentConversationId).map((m) => ({
+          id: m.uuid || `db-${m.id}`, role: m.role, content: m.content, createdAt: m.createdAt, meta: m.meta,
         })),
         conversations: convos.map((c) => ({ id: c.id, title: c.title, createdAt: c.createdAt, messages: [] })),
       });
@@ -322,12 +312,15 @@ export const useAssistantStore = create<AssistantState>((set) => ({
 
 // Save key + settings on every change (client only).
 if (typeof window !== 'undefined') {
-  useAssistantStore.subscribe((s) => {
+  useAssistantStore.subscribe((s, previous) => {
+    if (s.apiKey === previous.apiKey && s.settings === previous.settings && s.voiceBaseline === previous.voiceBaseline) return;
     try {
       localStorage.setItem(
         SETTINGS_KEY,
         JSON.stringify({ apiKey: s.apiKey, settings: s.settings, voiceBaseline: s.voiceBaseline })
       );
-    } catch {}
+    } catch {
+      useAssistantStore.setState({ storageNotice: 'Preferences could not be saved. Changes apply to this session only; check browser storage.' });
+    }
   });
 }

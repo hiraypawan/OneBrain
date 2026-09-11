@@ -356,7 +356,7 @@ export function useAssistant() {
           }
         });
       } finally {
-        if (!current()) return;
+        if (current()) {
         cancelSpeechRef.current = () => {};
         speakingRef.current = false;
         lastActivityRef.current = Date.now();
@@ -368,6 +368,7 @@ export function useAssistant() {
           try {
             recogRef.current?.start();
           } catch {}
+        }
         }
       }
     },
@@ -458,7 +459,7 @@ export function useAssistant() {
       if (cmd === "notyou") {
         // "Wasn't talking to you": erase the last exchange everywhere and
         // confirm briefly — the hands-free undo for stray pickups.
-        st.removeLastExchange();
+        await st.removeLastExchange();
         const msg = "Okay, ignored.";
         st.addMessage("assistant", msg);
         await ctl.speak(msg);
@@ -686,9 +687,8 @@ export function useAssistant() {
           date: ri.date,
           active: true,
         };
-        await db.reminders.put({ ...reminder, createdAt: Date.now() });
+        await st0.addReminder(reminder);
         if (turnGeneration !== sessionGenerationRef.current) return;
-        st0.addReminder(reminder);
         const confirm = `Reminder saved on this device: ${ri.title}${ri.date ? ` on ${ri.date}` : ""} at ${ri.time}. Delivery depends on browser support; server scheduling is not connected.`;
         store.addMessage("user", transcript);
         store.addMessage("assistant", confirm);
@@ -797,7 +797,7 @@ export function useAssistant() {
           .getState()
           .addMessage("assistant", `Not completed: ${message}`);
       } finally {
-        if (request !== processingIdRef.current) return;
+        if (request === processingIdRef.current) {
         processingRef.current = false;
         const st = useAssistantStore.getState();
         st.setCurrentStatus(st.isActive ? "listening" : "idle");
@@ -805,6 +805,7 @@ export function useAssistant() {
         try {
           if (st.isActive) recogRef.current?.start();
         } catch {}
+        }
       }
     },
     [processTranscript],
@@ -1070,7 +1071,6 @@ export function useAssistant() {
         if (last) speak(last.content);
       });
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speak]);
 
   const startActive = useCallback(async () => {

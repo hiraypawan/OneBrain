@@ -17,9 +17,11 @@ Updated 2026-09-11. **Full 175/175 completion has not been reached.** The additi
 
 ## Latest verification
 
-- **194 frontend unit tests; 45 Workers tests; 52 production Chromium browser tests pass.** Desktop/mobile Operations and vault screenshots were reviewed with no page errors. Browser flows include explicit pause/resume, shared voice records/reminder drafts, persisted financial edits, approval-to-inbox delivery, reviewed linked import, mobile errors and vault isolation.
+**Current audit:** [2026-09-11 functionality, data-safety and compatibility report](AUDIT-2026-09-11.md). It records concrete fixes, strengthened browser tests, pending cross-engine evidence and remaining incomplete work.
+
+- **227 frontend unit tests; 47 Workers tests; one Express integration test; 53 production Chromium tests and 48 Chromium compatibility scenarios pass locally.** Cross-engine CI results are tracked in the current audit. Desktop/mobile Operations and vault screenshots were reviewed with no page errors. Browser flows include explicit pause/resume, shared voice records/reminder drafts, persisted financial edits, approval-to-inbox delivery, reviewed linked import, mobile errors and vault isolation.
 - **Next 15.5.25 production build** passes, including the two-screen UI and compatibility redirects into Your space. Frontend, Workers and legacy Express TypeScript checks pass. Express was typechecked, not used as the new shared-platform runtime.
-- Production dependency audits: **0 findings** for frontend, Workers and Express. Frontend/Workers development tooling still has **5 findings each (2 moderate, 3 high)**. No critical dependency finding remains. This is not an independent application-security audit.
+- Full dependency audits, including development tooling: **0 findings** for frontend, Workers and Express on the audit date. This is not an independent application-security audit.
 - Settings browser coverage includes 320px navigation, persisted preferences, cached-profile rejection, sign-out failures and all-session confirmation, exports/deletion confirmation, SDK document isolation, optional-key safeguards and cancelled/late microphone enrollment. Server identity tests use local fixtures, not real Google consent.
 - Migrations 0001–0005 applied to local D1 only. The local API and browser-independent development scheduler run separately from Next. CI now initializes and starts the real local API for browser tests.
 - Source documentation for MET Norway/Frankfurter was checked. Actual source smoke requests returned connection resets/502 in this sandbox; no forecast or exchange rate was invented. Successful live lookups remain unverified.

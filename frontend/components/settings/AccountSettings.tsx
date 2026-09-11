@@ -16,7 +16,7 @@ export function AccountSettings() {
     const turn = ++generation.current;
     setStatus("loading");
     try {
-      const r = await fetch("/api/platform/me", { cache: "no-store" });
+      const r = await fetch("/api/platform/me", { cache: "no-store", signal: AbortSignal.timeout(12000) });
       if (turn !== generation.current) return;
       if (r.status === 401) {
         setAccount(null);
@@ -49,6 +49,7 @@ export function AccountSettings() {
         `/api/platform/${all ? "logout-all" : "logout"}`,
         {
           method: "POST",
+          signal: AbortSignal.timeout(20000),
           headers: { "Content-Type": "application/json" },
           body: "{}",
         },

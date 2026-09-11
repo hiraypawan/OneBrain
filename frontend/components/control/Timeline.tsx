@@ -4,6 +4,8 @@ import { digestMessages, type Digest } from "@/lib/digest";
 import { db } from "@/lib/db";
 
 export default function Timeline() {
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [digest, setDigest] = useState<Digest | null>(null);
 
   useEffect(() => {
@@ -21,13 +23,16 @@ export default function Timeline() {
               })),
             ),
           );
-      } catch {}
+      } catch { if (on) setError("Conversation timeline could not be read. Check browser storage and reload to retry."); }
+      finally { if (on) setLoading(false); }
     })();
     return () => {
       on = false;
     };
   }, []);
 
+  if (error) return <p role="alert">{error}</p>;
+  if (loading) return <p role="status">Reading conversation timeline…</p>;
   if (!digest || digest.perDay.length === 0) {
     return (
       <div className="py-6">

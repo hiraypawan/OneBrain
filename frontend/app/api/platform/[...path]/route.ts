@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readBody, bodyError } from '@/lib/request-body';
 export const dynamic = 'force-dynamic';
 const COOKIE='onebrain-platform-session';
 async function proxy(request:NextRequest,{params}:{params:Promise<{path:string[]}>}){
@@ -14,8 +15,8 @@ async function proxy(request:NextRequest,{params}:{params:Promise<{path:string[]
     if(originHost && originHost!==host)return NextResponse.json({error:'Cross-origin mutations are not allowed.'},{status:403});
     if(!request.headers.get('content-type')?.startsWith('application/json'))return NextResponse.json({error:'Use application/json.'},{status:415});
   }
-  const body=['GET','HEAD'].includes(request.method)?undefined:await request.text();
-  if(body && new TextEncoder().encode(body).length>750000)return NextResponse.json({error:'Request exceeds 750 KB.'},{status:413});
+  let body: string | undefined;
+  try { body = ['GET','HEAD'].includes(request.method) ? undefined : await readBody(request, 750000); } catch (error) { return bodyError(error); }
   const session=request.cookies.get(COOKIE)?.value;
   try{
     const result=await fetch(`${base.replace(/\/$/,'')}/api/platform/${path.join('/')}${request.nextUrl.search}`,{method:request.method,headers:{'Content-Type':'application/json',...(session?{Authorization:`Bearer ${session}`}:{})},body,cache:'no-store',redirect:'error',signal:AbortSignal.timeout(60000)});

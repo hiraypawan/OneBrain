@@ -44,3 +44,25 @@ describe('authentication and ownership', () => {
     fetchSpy.mockRestore();
   });
 });
+
+describe('free-only chat and speech boundaries', () => {
+  it('rejects malformed and oversized chat input before provider calls', async () => {
+    for (const body of ['null', '{', JSON.stringify({ message: 42 }), JSON.stringify({ message: 'a'.repeat(65000) }), JSON.stringify({ message: 'hello', history: 'wrong' })]) {
+      const response = await app.request('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }, {} as any);
+      expect([400, 413]).toContain(response.status);
+    }
+  });
+  it('never uses a host OpenAI, Gemini or ElevenLabs key', async () => {
+    const fetch = vi.fn(async () => new Response('', { status: 503 }));
+    vi.stubGlobal('fetch', fetch);
+    try {
+      const env = { ENABLE_HOST_AI: '1', ENABLE_CLOUD_SPEECH: '1', OPENAI_API_KEY: 'test-only-host-key', GEMINI_API_KEY: 'test-only-host-key', ELEVENLABS_API_KEY: 'test-only-host-key' } as any;
+      const speech = await app.request('/api/speech/tts', { method: 'POST' }, env);
+      expect(await speech.json()).toEqual({ fallback: true });
+      const response = await app.request('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'hello' }) }, env);
+      expect((await response.json() as any).provider).toBe('offline');
+      expect(fetch.mock.calls).toHaveLength(1);
+      expect(String((fetch.mock.calls[0] as unknown[])[0])).toBe('https://text.pollinations.ai/');
+    } finally { vi.unstubAllGlobals(); }
+  });
+});

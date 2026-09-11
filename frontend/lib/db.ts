@@ -111,8 +111,10 @@ export async function getConversations(): Promise<StoredConversation[]> {
 }
 
 export async function deleteConversationLocal(id: string) {
-  await db.messages.where('conversationId').equals(id).delete();
-  await db.conversations.delete(id);
+  await db.transaction('rw', db.messages, db.conversations, async () => {
+    await db.messages.where('conversationId').equals(id).delete();
+    await db.conversations.delete(id);
+  });
 }
 
 export async function clearAllLocal() {

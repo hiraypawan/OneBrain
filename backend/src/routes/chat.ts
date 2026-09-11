@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import OpenAI from 'openai';
 import rateLimit from 'express-rate-limit';
 import { optionalAuth } from '../middleware/auth';
 
@@ -56,14 +55,17 @@ async function askGemini(
   // Keep in sync with frontend/lib/gemini.ts (Google retires names regularly).
   // NOTE: frontend copy also retries a model bare when it rejects thinkingConfig;
   // backend keeps the simple path (update here if a model starts 400ing).
-  for (const model of ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-1.5-flash']) {
+  const deadline = AbortSignal.timeout(12000);
+  for (const model of ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']) {
+    if (deadline.aborted) break;
     try {
       const generationConfig: any = { maxOutputTokens: opts?.maxTokens || 600, temperature: 0.5 };
       const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          signal: deadline,
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: opts?.system || buildSystem() }] },
             contents,
@@ -91,7 +93,14 @@ async function askGemini(
 }
 
 router.post('/', async (req, res) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'Supply a valid JSON object.' });
   const { message, history, userKey, profile, recall, verbosity } = req.body;
+  if (typeof message !== 'string' || !message.trim() || message.length > 8000 ||
+      (history !== undefined && (!Array.isArray(history) || history.length > 100 || history.some((m: any) => !m || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || m.content.length > 8000))) ||
+      (userKey !== undefined && (typeof userKey !== 'string' || userKey.length > 256)) ||
+      (profile !== undefined && (typeof profile !== 'string' || profile.length > 12000)) ||
+      (recall !== undefined && (typeof recall !== 'string' || recall.length > 12000))) return res.status(400).json({ error: 'Invalid chat input.' });
+
 
   // Memory-aware system: clock + verbosity + who they are + relevant past chats.
   const sysParts = [buildSystem()];
@@ -101,35 +110,14 @@ router.post('/', async (req, res) => {
   const system = sysParts.join('\n\n');
   const maxTokens = verbosityBudget(verbosity);
 
-  // 1. User's own free key (BYOK — infinite scale, zero host cost)
-  // 2. Host's Gemini free-tier key  3. Host's OpenAI key
-  const geminiKey = userKey || (process.env.ENABLE_HOST_AI === '1' ? process.env.GEMINI_API_KEY : undefined);
+  // Explicit user key only. No host-key spend or paid overflow.
+  const geminiKey = userKey;
   if (geminiKey) {
     try {
       const answer = await askGemini(geminiKey, message, history || [], { system, maxTokens });
       if (answer) return res.json({ answer, provider: 'gemini' });
     } catch (e) {
-      console.error('Gemini failed:', e);
-    }
-  }
-
-  const openaiKey = process.env.ENABLE_HOST_AI === '1' ? process.env.OPENAI_API_KEY : undefined;
-  if (openaiKey) {
-    try {
-      const openai = new OpenAI({ apiKey: openaiKey });
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        max_tokens: maxTokens,
-        temperature: 0.5,
-        messages: [
-          { role: 'system', content: system },
-          ...((history || []).slice(-10) as any),
-          { role: 'user', content: message },
-        ],
-      });
-      return res.json({ answer: completion.choices[0].message.content, provider: 'openai' });
-    } catch (e) {
-      console.error('OpenAI failed:', e);
+      console.error('Gemini request failed.');
     }
   }
 
@@ -143,18 +131,16 @@ router.post('/', async (req, res) => {
       }
       lines.push(`User: ${message}`);
       lines.push('Assistant:');
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 30000);
+      const signal = AbortSignal.timeout(12000);
       const r = await fetch('https://text.pollinations.ai/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: ctrl.signal,
+        signal,
         body: JSON.stringify({
           model: 'openai-fast',
           messages: [{ role: 'user', content: lines.join('\n') }],
         }),
       });
-      clearTimeout(timer);
       if (!r.ok) return null;
       return (await r.text()).trim() || null;
     } catch {
@@ -173,24 +159,22 @@ router.post('/', async (req, res) => {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 7000);
       const api = 'https://en.wikipedia.org/w/api.php';
+      const signal = AbortSignal.timeout(7000);
       const s = await fetch(
         `${api}?action=query&list=search&srsearch=${encodeURIComponent(t)}&srlimit=3&format=json&origin=*`,
-        { signal: ctrl.signal }
+        { signal }
       );
       if (!s.ok) {
-        clearTimeout(timer);
-        return null;
+          return null;
       }
       const title = ((await s.json()) as any)?.query?.search?.[0]?.title;
       if (!title) {
-        clearTimeout(timer);
-        return null;
+          return null;
       }
       const e = await fetch(
         `${api}?action=query&prop=extracts&exintro&explaintext&exsentences=3&titles=${encodeURIComponent(title)}&format=json&origin=*`,
-        { signal: ctrl.signal }
+        { signal }
       );
-      clearTimeout(timer);
       if (!e.ok) return null;
       const pages = ((await e.json()) as any)?.query?.pages || {};
       const text = String((Object.values(pages)[0] as any)?.extract || '')

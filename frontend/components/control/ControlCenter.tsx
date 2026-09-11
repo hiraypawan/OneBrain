@@ -1,4 +1,5 @@
 "use client";
+import { useAssistantStore } from "@/store/assistant";
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -35,6 +36,7 @@ const PANELS: Record<string, React.ComponentType> = {
   conversation: dynamic(() => import("./Conversation"), { loading }),
 };
 export function ControlCenter() {
+  const storageNotice = useAssistantStore(s => s.storageNotice);
   const params = useSearchParams(),
     panel = params.get("panel") || "",
     entry =
@@ -50,6 +52,7 @@ export function ControlCenter() {
   return (
     <ControlContext.Provider value={true}>
       <div className="control-center">
+        {storageNotice && <p role="alert" className="workspace-notice">{storageNotice}</p>}
         {Panel && entry ? (
           <>
             <div className="control-breadcrumb">

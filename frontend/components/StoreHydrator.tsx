@@ -11,10 +11,17 @@ import { db } from '@/lib/db';
 // Also: restores backend session, runs the reminder watchdog + cloud sync.
 export function StoreHydrator() {
   useEffect(() => {
+    let alive = true;
     useAssistantStore.getState().hydrate().then(async () => {
+      if (!alive) return;
+      const revision = useAssistantStore.getState().authRevision;
       // Legacy bearer tokens never restore identity or trigger automatic uploads.
       setToken(null);
-      try{const me=await platformApi('/me');useAssistantStore.getState().loginBackend(me.user);}catch{useAssistantStore.setState({isAuthenticated:false});}
+      try {
+        const me = await platformApi('/me');
+        if (alive && revision === useAssistantStore.getState().authRevision) useAssistantStore.getState().loginBackend(me.user);
+      } catch { /* A late failed request must not undo a newer login. */ }
+      if (!alive) return;
       // Weekly storage janitor (skipped when memory is paused).
       try {
         const st = useAssistantStore.getState();
@@ -27,12 +34,15 @@ export function StoreHydrator() {
         if (report.pruned > 0) await useAssistantStore.getState().reloadFromDb();
       } catch {}
     }).catch(() => {});
+    return () => { alive = false; };
   }, []);
 
   useEffect(() => {
     let stopped = false;
+    let ticking = false;
     const tick = async () => {
-      if (stopped) return;
+      if (stopped || ticking) return;
+      ticking = true;
       // NOTE: intentionally runs while hidden too (throttled to ~1/min by the
       // browser) so reminders still fire when the tab is in the background.
       try {
@@ -40,13 +50,16 @@ export function StoreHydrator() {
         const due = dueReminders(st.reminders, new Date());
         for (const r of due) {
           // Mark fired first (never nag-loop), then try to show it.
-          st.updateReminder(r.id, markFired(r));
+          if (stopped) break;
+          await st.updateReminder(r.id, markFired(r));
           const shown = await fireReminderNotification(r.title, r.date ? `${r.date} ${r.time}` : `Daily at ${r.time}`);
           if (!shown) {
             st.setMicNotice(`Reminder: ${r.title} (${r.time}) — allow notifications to get alerts while away.`);
           }
         }
-      } catch {}
+      } catch {
+        if (!stopped) useAssistantStore.getState().setMicNotice('Reminder storage is unavailable. Check your reminders; delivery was not confirmed.');
+      } finally { ticking = false; }
     };
     const timer = setInterval(tick, 20000);
     tick();

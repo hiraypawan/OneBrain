@@ -3,7 +3,7 @@ export interface SharedRecord {id:string;kind:string;title:string;revision:numbe
 export interface Connection {id:string;name:string;provider:string;status:string;config:Record<string,any>}
 export interface Job {id:string;action:string;payload:Record<string,any>;plan:{name:string;firstRun:number;maxRuns:number;everyMinutes:number;whenRecordDone?:string};plan_hash:string;connection_id:string|null;revision:number;status:string;runs:number;next_run:number;last_error?:string}
 export async function platformApi(path:string,method='GET',body?:unknown){
-  const response=await fetch('/api/platform'+path,{method,cache:'no-store',headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+  const response=await fetch('/api/platform'+path,{method,cache:'no-store',signal:AbortSignal.timeout(method === 'GET' ? 12000 : 65000),headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
   const data=await response.json();if(!response.ok)throw new Error(data.error||`Request failed (${response.status}).`);return data;
 }
 export const ACTION_EXAMPLES:Record<string,any>={

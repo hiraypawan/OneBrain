@@ -691,9 +691,9 @@ export function NeuralWorkspace() {
             </select>
           </div>
         )}
-        {(notice || workspace.error || assistant.micNotice) && (
+        {(notice || workspace.error || state.storageNotice || assistant.micNotice) && (
           <div className="workspace-notice" role="status">
-            {notice || workspace.error || assistant.micNotice}
+            {notice || workspace.error || state.storageNotice || assistant.micNotice}
             {workspace.error ||
             /another tab|Reload the workspace/.test(notice) ? (
               <button

@@ -1852,3 +1852,6 @@ button:active:not(:disabled):not(.thought-node) {
     font-size: 12px;
   }
 }
+
+/* Storage failures remain readable rather than hiding inside an icon control. */
+.delete-error { position: absolute; right: 0; top: 100%; z-index: 10; width: min(260px, 75vw); padding: 10px; background: var(--surface, #22211e); color: var(--text, #f2eee6); border: 1px solid currentColor; border-radius: 8px; font-size: 12px; }

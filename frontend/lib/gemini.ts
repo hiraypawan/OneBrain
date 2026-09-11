@@ -65,9 +65,11 @@ export async function askGemini(
   const MODELS = [
     'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
-    'gemini-1.5-flash',
+    'gemini-2.5-flash-lite',
   ];
+  const deadline = AbortSignal.timeout(12000);
   for (const model of MODELS) {
+    if (deadline.aborted) break;
     let status = 0;
     let detail = '';
     // Attempt 1 disables thinking (fast, complete voice replies). If the model
@@ -77,10 +79,11 @@ export async function askGemini(
         const generationConfig: any = { maxOutputTokens: opts?.maxTokens || 600, temperature: 0.5 };
         if (useThinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
         const r = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            signal: deadline,
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: opts?.system || SYSTEM }] },
               contents,
@@ -141,23 +144,21 @@ export async function askPollinations(
   system?: string
 ): Promise<{ text?: string; error?: string }> {
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 30000);
+    const signal = AbortSignal.timeout(12000);
     const r = await fetch('https://text.pollinations.ai/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: ctrl.signal,
+      signal,
       body: JSON.stringify({
         model: 'openai-fast',
         messages: [{ role: 'user', content: foldPrompt(message, history, system) }],
       }),
     });
-    clearTimeout(timer);
     if (!r.ok) return { error: `HTTP ${r.status}` };
     const text = (await r.text()).trim();
     return text ? { text } : { error: 'empty response' };
   } catch (e: any) {
-    return { error: e?.name === 'AbortError' ? 'timed out' : e?.message || 'network error' };
+    return { error: ['AbortError', 'TimeoutError'].includes(e?.name) ? 'timed out' : e?.message || 'network error' };
   }
 }
 

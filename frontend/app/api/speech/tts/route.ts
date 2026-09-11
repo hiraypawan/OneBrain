@@ -1,22 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
 
-// Cloud TTS passthrough (ElevenLabs/OpenAI) — falls back to browser speechSynthesis client-side
+// Compatibility response for older clients. Never spend host speech-provider keys.
 export async function POST(req: NextRequest) {
-  const { text } = await req.json();
-  const key = process.env.ENABLE_CLOUD_SPEECH === '1' ? process.env.ELEVENLABS_API_KEY : undefined;
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
-  if (key && text) {
-    try {
-      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'xi-api-key': key },
-        body: JSON.stringify({ text: text.slice(0, 1000), model_id: 'eleven_monolingual_v1' }),
-      });
-      if (r.ok) {
-        const buf = await r.arrayBuffer();
-        return new NextResponse(buf, { headers: { 'Content-Type': 'audio/mpeg' } });
-      }
-    } catch {}
-  }
-  return NextResponse.json({ fallback: true }, { status: 200 });
+  try {
+    const { text } = await readJsonBody(req, 8000);
+    if (typeof text !== 'string' || !text.trim() || text.length > 4000)
+      throw new RequestBodyError('Supply 1–4000 characters of text.', 400);
+  } catch (error) { return bodyError(error); }
+  return NextResponse.json({ fallback: true });
 }

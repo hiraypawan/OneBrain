@@ -9,6 +9,8 @@ import { AnimatedCounter } from "@/components/rare/animated-counter";
 export default function MemoryPage() {
   const memoryEnabled = useAssistantStore((s) => s.settings.memoryEnabled);
   const [digest, setDigest] = useState<Digest | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [source, setSource] = useState<"cloud" | "local">("local");
 
   useEffect(() => {
@@ -19,6 +21,7 @@ export default function MemoryPage() {
         if (cloud && on && cloud.totalMessages > 0) {
           setDigest({ ...cloud, perDay: [] });
           setSource("cloud");
+          setLoading(false);
           return;
         }
       }
@@ -35,7 +38,8 @@ export default function MemoryPage() {
           ),
         );
         setSource("local");
-      } catch {}
+      } catch { if (on) setError("Saved memory could not be read. Check browser storage and reload to retry."); }
+      finally { if (on) setLoading(false); }
     })();
     return () => {
       on = false;
@@ -50,33 +54,33 @@ export default function MemoryPage() {
         <a href="/">Saved notes & tasks</a>
       </nav>
       <h1 className="text-2xl font-bold mb-2">Memory</h1>
-      {!memoryEnabled ? (
+      {error ? <p role="alert">{error}</p> : loading ? <p role="status">Reading saved memory…</p> : !memoryEnabled ? (
         <div className="p-4 bg-yellow-950 border border-yellow-700 rounded-xl text-sm">
           Memory is paused — turn it on in Settings to save conversations and
           learn topics. Nothing new is being stored.
         </div>
       ) : !digest ? (
         <p className="text-gray-400">
-          Nothing learned yet. Go Active and talk.
+          No conversation history yet. Ask OneBrain or start talking on Today.
         </p>
       ) : (
         <div className="space-y-4">
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center gap-6">
             <div>
               <AnimatedCounter
                 value={digest.totalMessages}
                 className="text-3xl font-bold text-green-400"
               />
-              <div className="text-xs text-gray-500">messages</div>
+              <div className="text-xs text-gray-400">messages</div>
             </div>
             <div>
               <AnimatedCounter
                 value={digest.activeDays}
                 className="text-3xl font-bold text-green-400"
               />
-              <div className="text-xs text-gray-500">active days</div>
+              <div className="text-xs text-gray-400">active days</div>
             </div>
-            <div className="text-xs text-gray-500 self-end pb-1">
+            <div className="text-xs text-gray-400 self-end pb-1">
               from {source === "cloud" ? "cloud sync" : "this device"}
             </div>
           </div>

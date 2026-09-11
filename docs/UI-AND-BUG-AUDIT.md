@@ -1,3 +1,5 @@
+> A newer pass is recorded in [AUDIT-2026-09-11.md](AUDIT-2026-09-11.md). Counts and open findings below describe the earlier pass.
+
 # Responsive UI and bug-fix audit
 
 **Date:** 2026-09-10 · **Scope:** current local workspace and voice lifecycle, not certification of the full 175-item product.

@@ -44,14 +44,14 @@ describe('parseReminderIntent', () => {
 
   it('parses English requests', () => {
     expect(parseReminderIntent('remind me to call mom at 6pm', noon)).toEqual({
-      title: 'Call mom', time: '18:00',
+      title: 'Call mom', time: '18:00', date: '2026-09-06',
     });
     expect(parseReminderIntent('remind me in 10 minutes', noon)?.time).toBe('12:10');
   });
 
   it('parses Hindi requests with day periods', () => {
     expect(parseReminderIntent('mujhe dawai yaad dilao subah 9 baje', noon)).toEqual({
-      title: 'Dawai', time: '09:00',
+      title: 'Dawai', time: '09:00', date: '2026-09-07',
     });
     expect(parseReminderIntent('remind me meeting shaam 5 baje', noon)?.time).toBe('17:00');
   });

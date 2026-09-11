@@ -1,13 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildSystem, askGemini, askPollinations, fallback, verbosityBudget } from '@/lib/gemini';
+import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
+import type { ChatHistory } from '@/lib/gemini';
 import { looksFactual, fetchWikipedia } from '@/lib/knowledge';
 
 export async function POST(req: NextRequest) {
-  const { message, history, userKey, profile, recall, verbosity } = await req.json();
+  let input: Record<string, unknown>;
+  try {
+    input = await readJsonBody(req);
+    if (typeof input.message !== 'string' || !input.message.trim() || input.message.length > 8000)
+      throw new RequestBodyError('Message must contain 1–8000 characters.', 400);
+    for (const [field, limit] of [['userKey', 256], ['profile', 12000], ['recall', 12000]] as const) {
+      if (input[field] !== undefined && (typeof input[field] !== 'string' || (input[field] as string).length > limit))
+        throw new RequestBodyError(`Invalid ${field}.`, 400);
+    }
+    if (input.verbosity !== undefined && !['short', 'medium', 'long'].includes(input.verbosity as string))
+      throw new RequestBodyError('Invalid verbosity.', 400);
+    if (input.history !== undefined && (!Array.isArray(input.history) || input.history.length > 100 || input.history.some(m =>
+      !m || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || m.content.length > 8000)))
+      throw new RequestBodyError('Invalid conversation history.', 400);
+  } catch (error) { return bodyError(error); }
+  const message = input.message as string, history = (input.history || []) as ChatHistory[];
+  const userKey = input.userKey as string | undefined, verbosity = input.verbosity as string | undefined;
+  const profile = input.profile as string | undefined, recall = input.recall as string | undefined;
 
-  // 1. User's own free key (best quality)  2. Host's Gemini key
-  // 3. Host's OpenAI key  4. Keyless community API (zero setup)
-  // 5. Offline fallback
+  // Explicit user key, keyless community API, then offline fallback.
+  // Never spend host keys or silently overflow into a paid provider.
   // Memory-aware system: clock + verbosity + who they are + relevant past chats.
   const sysParts = [buildSystem()];
   sysParts.push(verbosity === 'long' ? 'Give fuller explanations when asked.' : 'Be concise: short spoken answers.');
@@ -15,41 +33,17 @@ export async function POST(req: NextRequest) {
   if (recall) sysParts.push(recall);
   const system = sysParts.join('\n\n');
   const maxTokens = verbosityBudget(verbosity);
-  const geminiKey = userKey || (process.env.ENABLE_HOST_AI === '1' ? process.env.GEMINI_API_KEY : undefined);
+  const geminiKey = userKey;
   let keyBlame: string | null = null;
   if (geminiKey) {
     const res = await askGemini(geminiKey, message, history || [], { system, maxTokens });
     if (res.text) return NextResponse.json({ answer: res.text, provider: 'gemini' });
-    console.error('Gemini failed:', res.error);
+    // Do not write provider errors or user credentials into server logs.
     if (userKey && /api key|not valid|permission|quota|exceed/i.test(res.error || '')) {
       keyBlame = String(res.error).slice(0, 220);
     }
   }
 
-  const openaiKey = process.env.ENABLE_HOST_AI === '1' ? process.env.OPENAI_API_KEY : undefined;
-  if (openaiKey) {
-    try {
-      const r = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          max_tokens: maxTokens,
-          temperature: 0.5,
-          messages: [
-            { role: 'system', content: system },
-            ...(history || []).slice(-10),
-            { role: 'user', content: message },
-          ],
-        }),
-      });
-      const j = await r.json();
-      const answer = j.choices?.[0]?.message?.content;
-      if (answer) return NextResponse.json({ answer, provider: 'openai' });
-    } catch (e) {
-      console.error('OpenAI failed, using fallback', e);
-    }
-  }
   // Keyless community API: works with zero setup. Tried after keyed
   // providers so a user's own key (better quality) always wins when present.
   // Live facts first for factual questions (fresh > training cutoff).

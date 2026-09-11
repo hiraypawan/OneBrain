@@ -15,7 +15,8 @@ import user from './routes/user';
 const app = express();
 app.use(helmet());
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true }));
-app.use(express.json({ limit: '20mb' }));
+app.use('/api/chat', express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '1mb' }));
 
 app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
 app.use('/api/auth', (_req, res, next) => {
@@ -35,7 +36,9 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'onebrai
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: any, _req: any, res: any, _next: any) => {
-  console.error(err);
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Request is too large.' });
+  if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON body.' });
+  console.error('Unhandled backend request error.');
   res.status(500).json({ error: 'Internal error' });
 });
 

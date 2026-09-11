@@ -29,9 +29,9 @@ export default function ConversationsPage() {
 
   return (
     <div className="py-6">
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex flex-wrap gap-3 justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">History</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => {
               newConversation();
@@ -59,11 +59,11 @@ export default function ConversationsPage() {
         {conversations.map((c) => (
           <div
             key={c.id}
-            className="flex items-center justify-between p-3 bg-gray-900 rounded border border-gray-800"
+            className="flex flex-wrap gap-3 items-center justify-between p-3 bg-gray-900 rounded border border-gray-800"
           >
             <a
               href={`/control?panel=conversation&id=${c.id}`}
-              className="flex-1"
+              className="flex-1 min-w-0 break-words"
             >
               <div className="font-bold">{c.title || "Conversation"}</div>
               <div className="text-xs text-gray-400">

@@ -103,7 +103,7 @@ export default function Debug() {
           them.
         </p>
         <button onClick={refresh}>Refresh diagnostics</button>
-        <pre>{JSON.stringify({ ...info, storage: counts }, null, 2)}</pre>
+        <pre tabIndex={0} aria-label="Browser and storage diagnostic details">{JSON.stringify({ ...info, storage: counts }, null, 2)}</pre>
       </section>
       <section className="settings-card">
         <h2>Background session log</h2>
@@ -112,7 +112,7 @@ export default function Debug() {
             ? `Session started ${new Date(sessionStart).toLocaleTimeString()}. These events reflect what the browser reported; they do not verify all background audio.`
             : "Start Pocket Mode in the workspace to record session events. Opening this page does not start listening."}
         </p>
-        <pre>
+        <pre tabIndex={0} aria-label="Background session events">
           {bgLog.length ? bgLog.map(formatBgEvent).join("\n") : "(empty)"}
         </pre>
       </section>

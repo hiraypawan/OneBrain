@@ -3,11 +3,12 @@ import { useState } from "react";
 import { useAssistantStore } from "@/store/assistant";
 import { Icon } from "../ui/Icon";
 export default function Reminders() {
-  const { reminders, addReminder, dismissReminder } = useAssistantStore();
+  const { reminders, addReminder, dismissReminder, settings } = useAssistantStore();
   const [title, setTitle] = useState(""),
     [time, setTime] = useState(""),
     [date, setDate] = useState(""),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [busy, setBusy] = useState(false);
   return (
     <div className="reminder-tool">
       <p className="panel-explainer">
@@ -40,12 +41,15 @@ export default function Reminders() {
       >
         Enable browser notifications
       </button>
+      {!settings.memoryEnabled && <p className="workspace-notice">Memory is off. <a href="/control?panel=privacy">Enable saved memory</a> before scheduling new reminders. Existing reminders remain until dismissed.</p>}
       <form
         className="reminder-form"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          if (!title.trim() || !time) return;
-          addReminder({
+          if (busy || !title.trim() || !time) return;
+          setBusy(true);
+          try {
+          await addReminder({
             id: crypto.randomUUID(),
             title: title.trim(),
             time,
@@ -54,6 +58,9 @@ export default function Reminders() {
           });
           setTitle("");
           setMessage("Reminder added. Keep OneBrain open for reminder checks.");
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "Reminder was not saved. Check browser storage and try again.");
+          } finally { setBusy(false); }
         }}
       >
         <label>
@@ -84,8 +91,8 @@ export default function Reminders() {
               onChange={(e) => setDate(e.target.value)}
             />
           </label>
-          <button className="primary-button">
-            Add reminder
+          <button className="primary-button" disabled={busy || !settings.memoryEnabled}>
+            {busy ? "Saving…" : "Add reminder"}
             <Icon name="arrow" />
           </button>
         </div>
@@ -114,7 +121,13 @@ export default function Reminders() {
             </div>
             <button
               aria-label={`Dismiss ${r.title}`}
-              onClick={() => dismissReminder(r.id)}
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try { await dismissReminder(r.id); setMessage("Reminder dismissed."); }
+                catch { setMessage("Reminder could not be dismissed. Check browser storage and try again."); }
+                finally { setBusy(false); }
+              }}
             >
               Dismiss
             </button>

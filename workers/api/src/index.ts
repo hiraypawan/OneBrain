@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { sessionUser } from './platform/google-auth';
 import { platform } from './platform';
@@ -98,7 +99,9 @@ async function askGemini(apiKey: string, message: string, history: any[], system
     { role: 'user', parts: [{ text: message }] },
   ];
   const errors: string[] = [];
-  for (const model of ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-1.5-flash']) {
+  const deadline = AbortSignal.timeout(12000);
+  for (const model of ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']) {
+    if (deadline.aborted) break;
     let status = 0;
     let detail = '';
     for (const useThinking of [true, false]) {
@@ -106,10 +109,11 @@ async function askGemini(apiKey: string, message: string, history: any[], system
         const generationConfig: any = { maxOutputTokens: maxTokens, temperature: 0.5 };
         if (useThinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
         const r = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            signal: deadline,
             body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig }),
           }
         );
@@ -147,11 +151,12 @@ async function askWikipedia(message: string): Promise<string | null> {  try {
       /contestants?|winner|capital|population|president|prime minister|score|match|movie|actor|release date|season/i.test(t);
     if (!t || t.length > 220 || !factual) return null;
     const api = 'https://en.wikipedia.org/w/api.php';
-    const s = await fetch(`${api}?action=query&list=search&srsearch=${encodeURIComponent(t)}&srlimit=3&format=json&origin=*`);
+    const signal = AbortSignal.timeout(7000);
+    const s = await fetch(`${api}?action=query&list=search&srsearch=${encodeURIComponent(t)}&srlimit=3&format=json&origin=*`, { signal });
     if (!s.ok) return null;
     const title = ((await s.json()) as any)?.query?.search?.[0]?.title;
     if (!title) return null;
-    const e = await fetch(`${api}?action=query&prop=extracts&exintro&explaintext&exsentences=3&titles=${encodeURIComponent(title)}&format=json&origin=*`);
+    const e = await fetch(`${api}?action=query&prop=extracts&exintro&explaintext&exsentences=3&titles=${encodeURIComponent(title)}&format=json&origin=*`, { signal });
     if (!e.ok) return null;
     const pages = ((await e.json()) as any)?.query?.pages || {};
     const text = String((Object.values(pages)[0] as any)?.extract || '')
@@ -172,6 +177,7 @@ async function askPollinations(message: string, history: any[], system: string):
     lines.push('Assistant:');
     const r = await fetch('https://text.pollinations.ai/', {
       method: 'POST',
+      signal: AbortSignal.timeout(12000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'openai-fast', messages: [{ role: 'user', content: lines.join('\n') }] }),
     });
@@ -182,8 +188,17 @@ async function askPollinations(message: string, history: any[], system: string):
   }
 }
 
+app.use('/api/chat', bodyLimit({ maxSize: 64000, onError: c => c.json({ error: 'Request is too large.' }, 413) }));
 app.post('/api/chat', optionalAuth, async (c) => {
-  const { message, history, userKey, profile, recall, verbosity } = await c.req.json().catch(() => ({}));
+  const input = await c.req.json().catch(() => null);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return c.json({ error: 'Supply a valid JSON object.' }, 400);
+  const { message, history, userKey, profile, recall, verbosity } = input;
+  if (typeof message !== 'string' || !message.trim() || message.length > 8000 ||
+      (history !== undefined && (!Array.isArray(history) || history.length > 100 || history.some((m: any) => !m || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || m.content.length > 8000))) ||
+      (userKey !== undefined && (typeof userKey !== 'string' || userKey.length > 256)) ||
+      (profile !== undefined && (typeof profile !== 'string' || profile.length > 12000)) ||
+      (recall !== undefined && (typeof recall !== 'string' || recall.length > 12000))) return c.json({ error: 'Invalid chat input.' }, 400);
+
   const sysParts = [SYSTEM + ' ' + new Date().toISOString()];
   sysParts.push(verbosity === 'long' ? 'Give fuller explanations when asked.' : 'Be concise: short spoken answers.');
   if (profile) sysParts.push(String(profile));
@@ -191,30 +206,13 @@ app.post('/api/chat', optionalAuth, async (c) => {
   const system = sysParts.join('\n\n');
   const maxTokens = vBudget(verbosity);
 
-  const geminiKey = userKey || (c.env.ENABLE_HOST_AI === '1' ? c.env.GEMINI_API_KEY : undefined);
+  const geminiKey = userKey;
   if (geminiKey) {
     try {
       const res = await askGemini(geminiKey, message, history || [], system, maxTokens);
       if (res.text) return c.json({ answer: res.text, provider: 'gemini' });
     } catch (e) {
-      console.error('Gemini failed:', e);
-    }
-  }
-  const openaiKey = c.env.ENABLE_HOST_AI === '1' ? c.env.OPENAI_API_KEY : undefined;
-  if (openaiKey) {
-    try {
-      const r = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini', max_tokens: maxTokens, temperature: 0.5,
-          messages: [{ role: 'system', content: system }, ...((history || []).slice(-10)), { role: 'user', content: message }],
-        }),
-      });
-      const j: any = await r.json();
-      if (j.choices?.[0]?.message?.content) return c.json({ answer: j.choices[0].message.content, provider: 'openai' });
-    } catch (e) {
-      console.error('OpenAI failed:', e);
+      console.error('Gemini request failed.');
     }
   }
   const wikiAns = await askWikipedia(message);
@@ -236,19 +234,7 @@ app.post('/api/speech/stt', optionalAuth, async (c) => {
   return c.json({ transcript: '', note: 'Client uses browser speech recognition, which may process audio remotely. Server transcription is not implemented.' });
 });
 
-app.post('/api/speech/tts', optionalAuth, async (c) => {
-  const { text } = await c.req.json().catch(() => ({}));
-  const key = c.env.ENABLE_CLOUD_SPEECH === '1' ? c.env.ELEVENLABS_API_KEY : undefined;
-  if (!key || !text) return c.json({ fallback: true });
-  const voiceId = c.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
-  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'xi-api-key': key },
-    body: JSON.stringify({ text: String(text).slice(0, 1000), model_id: 'eleven_monolingual_v1' }),
-  });
-  if (!r.ok) return c.json({ fallback: true }, 502);
-  return new Response(await r.arrayBuffer(), { headers: { 'Content-Type': 'audio/mpeg' } });
-});
+app.post('/api/speech/tts', optionalAuth, async (c) => c.json({ fallback: true }));
 
 // ---------------- memory ----------------
 app.get('/api/memory', requireAuth, async (c) => {

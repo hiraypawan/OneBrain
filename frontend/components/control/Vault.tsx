@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { commitVault, VAULT_STORAGE } from "@/lib/vault-storage";
 import { db } from "@/lib/db";
 import {
   createVault,
@@ -10,7 +11,7 @@ import {
   type VaultEntry,
 } from "@/lib/vault";
 import "@/app/operations/operations.css";
-const STORAGE = "encrypted-vault:v1";
+const STORAGE = VAULT_STORAGE;
 export default function Vault() {
   const [envelope, setEnvelope] = useState<VaultEnvelope | null>(null),
     [entries, setEntries] = useState<VaultEntry[]>([]),
@@ -19,6 +20,7 @@ export default function Vault() {
     [value, setValue] = useState(""),
     [opened, setOpened] = useState(false),
     [ready, setReady] = useState(false),
+    [storageError, setStorageError] = useState(false),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
   const key = useRef<CryptoKey | null>(null),
@@ -48,8 +50,10 @@ export default function Vault() {
         }
       })
       .catch(() => {
-        if (alive)
-          setNotice("Vault storage is unavailable. Nothing was opened.");
+        if (alive) {
+          setStorageError(true); setReady(true);
+          setNotice("Vault storage is unavailable or corrupt. Nothing was opened or overwritten. Reload to retry; do not clear browser data without a backup.");
+        }
       });
     const hidden = () => {
       if (document.hidden) lock();
@@ -73,7 +77,8 @@ export default function Vault() {
         ? await unlockVault(envelope, password)
         : { ...(await createVault(password)), entries: [] };
       if (generation !== version.current) return;
-      if (!envelope) await db.kv.put({ key: STORAGE, value: result.envelope });
+      if (!envelope) await commitVault(null, result.envelope, () => generation === version.current);
+      else if (JSON.stringify((await db.kv.get(STORAGE))?.value) !== JSON.stringify(envelope)) throw new Error("Vault changed in another tab. Reload before unlocking.");
       if (generation !== version.current) return;
       key.current = result.key;
       setEntries(result.entries);
@@ -95,14 +100,7 @@ export default function Vault() {
     try {
       const sealed = await encryptVault(next, key.current, envelope.salt);
       if (generation !== version.current) return;
-      await db.transaction("rw", db.kv, async () => {
-        const current = await db.kv.get(STORAGE);
-        if (JSON.stringify(current?.value) !== JSON.stringify(envelope))
-          throw new Error(
-            "Vault changed in another tab. Lock and reload before editing.",
-          );
-        await db.kv.put({ key: STORAGE, value: sealed });
-      });
+      await commitVault(envelope, sealed, () => generation === version.current);
       if (generation !== version.current) return;
       setEnvelope(sealed);
       setEntries(next);
@@ -147,7 +145,9 @@ export default function Vault() {
           {notice}
         </p>
       )}
-      {!ready ? (
+      {storageError ? (
+        <button className="ops-primary" onClick={() => location.reload()}>Reload vault storage</button>
+      ) : !ready ? (
         <p role="status">Opening encrypted storage…</p>
       ) : !opened ? (
         <section className="ops-card ops-auth">
@@ -188,8 +188,10 @@ export default function Vault() {
               accept="application/json"
               disabled={busy}
               onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
+                const input = e.currentTarget;
+                const file = input.files?.[0];
+                if (!file || busy) return;
+                const generation = version.current;
                 if (file.size > 500000) {
                   setNotice("Backup is too large.");
                   return;
@@ -200,13 +202,15 @@ export default function Vault() {
                     JSON.parse(await file.text()),
                   );
                   await unlockVault(imported, password);
+                  if (generation !== version.current) return;
                   if (
                     !confirm(
                       "Replace this device’s encrypted vault with the verified backup? Export the existing vault first.",
                     )
                   )
                     return;
-                  await db.kv.put({ key: STORAGE, value: imported });
+                  await commitVault(envelope, imported, () => generation === version.current);
+                  if (generation !== version.current) return;
                   setEnvelope(imported);
                   setPassword("");
                   setNotice("Encrypted backup restored. Unlock to view it.");
@@ -216,7 +220,7 @@ export default function Vault() {
                   );
                 } finally {
                   setBusy(false);
-                  e.target.value = "";
+                  input.value = "";
                 }
               }}
             />
@@ -307,15 +311,15 @@ export default function Vault() {
                   )
                 ) {
                   setBusy(true);
+                  const generation = version.current;
                   try {
-                    await db.kv.delete(STORAGE);
+                    await commitVault(envelope, null, () => generation === version.current);
+                    if (generation !== version.current) return;
                     lock();
                     setEnvelope(null);
                     setNotice("Local encrypted vault deleted.");
-                  } catch {
-                    setNotice(
-                      "Encrypted vault could not be deleted. Storage is unavailable; nothing is claimed deleted.",
-                    );
+                  } catch (error) {
+                    setNotice(error instanceof Error ? error.message : "Encrypted vault could not be deleted; nothing is claimed deleted.");
                   } finally {
                     setBusy(false);
                   }
