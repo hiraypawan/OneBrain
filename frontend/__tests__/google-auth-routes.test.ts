@@ -18,7 +18,7 @@ describe('Google browser cookie boundary',()=>{
  it('moves the verified session into a scoped HttpOnly cookie, not a URL or response body',async()=>{
   vi.mocked(authRequest).mockResolvedValue({token:session,user:{id:'verified-user'}});
   const r=await GET(new NextRequest(`https://app.example.test/api/auth/google/callback?state=${state}&code=test-code`,{headers:{cookie:`${STATE_COOKIE}=${state}.${browser}`}}));
-  expect(r.headers.get('location')).toBe('/operations');expect(await r.text()).not.toContain(session);expect(r.cookies.get(SESSION_COOKIE)?.value).toBe(session);expect(r.headers.get('set-cookie')).toContain('HttpOnly');expect(r.cookies.get(STATE_COOKIE)?.value).toBe('');expect(r.headers.get('referrer-policy')).toBe('no-referrer');
+  expect(r.headers.get('location')).toBe('/operations');expect(await r.text()).not.toContain(session);expect(r.cookies.get(SESSION_COOKIE)?.value).toBe(session);expect(r.cookies.get('onebrain-session-present')?.value).toBe('1');expect(r.headers.get('set-cookie')).toContain('HttpOnly');expect(r.cookies.get(STATE_COOKIE)?.value).toBe('');expect(r.headers.get('referrer-policy')).toBe('no-referrer');
  });
  it('rejects missing/mismatched state without exchanging an authorization code',async()=>{
   const r=await GET(new NextRequest(`https://app.example.test/api/auth/google/callback?state=${state}&code=forged`,{headers:{cookie:`${STATE_COOKIE}=wrong.${browser}`}}));expect(r.headers.get('location')).toBe('/auth/login?error=google');expect(authRequest).not.toHaveBeenCalled();

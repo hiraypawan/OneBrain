@@ -29,7 +29,8 @@ export function approvedUrl(raw: string, env: PlatformEnv): URL {
 /** Response bodies, redirects and wall-clock time are bounded. Provider errors never expose secrets. */
 export async function jsonRequest(url: string, init: RequestInit = {}, write = false, requireJson = true): Promise<any> {
   try {
-    const response = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(15000) });
+    const response = await fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(15000) });
+    if(response.status>=300&&response.status<400){await response.body?.cancel();throw new DeliveryError(write?'unknown':'failed','Provider redirect was blocked. No completion is claimed.');}
     if (response.status === 429) throw new DeliveryError('retry','Provider rate limit reached; bounded backoff scheduled.');
     if (!response.ok) throw new DeliveryError(write && response.status >= 500 ? 'unknown' : 'failed', `Provider returned HTTP ${response.status}. No completion is claimed.`);
     const reader = response.body?.getReader(); let total = 0; const chunks: Uint8Array[] = [];

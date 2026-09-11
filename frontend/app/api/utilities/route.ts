@@ -15,8 +15,8 @@ export async function GET(request:NextRequest){
  if(inflight>=8)return NextResponse.json({error:'Source lookup queue is busy. Try again later.'},{status:429});
  inflight++;
  try{
-  const response=await fetch(url,{headers:{'User-Agent':'OneBrain/1.0 (https://github.com/hiraypawan/OneBrain)'},signal:AbortSignal.timeout(10000),redirect:'error',cache:'no-store'});
-  if(!response.ok)throw new Error('Source unavailable');const raw=await response.json();
+  const response=await fetch(url,{headers:{'User-Agent':'OneBrain/1.0 (https://github.com/hiraypawan/OneBrain)'},signal:AbortSignal.timeout(10000),redirect:'manual',cache:'no-store'});
+  if(!response.ok){await response.body?.cancel();throw new Error('Source unavailable');}const raw=await response.json();
   let value:any;
   if(kind==='currency'){
    const rate=raw.rates?.[params.get('to')||'INR'];if(!Number.isFinite(rate)||rate<=0)throw new Error('Rate unavailable');

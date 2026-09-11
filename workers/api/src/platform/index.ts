@@ -8,6 +8,7 @@ import { prepareJob, runDue } from './jobs';
 import { RECORD_KINDS, validateRecord } from './records';
 export const platform = new Hono<PlatformContext>();
 platform.onError((error,c) => {
+  if(/exceeded D1|D1.*(?:overloaded|too many requests|exceeded|quota)/i.test(error.message)) { c.header('Retry-After','60'); return c.json({error:'Server capacity is temporarily unavailable. Device-local capture still works; no server save is claimed.'},503); }
   if(error instanceof HTTPException) return c.json({error:error.message},error.status);
   if(/(?:Workspace|Record|Connection|Job) allowance reached/.test(error.message))return c.json({error:'Workspace allowance reached. Nothing extra was saved; no paid overflow was enabled.'},429);
   if(error instanceof SyntaxError)return c.json({error:'Invalid JSON request.'},400);
@@ -18,7 +19,7 @@ platform.onError((error,c) => {
 });
 platform.use('*',bodyLimit({maxSize:750000,onError:c=>c.json({error:'Request exceeds 750 KB.'},413)}));
 platform.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
-platform.get('/capabilities',c=>c.json({service:'OneBrain platform',configured:googleConfigured(c.env),authMode:'google-only',encryptedConnections:!!c.env.TOKEN_ENCRYPTION_KEY,googleOAuth:!!(c.env.GOOGLE_CLIENT_ID&&c.env.GOOGLE_CLIENT_SECRET&&c.env.GOOGLE_CONNECT_REDIRECT),providers:PROVIDERS,recordKinds:RECORD_KINDS,limits:{records:2000,connections:20,jobs:500,executionsPerDay:100},billing:'No paid overflow or payment collection enabled'}));
+platform.get('/capabilities',c=>c.json({service:'OneBrain platform',configured:googleConfigured(c.env),authMode:'google-only',encryptedConnections:!!c.env.TOKEN_ENCRYPTION_KEY,googleOAuth:!!(c.env.GOOGLE_CLIENT_ID&&c.env.GOOGLE_CLIENT_SECRET&&c.env.GOOGLE_CONNECT_REDIRECT),providers:PROVIDERS,recordKinds:RECORD_KINDS,limits:{records:2000,connections:20,jobs:500,executionsPerDay:100},mode:c.env.PLATFORM_MODE||'normal',requestLimiter:c.env.API_RATE_LIMITER?'native':'d1-fallback',scheduler:{cadenceMinutes:5,batchSize:Number(c.env.SCHEDULED_JOB_BATCH_SIZE)||2},billing:'No paid overflow or payment collection enabled'}));
 platform.post('/register',c=>c.json({error:'Password signup is disabled. Use Google sign-in.'},410));
 platform.post('/login',c=>c.json({error:'Password login is disabled. Use Google sign-in.'},410));
 platform.post('/auth/google/start',async c=>{await rateLimit(c,'google-start',20);return c.json(await startGoogleLogin(c.env));});
@@ -26,13 +27,18 @@ platform.post('/auth/google/finish',async c=>{await rateLimit(c,'google-finish',
 platform.use('*',async(c,next)=>{
  const token=c.req.header('Authorization')?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
  if(!token)fail(401,'Sign in with Google to access server workspaces.');
+ c.set('session',await hash(token!));
+ const revocation=['/api/platform/logout','/api/platform/logout-all'].includes(c.req.path);
+ if(!revocation&&c.env.API_RATE_LIMITER)await rateLimit(c,'platform',240);
  const user=await sessionUser(c.env,token!);if(!user)fail(401,'Session expired or revoked. Sign in with Google again.');
- c.set('actor',user!);c.set('session',await hash(token!));await rateLimit(c,'platform',240);await next();
+ c.set('actor',user!);if(!revocation&&!c.env.API_RATE_LIMITER)await rateLimit(c,'platform',240);await next();
 });
 platform.get('/me',c=>c.json({user:actor(c)}));
 platform.post('/logout',async c=>{await c.env.DB.prepare('DELETE FROM platform_sessions WHERE token_hash=?').bind(c.get('session')).run();return c.json({ok:true});});
 platform.post('/logout-all',async c=>{await c.env.DB.prepare('DELETE FROM platform_sessions WHERE user_id=?').bind(actor(c).id).run();return c.json({ok:true});});
 platform.get('/spaces',async c=>c.json({spaces:(await c.env.DB.prepare('SELECT s.id,s.name,s.created_at,m.role FROM spaces s JOIN space_members m ON m.space_id=s.id WHERE m.user_id=? ORDER BY s.created_at').bind(actor(c).id).all()).results}));
+// One authenticated request instead of separate identity and workspace-list calls.
+platform.get('/bootstrap',async c=>c.json({user:actor(c),spaces:(await c.env.DB.prepare('SELECT s.id,s.name,s.created_at,m.role FROM space_members m JOIN spaces s ON s.id=m.space_id WHERE m.user_id=? ORDER BY s.created_at').bind(actor(c).id).all()).results}));
 platform.post('/spaces',async c=>{
   const name=text(object(await c.req.json()).name,'Workspace name',100),space=id(),now=Date.now();
   const n=await c.env.DB.prepare('SELECT COUNT(*) AS n FROM spaces WHERE owner_id=?').bind(actor(c).id).first<{n:number}>();if((n?.n||0)>=20)fail(429,'20-workspace limit reached.');
@@ -70,12 +76,24 @@ platform.put('/spaces/:space/members/:user',async c=>{
   await c.env.DB.batch([b.role==='remove'?c.env.DB.prepare("DELETE FROM space_members WHERE space_id=? AND user_id=? AND role!='owner'").bind(space,user):c.env.DB.prepare("UPDATE space_members SET role=? WHERE space_id=? AND user_id=? AND role!='owner'").bind(b.role,space,user),c.env.DB.prepare('DELETE FROM space_invites WHERE space_id=? AND created_by=?').bind(space,user),c.env.DB.prepare("UPDATE jobs SET status='draft',approved_hash=NULL,approved_by=NULL,revision=revision+1,updated_at=? WHERE space_id=? AND approved_by=? AND status IN ('queued','paused')").bind(Date.now(),space,user),audit(c.env,space,actor(c).id,'membership.changed',user,{role:b.role})]);return c.json({ok:true});
 });
 platform.get('/spaces/:space/records',async c=>{
-  const space=c.req.param('space');await membership(c,space);const rows=await c.env.DB.prepare('SELECT * FROM space_records WHERE space_id=? ORDER BY updated_at DESC LIMIT 2000').bind(space).all<any>();return c.json({records:rows.results.map(r=>({...r,data:JSON.parse(r.data)}))});
+  const space=c.req.param('space');await membership(c,space);
+  // Existing export/editor clients explicitly retain the bounded full catalog.
+  // Browsing opts into keyset pages (no deep OFFSET scans or COUNT(*) request).
+  const paged=c.req.query('pageSize')!==undefined, size=paged?Number(c.req.query('pageSize')):2000;
+  if (!Number.isInteger(size)||size<1||size>(paged?100:2000))fail(400,'Page size must be 1–100.');
+  let cursor: [number,string] | null=null;
+  if(c.req.query('cursor')) {
+    try {const raw=c.req.query('cursor')!;if(raw.length>300)throw new Error();const v=JSON.parse(atob(raw));if(!Array.isArray(v)||v.length!==2||!Number.isSafeInteger(v[0])||v[0]<0||typeof v[1]!=='string'||v[1].length>100)throw new Error();cursor=v as [number,string];}
+    catch {fail(400,'Invalid record cursor.');}
+  }
+  const rows=await c.env.DB.prepare('SELECT * FROM space_records WHERE space_id=?'+(cursor?' AND (updated_at,id)<(?,?)':'')+' ORDER BY updated_at DESC,id DESC LIMIT ?').bind(space,...(cursor||[]),size+(paged?1:0)).all<any>();
+  const more=paged&&rows.results.length>size, records=rows.results.slice(0,size),last=records.at(-1);
+  return c.json({records:records.map(r=>({...r,data:JSON.parse(r.data)})),nextCursor:more?btoa(JSON.stringify([last.updated_at,last.id])):null});
 });
 platform.post('/spaces/:space/records',async c=>{
   const space=c.req.param('space');await membership(c,space,'write');const r=await validateRecord(c.env,space,await c.req.json()),rid=id(),now=Date.now();
   const n=await c.env.DB.prepare('SELECT COUNT(*) AS n FROM space_records WHERE space_id=?').bind(space).first<{n:number}>();if((n?.n||0)>=2000)fail(429,'Workspace record allowance reached.');
-  await c.env.DB.batch([c.env.DB.prepare('INSERT INTO space_records (id,space_id,kind,title,data,created_by,created_at,updated_at,mutation_id) VALUES (?,?,?,?,?,?,?,?,?)').bind(rid,space,r.kind,r.title,JSON.stringify({...r.data,links:[],dependencies:[]}),actor(c).id,now,now,id()),c.env.DB.prepare('UPDATE space_records SET data=? WHERE id=?').bind(JSON.stringify(r.data),rid),audit(c.env,space,actor(c).id,'record.created',rid,{kind:r.kind,title:r.title})]);return c.json({id:rid,revision:1},201);
+  await c.env.DB.batch([c.env.DB.prepare('INSERT INTO space_records (id,space_id,kind,title,data,created_by,created_at,updated_at,mutation_id) VALUES (?,?,?,?,?,?,?,?,?)').bind(rid,space,r.kind,r.title,JSON.stringify({...r.data,links:[],dependencies:[]}),actor(c).id,now,now,id()),...((r.data.links.length||r.data.dependencies.length)?[c.env.DB.prepare('UPDATE space_records SET data=? WHERE id=?').bind(JSON.stringify(r.data),rid)]:[]),audit(c.env,space,actor(c).id,'record.created',rid,{kind:r.kind,title:r.title})]);return c.json({id:rid,revision:1},201);
 });
 platform.put('/spaces/:space/records/:record',async c=>{
   const space=c.req.param('space'),rid=c.req.param('record');await membership(c,space,'write');const b=object(await c.req.json()),revision=number(b.revision,'Revision',1,1e9),r=await validateRecord(c.env,space,b,rid),mutation=id(),now=Date.now();
@@ -146,7 +164,7 @@ platform.post('/spaces/:space/jobs/:job/control',async c=>{
  const space=c.req.param('space'),job=c.req.param('job');await membership(c,space,'admin');const action=object(await c.req.json()).action,mutation=id();if(!['pause','resume','cancel'].includes(action))fail(400,'Choose pause, resume or cancel.');const from=action==='resume'?['paused']:action==='pause'?['queued']:['draft','queued','paused'];
  await jobMutation(c,space,job,mutation,c.env.DB.prepare(`UPDATE jobs SET status=?,revision=revision+1,updated_at=?,mutation_id=? WHERE id=? AND space_id=? AND status IN (${from.map(()=>'?').join(',')})`).bind(action==='resume'?'queued':action==='pause'?'paused':'cancelled',Date.now(),mutation,job,space,...from),`job.${action}`,{});return c.json({ok:true});
 });
-platform.post('/spaces/:space/run-due',async c=>{const space=c.req.param('space');await membership(c,space,'admin');return c.json(await runDue(c.env,space));});
+platform.post('/spaces/:space/run-due',async c=>{const space=c.req.param('space');await membership(c,space,'admin');return c.json(await runDue(c.env,space,Date.now(),Math.max(1,Math.min(20,Number(c.env.SCHEDULED_JOB_BATCH_SIZE)||2))));});
 platform.get('/spaces/:space/inbox',async c=>{const space=c.req.param('space');await membership(c,space);return c.json({notifications:(await c.env.DB.prepare('SELECT * FROM space_notifications WHERE space_id=? ORDER BY created_at DESC LIMIT 100').bind(space).all()).results});});
 platform.get('/spaces/:space/audit',async c=>{const space=c.req.param('space');await membership(c,space,'admin');return c.json({audit:(await c.env.DB.prepare('SELECT * FROM space_audit WHERE space_id=? ORDER BY at DESC LIMIT 300').bind(space).all()).results});});
 platform.post('/spaces/:space/import',async c=>{
@@ -157,18 +175,26 @@ platform.post('/spaces/:space/import',async c=>{
  if(previous){if(previous.fingerprint!==fingerprint)fail(409,'This import ID belongs to a different file.');return c.json(JSON.parse(previous.result));}
  const count=await c.env.DB.prepare('SELECT COUNT(*) AS n FROM space_records WHERE space_id=?').bind(space).first<{n:number}>();if((count?.n||0)+source.length>2000)fail(429,'Import exceeds the workspace record allowance.');
  const mapping=new Map<string,string>();for(const row of source){text(row.id,'Source record ID',200);if(mapping.has(row.id))fail(400,'Duplicate source record IDs.');mapping.set(row.id,id());}
+ const memberIds=new Set((await c.env.DB.prepare('SELECT user_id FROM space_members WHERE space_id=?').bind(space).all<{user_id:string}>()).results.map(r=>r.user_id));
  const prepared=[];for(const row of source){
   const sourceData=row.data||Object.fromEntries(['body','status','due','links','amount','currency'].filter(k=>row[k]!==undefined).map(k=>[k,row[k]]));
-  const r=await validateRecord(c.env,space,{kind:row.kind,title:row.title,data:{...sourceData,links:[],dependencies:[]}});
+  const r=await validateRecord(c.env,space,{kind:row.kind,title:row.title,data:{...sourceData,links:[],dependencies:[]}},undefined,memberIds);
   for(const field of ['links','dependencies']){
-   if(sourceData[field]!==undefined&&!Array.isArray(sourceData[field]))fail(400,'Invalid imported relationships.');
+   if(sourceData[field]!==undefined&&(!Array.isArray(sourceData[field])||sourceData[field].length>50))fail(400,'Invalid imported relationships.');
    r.data[field]=(sourceData[field]||[]).map((old:string)=>{const replacement=mapping.get(old);if(!replacement)fail(400,'Imported relationships must reference records included in this file.');return replacement;});
   }
   prepared.push({id:mapping.get(row.id)!,...r});
  }
  const result={imported:prepared.length,ids:prepared.map(r=>r.id),notice:'Records imported atomically; credentials and executable jobs were not imported.'},now=Date.now();
- const statements=[c.env.DB.prepare('INSERT INTO space_imports (id,space_id,fingerprint,result,created_at) VALUES (?,?,?,?,?)').bind(importId,space,fingerprint,JSON.stringify(result),now)];
- for(const r of prepared)statements.push(c.env.DB.prepare('INSERT INTO space_records (id,space_id,kind,title,data,created_by,created_at,updated_at,mutation_id) VALUES (?,?,?,?,?,?,?,?,?)').bind(r.id,space,r.kind,r.title,JSON.stringify({...r.data,links:[],dependencies:[]}),actor(c).id,now,now,id()));
- for(const r of prepared)statements.push(c.env.DB.prepare('UPDATE space_records SET data=? WHERE id=?').bind(JSON.stringify(r.data),r.id));
- statements.push(audit(c.env,space,actor(c).id,'records.imported',importId,{count:prepared.length}));await c.env.DB.batch(statements);return c.json(result,201);
+ const byId=new Map(prepared.map(r=>[r.id,r]));
+ for(const r of prepared)if(r.data.status==='done'&&r.data.dependencies.some((dep:string)=>byId.get(dep)?.data.status!=='done'))fail(409,'Complete imported dependencies before marking a task done.');
+ // Four transactional statements, not 2*N+2. json_each uses one bound JSON
+ // parameter, avoiding both the 50-query and 100-parameter free-plan limits.
+ const encoded=JSON.stringify(prepared),related=prepared.filter(r=>r.data.links.length||r.data.dependencies.length);
+ const statements=[
+  c.env.DB.prepare('INSERT INTO space_imports (id,space_id,fingerprint,result,created_at) VALUES (?,?,?,?,?)').bind(importId,space,fingerprint,JSON.stringify(result),now),
+  c.env.DB.prepare("INSERT INTO space_records (id,space_id,kind,title,data,created_by,created_at,updated_at,mutation_id) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.kind'),json_extract(value,'$.title'),json_set(json_extract(value,'$.data'),'$.links',json('[]'),'$.dependencies',json('[]')),?,?,?,json_extract(value,'$.id') FROM json_each(?)").bind(space,actor(c).id,now,now,encoded),
+  ...(related.length?[c.env.DB.prepare("UPDATE space_records SET data=json_extract(j.value,'$.data') FROM json_each(?) j WHERE space_records.id=json_extract(j.value,'$.id') AND space_records.space_id=?").bind(JSON.stringify(related),space)]:[]),
+  audit(c.env,space,actor(c).id,'records.imported',importId,{count:prepared.length}),
+ ];await c.env.DB.batch(statements);return c.json(result,201);
 });

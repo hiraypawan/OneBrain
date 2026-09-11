@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useAssistantStore } from '@/store/assistant';
 import { dueReminders, markFired, fireReminderNotification } from '@/lib/reminders';
 import { setToken } from '@/lib/sync';
+import { shouldRestoreSession } from '@/lib/session-hint';
 import { platformApi } from '@/lib/platform';
 import { db } from '@/lib/db';
 
@@ -17,7 +18,7 @@ export function StoreHydrator() {
       const revision = useAssistantStore.getState().authRevision;
       // Legacy bearer tokens never restore identity or trigger automatic uploads.
       setToken(null);
-      try {
+      if (shouldRestoreSession(document.cookie,location.pathname,location.search)) try {
         const me = await platformApi('/me');
         if (alive && revision === useAssistantStore.getState().authRevision) useAssistantStore.getState().loginBackend(me.user);
       } catch { /* A late failed request must not undo a newer login. */ }

@@ -13,7 +13,7 @@ async function api(path:string,who:any=owner,method='GET',body?:any){
 beforeAll(async()=>{
   mf=new Miniflare({modules:true,script:'export default { fetch(){ return new Response("ok") } }',compatibilityDate:'2026-08-06',d1Databases:['DB']});
   const DB=await mf.getD1Database('DB');
-  for(const file of ['0001_schema.sql','0002_platform.sql','0003_session_versions.sql','0004_atomic_allowances.sql','0005_google_identity.sql']){
+  for(const file of ['0001_schema.sql','0002_platform.sql','0003_session_versions.sql','0004_atomic_allowances.sql','0005_google_identity.sql','0006_free_tier_indexes.sql']){
     const sql=readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8').replace(/--[^\n]*/g,'');
     // Separate ordinary statements from complete trigger bodies.
     const triggers=[...sql.matchAll(/CREATE TRIGGER[\s\S]*?\nEND;/g)].map(m=>m[0]);

@@ -3,6 +3,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { sessionUser } from './platform/google-auth';
 import { platform } from './platform';
+import { maintenance } from './platform/maintenance';
 import { runDue } from './platform/jobs';
 import type { PlatformEnv } from './platform/core';
 
@@ -66,6 +67,18 @@ const pub = (u: any) => ({
   email: u.email,
   displayName: u.display_name,
   settings: JSON.parse(u.settings || '{}'),
+});
+
+// Operator-controlled degradation. This saves D1 work, not the incoming Worker
+// invocation itself. Logout stays available; no success is fabricated for writes.
+app.use('/api/*', async (c,next) => {
+  const mode=c.env.PLATFORM_MODE || 'normal', path=c.req.path;
+  const exempt=path==='/api/health'||path==='/api/platform/capabilities'||path==='/api/platform/logout'||path==='/api/platform/logout-all';
+  if (!exempt && (mode==='local-only'||(mode==='read-only'&&!['GET','HEAD','OPTIONS'].includes(c.req.method)))) {
+    c.header('Retry-After','60'); c.header('Cache-Control','no-store');
+    return c.json({error:'Shared server work is temporarily paused to preserve capacity. Device-local capture is still available. No server change was saved.',mode},503);
+  }
+  await next();
 });
 
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'onebrain-api', runtime: 'workers' }));
@@ -583,5 +596,10 @@ app.delete('/api/user/delete-account', requireAuth, async (c) => {
 });
 
 app.route('/api/platform', platform);
-export default { fetch: app.fetch, scheduled: async (_event: ScheduledController, env: Env, ctx: ExecutionContext) => { ctx.waitUntil(runDue(env)); } };
+export default { fetch: app.fetch, scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+  if (env.PLATFORM_MODE && env.PLATFORM_MODE !== 'normal') return;
+  const batch=Math.max(1,Math.min(20,Number(env.SCHEDULED_JOB_BATCH_SIZE)||2));
+  ctx.waitUntil(runDue(env,undefined,event.scheduledTime,batch));
+  if (new Date(event.scheduledTime).getUTCMinutes() === 0) ctx.waitUntil(maintenance(env,event.scheduledTime));
+} };
 export { app };

@@ -9,5 +9,5 @@ export async function seedServerSession(page:Page){
  execFileSync(process.execPath,[resolve('../workers/api/node_modules/wrangler/bin/wrangler.js'),'d1','execute','onebrain-db','--local','--command',sql],{cwd:resolve('../workers/api'),stdio:'pipe',env:{...process.env,WRANGLER_SEND_METRICS:'false'}});
  const base=new URL(process.env.PLAYWRIGHT_BASE_URL||'http://127.0.0.1:3000');
  if(!['127.0.0.1','localhost'].includes(base.hostname))throw new Error('Fixtures only support a local test server');
- await page.context().addCookies([{name:'onebrain-platform-session',value:token,domain:base.hostname,path:'/api/platform',httpOnly:true,sameSite:'Lax',secure:false}]);
+ await page.context().addCookies([{name:'onebrain-session-present',value:'1',domain:base.hostname,path:'/',sameSite:'Lax',secure:false},{name:'onebrain-platform-session',value:token,domain:base.hostname,path:'/api/platform',httpOnly:true,sameSite:'Lax',secure:false}]);
 }

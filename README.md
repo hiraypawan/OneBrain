@@ -35,3 +35,7 @@ npm --prefix frontend run test:e2e
 ```
 
 Older release notes are retained in [the historical archive](docs/ARCHIVED-README.md), not as current capability claims.
+
+## Free-tier capacity
+
+See [the capacity report and calculator](docs/FREE-TIER-CAPACITY.md) for the private service binding, native rate counters, paginated/lazy server data, indexed queries, five-minute bounded scheduler and quota-pause controls. These are real optimizations, **not a guarantee of 10,000 concurrent cloud-active users or unlimited free usage**. The single free D1 database is capped at 500 MB. No deployment was performed.

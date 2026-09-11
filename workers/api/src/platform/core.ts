@@ -1,6 +1,10 @@
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 export type PlatformEnv = {
+  API_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  AUTH_RATE_LIMITER?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  PLATFORM_MODE?: 'normal' | 'read-only' | 'local-only';
+  SCHEDULED_JOB_BATCH_SIZE?: string;
   DB: D1Database; JWT_SECRET?: string; TOKEN_ENCRYPTION_KEY?: string;
   OUTBOUND_HOSTS?: string; GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_CONNECT_REDIRECT?: string; GOOGLE_LOGIN_REDIRECT?: string; APP_ORIGIN?: string;
@@ -62,7 +66,17 @@ export function audit(env: PlatformEnv, space: string, actorId: string, operatio
 }
 export async function rateLimit(c: Ctx, label: string, max: number) {
   const now = Date.now(), window = Math.floor(now / 60000);
-  const address = c.req.header('CF-Connecting-IP') || 'local';
+  // A session key prevents thousands of signed-in users behind the same proxy/NAT
+  // from sharing one bucket. This is an abuse limiter, NOT a global quota ledger.
+  const address = c.get('session') || c.req.header('CF-Connecting-IP') || 'local';
+  const limiter = label === 'platform' ? c.env.API_RATE_LIMITER : c.env.AUTH_RATE_LIMITER;
+  if (limiter) {
+    const result = await limiter.limit({ key: `${label}:${address}` });
+    if (!result.success) { c.header('Retry-After', '60'); fail(429, 'Too many requests. Try again in a minute.'); }
+    return;
+  }
+  // Backward-compatible fallback for older deployments. Configure the native
+  // bindings before load testing: this fallback still consumes D1 write quota.
   const bucket = await hash(`${label}:${address}:${window}`);
   const row = await c.env.DB.prepare('INSERT INTO platform_rate_limits (key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count').bind(bucket,now+120000).first<{count:number}>();
   if (!row || row.count > max) fail(429, 'Too many requests. Try again in a minute.');

@@ -49,6 +49,11 @@ export default function Operations() {
     [space, setSpace] = useState(""),
     [spaceName, setSpaceName] = useState(""),
     [tab, setTab] = useState("records");
+  const [loadingSection, setLoadingSection] = useState(false);
+  const [nextRecords, setNextRecords] = useState<string | null>(null);
+  const [editorReady, setEditorReady] = useState(false);
+  const currentTab = useRef(tab); currentTab.current = tab;
+  const [editorRecords,setEditorRecords] = useState<SharedRecord[]>([]);
   const [records, setRecords] = useState<SharedRecord[]>([]),
     [connections, setConnections] = useState<Connection[]>([]),
     [jobs, setJobs] = useState<Job[]>([]),
@@ -82,20 +87,24 @@ export default function Operations() {
   const refresh = useCallback(async (target: string) => {
     if (currentSpace.current !== target) return;
     const generation = ++epoch.current;
-    const [r, c, j, m, n] = await Promise.all([
-      api(`/spaces/${target}/records`),
-      api(`/spaces/${target}/connections`),
-      api(`/spaces/${target}/jobs`),
-      api(`/spaces/${target}/members`),
-      api(`/spaces/${target}/inbox`),
-    ]);
-    if (generation !== epoch.current || currentSpace.current !== target) return;
-    setRecords(r.records);
-    setConnections(c.connections);
-    setJobs(j.jobs);
-    setReceipts(j.receipts);
-    setMembers(m.members);
-    setInbox(n.notifications);
+    const section = currentTab.current;
+    setLoadingSection(true);
+    try {
+      const route = section === 'actions' ? 'jobs' : section === 'team' ? 'members' : section;
+      const data = await api(`/spaces/${target}/${route}${section === 'records' ? '?pageSize=100' : ''}`);
+      if (generation !== epoch.current || currentSpace.current !== target) return;
+      if (section === 'records') { setRecords(data.records); setNextRecords(data.nextCursor); }
+      if (section === 'actions') { setJobs(data.jobs); setReceipts(data.receipts); }
+      if (section === 'connections') {
+        setConnections(data.connections);
+        const capabilities = await api('/capabilities');
+        if (generation === epoch.current) setCaps(capabilities);
+      }
+      if (section === 'team') setMembers(data.members);
+      if (section === 'inbox') setInbox(data.notifications);
+      if (section === 'audit') setAudit(data.audit);
+    } finally { if (generation === epoch.current) setLoadingSection(false); }
+
   }, []);
   async function loadSpaces() {
     const data = await api("/spaces");
@@ -110,12 +119,12 @@ export default function Operations() {
     let alive = true;
     void (async () => {
       try {
-        const result = await api("/capabilities");
-        if (alive) setCaps(result);
-        const me = await api("/me");
-        if (alive) {
+        const authRevision=useAssistantStore.getState().authRevision;
+        const me = await api("/bootstrap");
+        if (alive && authRevision===useAssistantStore.getState().authRevision) {
           setUser(me.user);
-          await loadSpaces();
+          useAssistantStore.getState().loginBackend(me.user);
+          setSpaces(me.spaces); setSpace(me.spaces[0]?.id || "");
         }
       } catch (e) {
         if (alive && !(e instanceof Error && /Sign in|Session/.test(e.message)))
@@ -135,7 +144,7 @@ export default function Operations() {
     setToken("");
     setEndpoint("");
     setConnectionName("");
-    setRecords([]);
+    setRecords([]); setEditorRecords([]); setNextRecords(null);
     setJobs([]);
     setConnections([]);
     setMembers([]);
@@ -146,8 +155,34 @@ export default function Operations() {
     setNewRecord(false);
     setNewJob(false);
     setJobEditor(null);
+  }, [space]);
+  useEffect(() => {
     if (space) void refresh(space).catch((e) => setNotice(e.message));
-  }, [space, refresh]);
+  }, [space, tab, refresh]);
+  useEffect(() => {
+    let alive=true;
+    setEditorReady(false);
+    if (!(newRecord || editor || newJob || jobEditor) || !space) return;
+    void (async () => {
+      try {
+        const memberData=await api(`/spaces/${space}/members`);
+        if (!alive) return;
+        setMembers(memberData.members);
+        // Editors need the complete bounded relationship catalog, not just the
+        // visible page. Load it only on explicit edit, never on workspace open.
+        const rows=await api(`/spaces/${space}/records`);
+        if (!alive) return;
+        setEditorRecords(rows.records);
+        if (newJob || jobEditor) {
+          const [capabilities,connected]=await Promise.all([api('/capabilities'),api(`/spaces/${space}/connections`)]);
+          if (!alive) return;
+          setCaps(capabilities); setConnections(connected.connections);
+        }
+        if (alive) setEditorReady(true);
+      } catch(e) { if(alive)setNotice(e instanceof Error?e.message:'Editor options could not be loaded.'); }
+    })();
+    return () => {alive=false;};
+  }, [newRecord,editor,newJob,jobEditor,space]);
   async function perform(work: () => Promise<void>, message?: string) {
     if (busy) return;
     setBusy(true);
@@ -293,10 +328,7 @@ export default function Operations() {
                         aria-current={tab === t ? "page" : undefined}
                         onClick={() => {
                           setTab(t);
-                          if (t === "audit")
-                            void perform(async () =>
-                              setAudit((await api(base + "/audit")).audit),
-                            );
+
                         }}
                       >
                         {t === "actions"
@@ -315,6 +347,7 @@ export default function Operations() {
                   Refresh
                 </button>
               </div>
+              {loadingSection && <p role="status">Loading this section…</p>}
               {tab === "records" && (
                 <section>
                   <div className="ops-section-heading">
@@ -370,7 +403,7 @@ export default function Operations() {
                         </button>
                       ))}
                   </div>
-                  {!records.length && (
+                  {!loadingSection && !records.length && (
                     <div className="ops-empty">
                       <h3>A shared space, a clean start.</h3>
                       <p>
@@ -380,6 +413,15 @@ export default function Operations() {
                       </p>
                     </div>
                   )}
+                  {nextRecords && <div className="ops-card">
+                    <p>Showing {records.length} recent records. Search and totals below cover loaded records only. Editing loads the complete relationship catalog.</p>
+                    <button disabled={busy || loadingSection} onClick={() => perform(async () => {
+                      const target=space, generation=epoch.current;
+                      const page=await api(`${base}/records?pageSize=100&cursor=${encodeURIComponent(nextRecords)}`);
+                      if (currentSpace.current!==target || generation!==epoch.current) return;
+                      setRecords(old=>[...new Map([...old,...page.records].map(r=>[r.id,r])).values()]); setNextRecords(page.nextCursor);
+                    })}>Load more records</button>
+                  </div>}
                   <FinanceSummary records={records} />
                   {writer && (
                     <label>
@@ -901,11 +943,12 @@ export default function Operations() {
           )}
         </>
       )}
-      {(newRecord || editor) && (
+      {(newRecord || editor || newJob || jobEditor) && !editorReady && <p role="status">Loading editor options…</p>}
+      {(newRecord || editor) && editorReady && (
         <RecordEditor
           key={editor?.id || "new"}
           record={editor}
-          records={records}
+          records={editorRecords}
           members={members}
           writable={writer}
           busy={busy}
@@ -939,13 +982,13 @@ export default function Operations() {
           notice={notice}
         />
       )}
-      {(newJob || jobEditor) && (
+      {(newJob || jobEditor) && editorReady && (
         <JobEditor
           key={jobEditor?.id || "new-job"}
           job={jobEditor}
           connections={connections}
           caps={caps}
-          records={records}
+          records={editorRecords}
           busy={busy}
           notice={notice}
           close={() => {
@@ -1108,6 +1151,7 @@ function RecordEditor({
           )
         : { status: "active", links: [], dependencies: [] },
     );
+  const [relationshipQuery,setRelationshipQuery] = useState("");
   const [advanced, setAdvanced] = useState(
       pretty(
         Object.fromEntries(
@@ -1225,6 +1269,10 @@ function RecordEditor({
               </select>
             </label>
           </div>
+          {records.length>50 && <label>Find records to link
+            <input value={relationshipQuery} onChange={e=>setRelationshipQuery(e.target.value)} placeholder="Search the complete catalog" />
+            <small>First 50 matches plus selected records. Search to find older records.</small>
+          </label>}
           {["links", "dependencies"].map((field) => (
             <fieldset className="ops-check-list" key={field}>
               <legend>
@@ -1232,9 +1280,10 @@ function RecordEditor({
                   ? "Explicit relationships"
                   : "Must be completed first"}
               </legend>
-              {records
-                .filter((r) => r.id !== record?.id)
-                .map((r) => (
+              {[...new Map([
+                ...records.filter(r=>r.id!==record?.id && r.title.toLowerCase().includes(relationshipQuery.toLowerCase())).slice(0,50),
+                ...records.filter(r=>(data[field]||[]).includes(r.id)),
+              ].map(r=>[r.id,r])).values()].map((r) => (
                   <label key={r.id}>
                     <input
                       type="checkbox"

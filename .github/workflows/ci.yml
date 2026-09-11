@@ -24,6 +24,8 @@ jobs:
       - run: npm ci
       - run: npm audit
       - run: npm test
+      - name: Validate free-tier budget model
+        run: node --test ../scripts/capacity-budget.test.mjs
       - run: npm run lint
       - name: Initialize isolated local platform database
         run: |
@@ -73,3 +75,31 @@ jobs:
       - run: npm run typecheck
       - run: npm audit
       - run: npm test
+
+  cloudflare-runtime:
+    runs-on: ubuntu-latest
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm --prefix frontend ci
+      - run: npm --prefix workers/api ci
+      - run: node scripts/setup-platform.mjs
+      - run: npm --prefix workers/api run migrate:local
+      - run: npm --prefix frontend run build:cloudflare
+      - run: npx wrangler deploy --dry-run
+        working-directory: workers/api
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:edge
+        working-directory: frontend
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cloudflare-runtime-failure-evidence
+          path: frontend/edge-test-results/
+          retention-days: 7

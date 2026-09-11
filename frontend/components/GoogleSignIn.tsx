@@ -5,7 +5,7 @@ export function GoogleSignIn({
   className = "ops-card ops-auth",
 }: { className?: string } = {}) {
   const [availability, setAvailability] = useState<
-      "loading" | "ready" | "unconfigured" | "error"
+      "loading" | "ready" | "unconfigured" | "error" | "paused"
     >("loading"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(false),
@@ -18,7 +18,7 @@ export function GoogleSignIn({
       .then((c) => {
         if (alive)
           setAvailability(
-            c.authMode === "google-only" && c.configured
+            c.mode && c.mode !== "normal" ? "paused" : c.authMode === "google-only" && c.configured
               ? "ready"
               : "unconfigured",
           );
@@ -68,6 +68,8 @@ export function GoogleSignIn({
             Retry Google availability
           </button>
         </>
+      ) : availability === "paused" ? (
+        <p role="status">Server sign-in is temporarily paused to preserve capacity. Device-local capture is still available.</p>
       ) : availability === "unconfigured" ? (
         <p role="status">
           Google sign-in needs operator setup. Follow docs/GOOGLE-AUTH-SETUP.md.

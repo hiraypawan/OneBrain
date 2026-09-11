@@ -19,9 +19,11 @@ export async function prepareJob(env: PlatformEnv, space: string, input: unknown
   if (plan.whenRecordDone && !await env.DB.prepare('SELECT id FROM space_records WHERE id=? AND space_id=?').bind(plan.whenRecordDone,space).first()) fail(400,'Condition record must belong to this workspace.');
   return {action,payload,connectionId,plan,planHash:await hash(canonical({action,payload,connectionId,plan}))};
 }
-export async function runDue(env: PlatformEnv, space?: string, now=Date.now()) {
+export async function runDue(env: PlatformEnv, space?: string, now=Date.now(), batchSize=20) {
+  if (env.PLATFORM_MODE && env.PLATFORM_MODE !== 'normal') return {handled:0,paused:true};
+  const batch=Math.max(1,Math.min(20,Math.floor(batchSize)||2));
   // Recovery is lease-gated and atomic: a crashed delivery gets a durable unknown receipt, not a replay.
-  const expired=await env.DB.prepare("SELECT id,lease_id FROM jobs WHERE status='running' AND lease_until<?"+(space?' AND space_id=?':'')+' LIMIT 100').bind(...(space?[now,space]:[now])).all<any>();
+  const expired=await env.DB.prepare("SELECT id,lease_id FROM jobs WHERE status='running' AND lease_until<?"+(space?' AND space_id=?':'')+` LIMIT ${batch}`).bind(...(space?[now,space]:[now])).all<any>();
   for(const old of expired.results){
     const evidence=JSON.stringify({error:'Worker lease expired. Inspect the destination; no automatic redelivery.'});
     await env.DB.batch([
@@ -33,7 +35,7 @@ export async function runDue(env: PlatformEnv, space?: string, now=Date.now()) {
   // Filter blocked conditions and revoked approvers before LIMIT, so they cannot starve ready work.
   const condition="(json_extract(plan,'$.whenRecordDone') IS NULL OR NOT EXISTS(SELECT 1 FROM space_records WHERE id=json_extract(jobs.plan,'$.whenRecordDone') AND space_id=jobs.space_id) OR EXISTS(SELECT 1 FROM space_records WHERE id=json_extract(jobs.plan,'$.whenRecordDone') AND space_id=jobs.space_id AND json_extract(data,'$.status')='done'))";
   const authorization="approved_hash=plan_hash AND EXISTS(SELECT 1 FROM space_members WHERE space_id=jobs.space_id AND user_id=jobs.approved_by AND role IN ('owner','admin'))";
-  const candidates=await env.DB.prepare("SELECT * FROM jobs WHERE status='queued' AND next_run<=? AND "+authorization+' AND '+condition+(space?' AND space_id=?':'')+' ORDER BY next_run LIMIT 20').bind(...(space?[now,space]:[now])).all<any>();
+  const candidates=await env.DB.prepare("SELECT * FROM jobs WHERE status='queued' AND next_run<=? AND "+authorization+' AND '+condition+(space?' AND space_id=?':'')+` ORDER BY next_run LIMIT ${batch}`).bind(...(space?[now,space]:[now])).all<any>();
   let handled=0;
   for (const job of candidates.results) {
     const plan=JSON.parse(job.plan);

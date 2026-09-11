@@ -1,6 +1,6 @@
 import { fail, number, object, text, type PlatformEnv } from './core';
 export const RECORD_KINDS = ['note','task','idea','person','company','project','decision','expense','payment','shopping','habit','mood','document','invoice'] as const;
-export async function validateRecord(env: PlatformEnv, space: string, input: unknown, recordId?: string) {
+export async function validateRecord(env: PlatformEnv, space: string, input: unknown, recordId?: string, memberIds?: ReadonlySet<string>) {
   const source = object(input);
   const kind = text(source.kind, 'Record type');
   if (!(RECORD_KINDS as readonly string[]).includes(kind)) fail(400, 'Unsupported record type.');
@@ -25,7 +25,7 @@ export async function validateRecord(env: PlatformEnv, space: string, input: unk
     data.milestones = data.milestones.map((m: any) => ({ title: text(m.title,'Milestone',120), done: m.done === true }));
   }
   if (data.assignee) {
-    if (!await env.DB.prepare('SELECT 1 FROM space_members WHERE space_id=? AND user_id=?').bind(space,text(data.assignee,'Assignee')).first()) fail(400,'Assign only a current workspace member.');
+    if (memberIds ? !memberIds.has(text(data.assignee,'Assignee')) : !await env.DB.prepare('SELECT 1 FROM space_members WHERE space_id=? AND user_id=?').bind(space,text(data.assignee,'Assignee')).first()) fail(400,'Assign only a current workspace member.');
   }
   const rows = (data.links?.length || data.dependencies?.length) ? await env.DB.prepare('SELECT id,data FROM space_records WHERE space_id=?').bind(space).all<{id:string;data:string}>() : {results:[]};
   const records = new Map(rows.results.map(r => [r.id,JSON.parse(r.data)]));
