@@ -1553,3 +1553,8 @@ button:disabled {
     display: none;
   }
 }
+/* Account access is visible without opening a settings drawer. */
+.header-account-link{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:9px 13px;border:1px solid #79572a;border-radius:7px;color:#f4cd8d;font-size:12px;white-space:nowrap;background:#20180e}.header-account-link:hover{background:#312312}.header-account-link>span{color:#dfac58}.secondary-nav{flex-wrap:wrap;align-items:center;gap:12px 18px}.secondary-nav .header-account-link{margin-left:auto}.brain-header{gap:14px;flex-wrap:wrap}.header-tools{flex-wrap:wrap;justify-content:flex-end;min-width:0}
+@media(max-width:767px){.header-tools{gap:8px;margin-left:auto}.secondary-nav{padding:14px 12px;column-gap:14px}.brain-header .header-tools{max-width:100%}}
+
+.settings-shortcuts{display:flex;flex-wrap:wrap;gap:8px;padding:10px 0 16px;border-bottom:1px solid #32291e}.settings-shortcuts a{padding:10px 12px;min-height:40px;font-size:12px;background:#1b160e;border:1px solid #4c3921;border-radius:7px;color:#edc17d}

@@ -283,15 +283,12 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       .catch(() => {});
   },
   wipeAll: async () => {
-    try {
-      await clearAllLocal();
-    } catch {}
-    try {
-      localStorage.removeItem('onebrain-settings');
-    } catch {}
-    try {
-      localStorage.removeItem('onebrain_token');
-    } catch {}
+    await clearAllLocal();
+    // Surface blocked storage instead of claiming the key/preferences were erased.
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('onebrain-settings');
+      window.localStorage.removeItem('onebrain_token');
+    }
     try { const { useWorkspaceStore } = await import('./workspace'); await useWorkspaceStore.getState().load('device'); } catch {}
     set({
       settings: defaultSettings, sessionSummary: null,

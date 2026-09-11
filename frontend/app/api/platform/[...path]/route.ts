@@ -22,7 +22,7 @@ async function proxy(request:NextRequest,{params}:{params:Promise<{path:string[]
     const data=await result.json();
     const token=data.token;delete data.token;
     const response=NextResponse.json(data,{status:result.status,headers:{'Cache-Control':'no-store'}});
-    if(path[0]==='logout'||path[0]==='logout-all')response.cookies.set(COOKIE,'',{httpOnly:true,sameSite:'lax',path:'/api/platform',maxAge:0});
+    if((path[0]==='logout'||path[0]==='logout-all')&&(result.ok||result.status===401))response.cookies.set(COOKIE,'',{httpOnly:true,sameSite:'lax',path:'/api/platform',maxAge:0});
     return response;
   }catch{return NextResponse.json({error:'Server workspace is unreachable or the request timed out. Refresh job status before trying an action again; no completion is claimed.'},{status:503});}
 }

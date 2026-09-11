@@ -116,13 +116,10 @@ export async function deleteConversationLocal(id: string) {
 }
 
 export async function clearAllLocal() {
-  await db.brainItems.clear();
-  await db.actionReceipts.clear();
-  await db.messages.clear();
-  await db.conversations.clear();
-  await db.reminders.clear();
-  await db.pendingSync.clear();
-  await db.kv.clear();
+  // A failed clear must roll back every table rather than partially delete data.
+  await db.transaction('rw', db.tables, async () => {
+    for (const table of db.tables) await table.clear();
+  });
 }
 
 export async function exportAllLocal() {

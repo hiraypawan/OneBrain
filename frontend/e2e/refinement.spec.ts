@@ -234,8 +234,10 @@ test("navigating away while permission is pending cannot leave the mic running",
 }) => {
   await mockAudio(page, { deferred: true });
   await page.getByTestId("active-button").click();
-  await page.getByRole("link", { name: "Privacy", exact: true }).click();
-  await expect(page).toHaveURL(/settings\/privacy/);
+  // Settings now intentionally use a fresh document to exclude an already loaded AI SDK.
+  // Reminders remains a client-side transition, so this still exercises hook cleanup.
+  await page.getByRole("link", { name: "Reminders", exact: true }).click();
+  await expect(page).toHaveURL(/reminders/);
   await page.evaluate(() => (window as any).__resolveMic());
   expect(
     await page.evaluate(() =>

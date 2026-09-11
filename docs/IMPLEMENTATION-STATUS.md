@@ -1,11 +1,12 @@
 # OneBrain implementation status
 
-> **Google-only authentication update (2026-09-11):** Password/local account login and legacy JWT OAuth are retired. Follow [Google setup](GOOGLE-AUTH-SETUP.md) and [PR gates](PR-RELEASE-GATES.md). Sign-in requires operator OAuth configuration; no real secret was supplied or live login verified. Prior password/authentication descriptions below are historical where they conflict with this update.
+> **Google-only authentication update (2026-09-11):** Password/local account login and legacy JWT OAuth are retired. Follow [Google setup](GOOGLE-AUTH-SETUP.md) and [PR gates](PR-RELEASE-GATES.md). Sign-in requires private, environment-specific operator OAuth configuration; the full live Google consent/sign-in flow is not verified. Prior password/authentication descriptions below are historical where they conflict with this update.
 Updated 2026-09-11. **Full 175/175 completion has not been reached.** The additional proactive-conversation requirement is retained as row 176. This ledger separates working code, bounded implementations, live verification and unfinished software; nothing marked incomplete has been removed from scope.
 
 ## Current implemented paths
 
 - Neural Canvas, local structured/linked capture, financial review, undo/export, responsive accessible controls and opt-in proactive conversation.
+- Discoverable Google sign-in and a unified Account / Voice & conversation / Memory & privacy / Advanced settings interface, including restyled export and diagnostics. Shared quick-setting controls, server-confirmed account states, failure-aware sign-out, transactional local database deletion and explicit microphone-only enrollment.
 - Pocket voice start/pause/resume/stop, optional active-session wake phrase, recognition aliases, Silent Mode and resource/cancellation guards. Real physical-device behavior is not certified.
 - Real D1-backed shared accounts/spaces/RBAC, records/assignees/dependencies/financial fields, compare-and-swap edits, atomic reviewed linked imports and database allowance guards.
 - Operations UI, encrypted connector credentials and supported HTTP adapters, exact review/approval hashes, leased execution, bounded recurrence, durable inbox/receipts/audit and safe ambiguous-outcome handling.
@@ -14,9 +15,10 @@ Updated 2026-09-11. **Full 175/175 completion has not been reached.** The additi
 
 ## Latest verification
 
-- **183 frontend unit tests; 45 Workers tests; 29 production Chromium browser tests pass.** Desktop/mobile Operations and vault screenshots were reviewed with no page errors. Browser flows include explicit pause/resume, shared voice records/reminder drafts, persisted financial edits, approval-to-inbox delivery, reviewed linked import, mobile errors and vault isolation.
-- **Next 15.5.25 production build** passes with 30 routes. Frontend, Workers and legacy Express TypeScript checks pass. Express was typechecked, not used as the new shared-platform runtime.
+- **193 frontend unit tests; 45 Workers tests; 42 production Chromium browser tests pass.** Desktop/mobile Operations and vault screenshots were reviewed with no page errors. Browser flows include explicit pause/resume, shared voice records/reminder drafts, persisted financial edits, approval-to-inbox delivery, reviewed linked import, mobile errors and vault isolation.
+- **Next 15.5.25 production build** passes, including the separate Account, Voice and Advanced settings routes. Frontend, Workers and legacy Express TypeScript checks pass. Express was typechecked, not used as the new shared-platform runtime.
 - Production dependency audits: **0 findings** for frontend, Workers and Express. Frontend/Workers development tooling still has **5 findings each (2 moderate, 3 high)**. No critical dependency finding remains. This is not an independent application-security audit.
+- Settings browser coverage includes 320px navigation, persisted preferences, cached-profile rejection, sign-out failures and all-session confirmation, exports/deletion confirmation, SDK document isolation, optional-key safeguards and cancelled/late microphone enrollment. Server identity tests use local fixtures, not real Google consent.
 - Migrations 0001–0005 applied to local D1 only. The local API and browser-independent development scheduler run separately from Next. CI now initializes and starts the real local API for browser tests.
 - Source documentation for MET Norway/Frankfurter was checked. Actual source smoke requests returned connection resets/502 in this sandbox; no forecast or exchange rate was invented. Successful live lookups remain unverified.
 - No live third-party authorization, production deployment, remote migration, payment activation, repository visibility change, compliance certification or hardware verification was performed.
