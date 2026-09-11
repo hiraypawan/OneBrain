@@ -129,3 +129,10 @@ Puter → Gemini key → host `OPENAI_API_KEY` → Pollinations → offline.
 The app does not intentionally retain raw audio; browser speech recognition may upload audio for processing. Conversations live in your browser
 (IndexedDB) and, if you log in, in your own synced account. Settings →
 Data export downloads everything; Delete everything wipes it.
+
+
+### Current interface
+
+**Today** is the main screen: save a thought, ask a question, start talking, and revisit your records. **Your space** is the second screen: find account controls, preferences, reminders, connected work, utilities, vault and conversation history in searchable panels. Old feature links redirect there.
+
+See [UI design, feature locations and verification boundaries](docs/UI-DESIGN.md). This rework does not change the draft PR's incomplete-product or no-deployment status.

@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllLocal, db } from "../lib/db";
+import { clearAllLocal, exportAllLocal, db } from "../lib/db";
 import { useAssistantStore } from "../store/assistant";
 beforeEach(async () => {
   await clearAllLocal();
@@ -22,7 +22,7 @@ describe("local data settings", () => {
   });
   it("rolls back earlier deletions if any table fails", async () => {
     vi.spyOn(
-      db.tables.find((table) => table.name === "kv")!,
+      db.tables.find((table) => table.name === "pendingSync")!,
       "clear",
     ).mockRejectedValueOnce(new Error("Storage blocked"));
     await expect(clearAllLocal()).rejects.toThrow("Storage blocked");
@@ -32,7 +32,7 @@ describe("local data settings", () => {
   it("does not reset state or resolve successfully on a database failure", async () => {
     useAssistantStore.setState({ apiKey: "test-only-key" });
     vi.spyOn(
-      db.tables.find((table) => table.name === "kv")!,
+      db.tables.find((table) => table.name === "pendingSync")!,
       "clear",
     ).mockRejectedValueOnce(new Error("Deletion failed"));
     await expect(useAssistantStore.getState().wipeAll()).rejects.toThrow(
@@ -53,3 +53,5 @@ describe("local data settings", () => {
     );
   });
 });
+
+it('canvas deletion and export leave the separate encrypted vault alone',async()=>{await db.kv.put({key:'encrypted-vault:v1',value:{testOnly:'encrypted-envelope'}});try{expect((await exportAllLocal()).kv.some(row=>row.key==='encrypted-vault:v1')).toBe(false);await clearAllLocal();expect((await db.kv.get('encrypted-vault:v1'))?.value).toEqual({testOnly:'encrypted-envelope'});}finally{await db.kv.delete('encrypted-vault:v1');}});

@@ -5,7 +5,7 @@ export function AccountLink() {
   return (
     <a
       className="header-account-link"
-      href={authenticated ? "/settings/account" : "/auth/login"}
+      href={authenticated ? "/control?panel=account" : "/auth/login"}
       aria-label={authenticated ? "Account settings" : "Sign in with Google"}
     >
       <span aria-hidden="true">{authenticated ? "◉" : "↗"}</span>

@@ -4,6 +4,7 @@ test.beforeEach(async ({ page }) => {
   // Tests exercise deterministic functionality without sending any content to AI providers.
   await page.route("https://js.puter.com/**", (route) => route.abort());
   await page.goto("/");
+  await page.getByRole("tab", {name:"Context map",exact:true}).click();
 });
 test("capture, persistence, explicit links, task completion and verified undo", async ({
   page,
@@ -11,7 +12,7 @@ test("capture, persistence, explicit links, task completion and verified undo", 
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await expect(
-    page.getByRole("heading", { name: /A little space/ }),
+    page.getByRole("heading", { name: /Notes. Tasks. Answers./ }),
   ).toBeVisible();
   await page.getByLabel("Capture type").selectOption("person");
   await page
@@ -41,6 +42,7 @@ test("capture, persistence, explicit links, task completion and verified undo", 
   await page.getByRole("button", { name: "Close dialog" }).click();
   await expect(page.locator(".connections-svg line")).toHaveCount(1);
   await page.reload();
+  await page.getByRole("tab", {name:"Context map",exact:true}).click();
   await expect(page.locator(".thought-node")).toHaveCount(2);
   await expect(page.locator(".connections-svg line")).toHaveCount(1);
   await page.getByRole("tab", { name: /Today/ }).click();
@@ -76,7 +78,7 @@ test("proactive settings opt in and persist; dialog is keyboard accessible", asy
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "✧ Open to conversation" }),
+    page.getByRole("button", { name: "Open to conversation" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Open settings" }).click();
   await expect(
@@ -122,10 +124,11 @@ test("typed calculation is deterministic and connector status is honest", async 
     .getByLabel("Capture a thought", { exact: true })
     .fill("15% of 60000");
   await page.getByRole("button", { name: "Ask OneBrain", exact: true }).click();
-  await expect(page.locator(".last-response")).toContainText("9000");
+  await expect(page.getByRole("region",{name:"OneBrain response"})).toContainText("9000");
+  await page.getByRole("button", { name: "Open settings" }).click();
   await page.getByRole("button", { name: "Open connections" }).click();
-  await expect(page.getByRole("dialog")).toContainText("not live connections");
-  await expect(page.getByRole("dialog")).toContainText("CONFIGURE IN OPERATIONS");
+  await expect(page.getByRole("dialog")).toContainText("not uploaded automatically");
+  await expect(page.getByRole("dialog")).toContainText("review scheduled actions");
 });
 
 test("proactive voice invitation waits for silence, gets consent and stops with the session", async ({

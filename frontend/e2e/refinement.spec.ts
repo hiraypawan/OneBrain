@@ -3,6 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 test.beforeEach(async ({ page }) => {
   await page.route("https://js.puter.com/**", (route) => route.abort());
   await page.goto("/");
+  await page.getByRole("tab", {name:"Context map",exact:true}).click();
 });
 async function dump(page: Page, text: string) {
   await page.getByLabel("Capture type", { exact: true }).selectOption("dump");
@@ -123,6 +124,7 @@ test("financial review edits are persisted; the named dialog stays mounted and r
   await page.keyboard.press("Escape");
   await expect(page.locator(".thought-node")).toBeFocused();
   await page.reload();
+  await page.getByRole("tab", {name:"Context map",exact:true}).click();
   await page.locator(".thought-node").click();
   await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("12.34");
 });
@@ -229,24 +231,8 @@ test("cancelled permission responses release late microphone streams without sta
     ),
   ).toBe(true);
 });
-test("navigating away while permission is pending cannot leave the mic running", async ({
-  page,
-}) => {
-  await mockAudio(page, { deferred: true });
-  await page.getByTestId("active-button").click();
-  // Settings now intentionally use a fresh document to exclude an already loaded AI SDK.
-  // Reminders remains a client-side transition, so this still exercises hook cleanup.
-  await page.getByRole("link", { name: "Reminders", exact: true }).click();
-  await expect(page).toHaveURL(/reminders/);
-  await page.evaluate(() => (window as any).__resolveMic());
-  expect(
-    await page.evaluate(() =>
-      (window as any).__streams.every((t: any) => t.readyState === "ended"),
-    ),
-  ).toBe(true);
-  expect(await page.evaluate(() => (window as any).__recognitionStarts)).toBe(
-    0,
-  );
+test("navigating to Your space while permission is pending replaces the document",async({page})=>{
+ await mockAudio(page,{deferred:true});await page.getByTestId('active-button').click();await page.getByRole('link',{name:'Your space',exact:true}).click();await expect(page).toHaveURL(/control$/);expect(await page.evaluate(()=>typeof (window as any).__resolveMic)).toBe('undefined');await expect(page.getByRole('heading',{name:/Your space/})).toBeVisible();
 });
 test("unsupported speech never requests a mic; recognition startup failures release it", async ({
   page,
@@ -346,7 +332,7 @@ test("stopping speech releases the turn and its old timeout cannot cancel a new 
   await page.getByTestId("active-button").click();
   await page.getByLabel("Capture a thought", { exact: true }).fill("20 + 5");
   await page.getByRole("button", { name: "Ask OneBrain", exact: true }).click();
-  await expect(page.locator(".last-response")).toContainText("25");
+  await expect(page.getByRole("region",{name:"OneBrain response"})).toContainText("25");
   await expect(page.locator(".session-state")).toContainText("speaking");
   const cancellations = await page.evaluate(
     () => (window as any).__cancelCount,
@@ -391,7 +377,7 @@ test("revoking topic permission invalidates an invitation that was already offer
   await page.getByRole("button", { name: "Close dialog" }).click();
   await page.getByRole("button", { name: "Go ahead", exact: true }).click();
   await page.clock.runFor(20);
-  await expect(page.locator(".last-response")).toContainText(
+  await expect(page.getByRole("region",{name:"OneBrain response"})).toContainText(
     "no longer available",
   );
   expect(
@@ -418,7 +404,7 @@ test("voice-style reminder commands do not write to disk with Memory off", async
     .getByLabel("Capture a thought", { exact: true })
     .fill("remind me to call mom at 6pm");
   await page.getByRole("button", { name: "Ask OneBrain", exact: true }).click();
-  await expect(page.locator(".last-response")).toContainText(
+  await expect(page.getByRole("region",{name:"OneBrain response"})).toContainText(
     "no reminder was saved or scheduled",
   );
   const count = await page.evaluate(
@@ -444,7 +430,7 @@ test("voice-style reminder commands do not write to disk with Memory off", async
 });
 test('pause releases the microphone and resume explicitly acquires a new stream',async({page})=>{
  await mockAudio(page);await page.getByTestId('active-button').click();await expect(page.getByTestId('stop-button')).toBeVisible();
- await page.getByRole('button',{name:'Pause session',exact:true}).click();await expect(page.getByTestId('active-button')).toContainText('Resume Pocket Mode');
+ await page.getByRole('button',{name:'Pause session',exact:true}).click();await expect(page.getByTestId('active-button')).toContainText('Resume talking');
  expect(await page.evaluate(()=>(window as any).__streams.every((t:any)=>t.readyState==='ended'))).toBe(true);
  await page.getByTestId('active-button').click();await expect(page.getByTestId('stop-button')).toBeVisible();expect(await page.evaluate(()=>(window as any).__micCalls)).toBe(2);
  await page.getByTestId('stop-button').click();expect(await page.evaluate(()=>(window as any).__streams.every((t:any)=>t.readyState==='ended'))).toBe(true);

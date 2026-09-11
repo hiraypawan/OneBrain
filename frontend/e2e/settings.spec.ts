@@ -20,7 +20,7 @@ test("sign-in is visible on a 320px home and settings have distinct destinations
   const shortcuts = page.getByRole("navigation", { name: "Settings sections" });
   await expect(shortcuts.getByRole("link")).toHaveCount(4);
   await shortcuts.getByRole("link", { name: "Account", exact: true }).click();
-  await expect(page).toHaveURL(/settings\/account$/);
+  await expect(page).toHaveURL(/control\?panel=account$/);
   await expect(
     page.getByRole("button", { name: "Continue with Google", exact: true }),
   ).toBeVisible();
@@ -32,13 +32,13 @@ test("sign-in is visible on a 320px home and settings have distinct destinations
   ] as const) {
     await page
       .getByRole("navigation", { name: "Settings sections" })
-      .locator(`a[href="/settings/${section}"]`)
+      .locator(`a[href="/control?panel=${section}"]`)
       .click();
     await expect(
       page.getByRole("heading", { name: title, exact: true }),
     ).toBeVisible();
     await expect(
-      page.locator(`[aria-current=page][href="/settings/${section}"]`),
+      page.locator(`[aria-current=page][href="/control?panel=${section}"]`),
     ).toBeVisible();
     expect(
       await page.evaluate(
@@ -47,7 +47,7 @@ test("sign-in is visible on a 320px home and settings have distinct destinations
     ).toBe(true);
   }
   await page.goto("/settings");
-  await expect(page).toHaveURL(/settings\/account$/);
+  await expect(page).toHaveURL(/control\?panel=account$/);
 });
 test("voice preferences are shared with quick settings and persist without microphone access", async ({
   page,
@@ -242,8 +242,8 @@ test("settings navigation starts a fresh document and leaves a loaded provider b
     (window as any).__oldDocument = true;
     (window as any).puter = { testOnly: true };
   });
-  await page.getByRole("link", { name: "Privacy", exact: true }).click();
-  await expect(page).toHaveURL(/settings\/privacy$/);
+  await page.getByRole("link", { name: "Your space", exact: true }).click();
+  await expect(page).toHaveURL(/control$/);
   expect(
     await page.evaluate(() => ({
       old: !!(window as any).__oldDocument,

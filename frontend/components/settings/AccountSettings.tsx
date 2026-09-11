@@ -122,7 +122,7 @@ export function AccountSettings() {
               Google password or client secret here.
             </p>
             <div className="settings-actions">
-              <a className="settings-action primary" href="/operations">
+              <a className="settings-action primary" href="/control?panel=shared">
                 Open shared workspaces ↗
               </a>
               <button disabled={busy} onClick={() => void signOut(false)}>
@@ -160,10 +160,10 @@ export function AccountSettings() {
           device’s memories.
         </p>
         <div className="settings-actions">
-          <a className="settings-action" href="/settings/privacy">
+          <a className="settings-action" href="/control?panel=privacy">
             Memory & privacy
           </a>
-          <a className="settings-action" href="/operations">
+          <a className="settings-action" href="/control?panel=shared">
             Shared workspaces
           </a>
         </div>

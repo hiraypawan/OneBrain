@@ -8,8 +8,12 @@ import {
   useDeferredValue,
 } from "react";
 import Link from "next/link";
-import { AccountLink } from "@/components/AccountLink";
-import { ConversationPreferences, VoicePreferences } from "@/components/settings/Preferences";
+import { AppHeader } from "@/components/AppHeader";
+import { Icon } from "@/components/ui/Icon";
+import {
+  ConversationPreferences,
+  VoicePreferences,
+} from "@/components/settings/Preferences";
 import { ContextMap, SYMBOLS } from "./ContextMap";
 import { useAssistant } from "@/hooks/useAssistant";
 import { useBackgroundKeepalive } from "@/hooks/useBackgroundKeepalive";
@@ -38,48 +42,6 @@ const KINDS: ItemKind[] = [
   "payment",
   "shopping",
   "habit",
-];
-const CONNECTORS = [
-  [
-    "Google Calendar",
-    "Availability, meetings, and approved event updates",
-    "OAuth consent and a server-side token vault required",
-  ],
-  [
-    "Google Sheets",
-    "Client notes, expenses, and operational records",
-    "OAuth consent and verified write adapters required",
-  ],
-  [
-    "Telegram",
-    "Reminder delivery and action receipts",
-    "Bot configuration, chat linking, and durable scheduling required",
-  ],
-  [
-    "Gmail",
-    "Selected inbox context and approved drafts",
-    "Restricted-scope review and secure OAuth required",
-  ],
-  [
-    "Notion / Todoist / HubSpot",
-    "Project, task, and client destinations",
-    "Individual authenticated adapters required",
-  ],
-  [
-    "Slack / Microsoft Teams",
-    "Approved team updates",
-    "Workspace authorization and tenant permissions required",
-  ],
-  [
-    "Home Assistant",
-    "Read device states and approve actions",
-    "Secure access to a user-owned installation required",
-  ],
-  [
-    "Webhooks / MCP",
-    "Named, approved automation tools",
-    "Destination allowlisting and credential isolation required",
-  ],
 ];
 function downloadJson(name: string, data: unknown) {
   const url = URL.createObjectURL(
@@ -167,7 +129,7 @@ export function NeuralWorkspace() {
   const state = useAssistantStore();
   const workspace = useWorkspaceStore();
   const [view, setView] = useState<"canvas" | "list" | "today" | "activity">(
-    "canvas",
+    "list",
   );
   const [query, setQuery] = useState("");
   const [input, setInput] = useState("");
@@ -323,573 +285,743 @@ export function NeuralWorkspace() {
 
   return (
     <div className="brain-workspace">
-      <header className="brain-header">
-        <Link href="/" className="wordmark">
-          <span className="brand-mark">∷</span> onebrain
-          <span className="wordmark-period">.</span>
-        </Link>
-        <div className="header-tools">
-          <AccountLink/>
-          <a href="/operations" className="text-button" style={{fontSize:12}}>Operations ↗</a>
-          <span className="local-badge">
-            <i />{" "}
-            {offline
-              ? "Offline · local capture available"
-              : "Device-local workspace"}
-          </span>
-          <button
-            className="icon-button"
-            aria-label="Open connections"
-            title="Connections"
-            onClick={() => setOverlay("connections")}
-          >
-            ↗
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Open settings"
-            title="Settings"
-            onClick={() => setOverlay("settings")}
-          >
-            ⚙
-          </button>
-        </div>
-      </header>
-      <section className="workspace-intro">
-        <div>
-          <div className="eyebrow">LESS IN YOUR HEAD. MORE IN YOUR HANDS.</div>
-          <h1>
-            A little space <br />
-            for <em>everything.</em>
-          </h1>
-          <p>Capture a thought. Connect the context. Find your next step.</p>
-          <div className="workspace-pulse" aria-label="Workspace summary">
-            <span>
-              <b>{workspace.items.length}</b> thoughts collected
-            </span>
-            <span className="pulse-divider" />
-            <span>
-              <b>{openTasks.length}</b> open tasks
-            </span>
-          </div>
-        </div>
-        <div className="session-card">
-          <span className="eyebrow">YOUR POCKET COMPANION</span>
-          <div className="session-state">
-            <span
-              className={
-                assistant.isActive ? "status-dot active" : "status-dot"
-              }
-            />
-            {starting
-              ? "Requesting microphone"
-              : assistant.isActive
-                ? assistant.currentStatus
-                : assistant.currentStatus === "paused" ? "Paused — microphone released" : "Ready when you are"}
-          </div>
-          <button
-            data-testid={assistant.isActive ? "stop-button" : "active-button"}
-            className="primary-button"
-            onClick={assistant.isActive ? assistant.stopActive : start}
-            disabled={starting}
-          >
-            {assistant.isActive ? "■  Stop listening" : assistant.currentStatus === "paused" ? "Resume Pocket Mode" : "Start Pocket Mode"}
-            <span aria-hidden="true">↗</span>
-          </button>
-          {starting && (
-            <button
-              className="text-button cancel-start"
-              onClick={() => {
-                startAttemptRef.current += 1;
-                assistant.stopActive();
-                setStarting(false);
-                setNotice("Microphone start cancelled.");
-              }}
-            >
-              Cancel microphone start
-            </button>
-          )}
-          <div className="session-options">
-            {assistant.isActive && <button className="text-button" onClick={assistant.pauseActive}>Pause session</button>}
-            <button
-              className="text-button"
-              aria-pressed={!!state.settings.silentMode}
-              onClick={() =>
-                state.updateSettings({ silentMode: !state.settings.silentMode })
-              }
-            >
-              {state.settings.silentMode
-                ? "◌ Silent mode on"
-                : "◌ Spoken replies on"}
-            </button>
-            {assistant.isActive && (
-              <button className="text-button" onClick={() => setPocket(true)}>
-                Dark screen
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
-      <section className="capture-composer">
-        <div className="composer-top">
-          <span className="eyebrow">MAKE A LITTLE ROOM</span>
-          <select
-            aria-label="Capture type"
-            value={captureKind}
-            onChange={(e) =>
-              setCaptureKind(e.target.value as typeof captureKind)
-            }
-          >
-            {KINDS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-            <option value="dump">brain dump</option>
-            <option value="ask">ask OneBrain</option>
-          </select>
-        </div>
-        <div
-          className="capture-shortcuts"
-          role="group"
-          aria-label="Capture shortcuts"
-        >
-          {(["note", "task", "idea", "dump", "ask"] as const).map((kind) => (
-            <button
-              key={kind}
-              type="button"
-              aria-pressed={captureKind === kind}
-              onClick={() => {
-                setCaptureKind(kind);
-                document.getElementById("capture-input")?.focus();
-              }}
-            >
-              <span aria-hidden="true">
-                {kind === "dump" ? "∷" : kind === "ask" ? "✳" : SYMBOLS[kind]}
-              </span>
-              {kind === "dump"
-                ? "Brain dump"
-                : kind === "ask"
-                  ? "Ask"
-                  : kind[0].toUpperCase() + kind.slice(1)}
-            </button>
-          ))}
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            compose();
-          }}
-        >
-          <textarea
-            id="capture-input"
-            aria-label="Capture a thought"
-            placeholder={
-              captureKind === "dump"
-                ? "One thought per line. Try “task: Send the proposal” or “idea: A referral offer”."
-                : captureKind === "ask"
-                  ? "Ask a question, search memory, or try “15% of 60000”…"
-                  : "A thought, a commitment, something worth remembering…"
-            }
-            value={input}
-            maxLength={6000}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (
-                (e.metaKey || e.ctrlKey) &&
-                e.key === "Enter" &&
-                !e.nativeEvent.isComposing &&
-                workspace.ready &&
-                !busy
-              ) {
+      <AppHeader active="today" />
+      <div className="home-stage">
+        <div className="thought-stage">
+          <section className="workspace-intro">
+            <span className="overline">YOUR EVERYDAY SECOND BRAIN</span>
+            <h1>
+              Notes. Tasks. <span>Answers.</span>
+            </h1>
+            <p>
+              OneBrain is your voice-first assistant for notes, tasks and
+              questions. Write or speak. Review what gets saved. Find it here
+              later.
+            </p>
+          </section>
+          <section className="capture-composer">
+            <div className="composer-top">
+              <div
+                className="composer-intents"
+                role="group"
+                aria-label="What would you like to do?"
+              >
+                <button
+                  type="button"
+                  aria-pressed={captureKind !== "ask"}
+                  onClick={() => setCaptureKind("note")}
+                >
+                  <Icon name="note" />
+                  Save a thought
+                </button>
+                <button
+                  type="button"
+                  aria-label="Choose question mode"
+                  aria-pressed={captureKind === "ask"}
+                  onClick={() => setCaptureKind("ask")}
+                >
+                  <Icon name="help" />
+                  Ask OneBrain
+                </button>
+              </div>
+              <label className="capture-type-label">
+                <span>Type</span>
+                <select
+                  aria-label="Capture type"
+                  value={captureKind}
+                  onChange={(e) =>
+                    setCaptureKind(e.target.value as typeof captureKind)
+                  }
+                >
+                  {KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {k[0].toUpperCase() + k.slice(1)}
+                    </option>
+                  ))}
+                  <option value="dump">Brain dump</option>
+                  <option value="ask">Question</option>
+                </select>
+              </label>
+            </div>
+            <form
+              onSubmit={(e) => {
                 e.preventDefault();
                 compose();
-              }
-            }}
-            rows={2}
-          />
-          <button
-            className="send-button"
-            aria-label={
-              captureKind === "ask" ? "Ask OneBrain" : "Review capture"
-            }
-            disabled={!input.trim() || !workspace.ready || busy}
-            type="submit"
-          >
-            ↗
-          </button>
-        </form>
-        <div className="composer-bottom">
-          <span>
-            {captureKind === "ask"
-              ? "General questions may use an external AI provider."
-              : "Review before saving · no external AI needed"}
-          </span>
-          <span>{input.length}/6000</span>
-        </div>
-      </section>
-      <div className="workspace-toolbar">
-        <div
-          className="view-tabs"
-          role="tablist"
-          aria-label="Workspace view"
-          onKeyDown={(event) => {
-            const tabs = Array.from(
-              event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                '[role="tab"]',
-              ),
-            );
-            const index = tabs.indexOf(
-              document.activeElement as HTMLButtonElement,
-            );
-            const next =
-              event.key === "ArrowRight"
-                ? (index + 1) % tabs.length
-                : event.key === "ArrowLeft"
-                  ? (index - 1 + tabs.length) % tabs.length
-                  : event.key === "Home"
-                    ? 0
-                    : event.key === "End"
-                      ? tabs.length - 1
-                      : -1;
-            if (next >= 0) {
-              event.preventDefault();
-              tabs[next].focus();
-              tabs[next].click();
-            }
-          }}
-        >
-          {(["canvas", "list", "today", "activity"] as const).map((v) => (
-            <button
-              role="tab"
-              id={`workspace-tab-${v}`}
-              aria-controls="workspace-panel"
-              tabIndex={view === v ? 0 : -1}
-              aria-selected={view === v}
-              key={v}
-              onClick={() => setView(v)}
-              className={view === v ? "selected" : ""}
+              }}
             >
-              {v === "canvas" ? "Context map" : v[0].toUpperCase() + v.slice(1)}
-              {v === "today" && <span>{openTasks.length}</span>}
-            </button>
-          ))}
-        </div>
-        <button
-          className={`conversation-toggle ${prefs.enabled ? "enabled" : ""}`}
-          onClick={() => setOverlay("settings")}
-        >
-          ✧ {prefs.enabled ? "Open to conversation" : "Quiet by default"}
-        </button>
-      </div>
-      {(view === "canvas" || view === "list") && (
-        <div className="search-row">
-          <label>
-            <span aria-hidden="true">⌕</span>
-            <input
-              aria-label="Search your memory"
-              placeholder="Find a person, project, or thought…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-          <select
-            aria-label="Filter by type"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">All types</option>
-            {KINDS.map((k) => (
-              <option key={k}>{k}</option>
-            ))}
-          </select>
-        </div>
-      )}
-      {(notice || workspace.error || assistant.micNotice) && (
-        <div className="workspace-notice" role="status">
-          {notice || workspace.error || assistant.micNotice}
-          {workspace.error ||
-          /another tab|Reload the workspace/.test(notice) ? (
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() =>
-                attempt(async () => {
+              <textarea
+                id="capture-input"
+                aria-label="Capture a thought"
+                placeholder={
+                  captureKind === "dump"
+                    ? "One thought per line. Try “task: Send the proposal” or “idea: A referral offer”."
+                    : captureKind === "ask"
+                      ? "Ask a question, search memory, or try “15% of 60000”…"
+                      : "What would you like to remember?"
+                }
+                value={input}
+                maxLength={6000}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
                   if (
-                    confirm(
-                      "Reload saved records? Unsaved session-only changes will be lost.",
-                    )
+                    (e.metaKey || e.ctrlKey) &&
+                    e.key === "Enter" &&
+                    !e.nativeEvent.isComposing &&
+                    workspace.ready &&
+                    !busy
                   ) {
-                    await workspace.load(state.user?.id || "device");
-                    if (useWorkspaceStore.getState().error)
-                      throw new Error(useWorkspaceStore.getState().error!);
+                    e.preventDefault();
+                    compose();
                   }
-                })
-              }
-            >
-              Reload workspace
-            </button>
-          ) : null}
-          <button
-            onClick={() => {
-              setNotice("");
-              state.setMicNotice(null);
-            }}
-            aria-label="Dismiss notice"
-          >
-            ×
-          </button>
-        </div>
-      )}
-      {!state.settings.memoryEnabled && (
-        <p className="privacy-strip">
-          Memory is off. New workspace changes stay in this session and are lost
-          on reload.
-        </p>
-      )}
-      <div
-        id="workspace-panel"
-        role="tabpanel"
-        aria-labelledby={`workspace-tab-${view}`}
-      >
-        {view === "canvas" && (
-          <ContextMap
-            items={visible}
-            select={setSelectedId}
-            filtered={!!query.trim() || filter !== "all"}
-            clearFilters={() => {
-              setQuery("");
-              setFilter("all");
-            }}
-            ready={workspace.ready}
-            memoryEnabled={state.settings.memoryEnabled}
-          />
-        )}
-        {view === "list" && (
-          <div className="record-list">
-            {visible.length ? (
-              visible.slice(0, listLimit).map((item) => (
-                <button
-                  key={item.id}
-                  className="record-row"
-                  onClick={() => setSelectedId(item.id)}
-                >
-                  <span className="record-symbol">{SYMBOLS[item.kind]}</span>
-                  <span>
-                    <strong>{item.title}</strong>
-                    <small>
-                      {item.kind} · {item.status} ·{" "}
-                      {new Date(item.createdAt).toLocaleDateString()}
-                    </small>
-                  </span>
-                  <span>↗</span>
-                </button>
-              ))
-            ) : (
-              <div className="plain-empty">
-                No matching records. Capture a thought below.
-              </div>
-            )}
-            {visible.length > listLimit && (
+                }}
+                rows={2}
+              />
               <button
-                className="text-button amber load-more"
-                onClick={() => setListLimit((n) => n + 50)}
+                className="send-button"
+                aria-label={
+                  captureKind === "ask" ? "Ask OneBrain" : "Review capture"
+                }
+                disabled={!input.trim() || !workspace.ready || busy}
+                type="submit"
               >
-                Show more · {visible.length - listLimit} remaining
+                <span>{captureKind === "ask" ? "Ask" : "Review"}</span>
+                <Icon name="arrow" />
               </button>
-            )}
-          </div>
-        )}
-        {view === "today" && (
-          <section className="today-panel">
-            <span className="eyebrow">YOUR NEXT STEPS</span>
-            <h2>
-              {openTasks.length
-                ? `${openTasks.length} things on your mind.`
-                : "Room for what matters."}
-            </h2>
-            <p>{summarizeDay(workspace.items)}</p>
-            <div className="today-actions">
-              <button onClick={() => setNotice(summarizeDay(workspace.items))}>
-                What am I forgetting?
-              </button>
+            </form>
+            <div className="composer-bottom">
+              <span>
+                {captureKind === "ask"
+                  ? "General questions may use an external AI provider."
+                  : "Review before saving · no external AI needed"}
+              </span>
+              <span className="composer-keyboard-hint">Ctrl / ⌘ + Enter</span>
+            </div>
+          </section>
+          {workspace.ready && !workspace.items.length && (
+            <div className="first-thought">
+              <span>Not sure where to start?</span>
               <button
                 onClick={() => {
-                  setCaptureKind("dump");
+                  setCaptureKind("note");
+                  setInput("An idea I want to come back to: ");
                   document.getElementById("capture-input")?.focus();
                 }}
               >
-                Clear my head
+                Try a note
+                <Icon name="arrow" />
+              </button>
+              <button
+                onClick={() => {
+                  setCaptureKind("task");
+                  setInput("Send the project proposal");
+                  document.getElementById("capture-input")?.focus();
+                }}
+              >
+                Try a task
+                <Icon name="arrow" />
               </button>
             </div>
-            {openTasks.map((i) => (
-              <div className="task-row" key={i.id}>
-                <button
-                  aria-label={`Complete ${i.title}`}
-                  disabled={busy}
-                  onClick={() =>
-                    attempt(
-                      () => workspace.update(i.id, { status: "done" }),
-                      state.settings.memoryEnabled
-                        ? "Marked complete locally."
-                        : "Marked complete for this session only.",
-                    )
-                  }
-                >
-                  ○
-                </button>
-                <button onClick={() => setSelectedId(i.id)}>{i.title}</button>
-                <small>
-                  {i.due ? new Date(i.due).toLocaleDateString() : "No deadline"}
-                </small>
-              </div>
-            ))}
-            {Object.entries(totals).map(([currency, total]) => (
-              <div className="finance-total" key={currency}>
-                {currency}: {total.expense.toFixed(2)} expenses ·{" "}
-                {total.payment.toFixed(2)} payments logged{" "}
-                <small>
-                  Recorded entries only. Not bank-verified balances.
-                </small>
-              </div>
-            ))}
-          </section>
-        )}
-        {view === "activity" && (
-          <section className="activity-panel">
-            <span className="eyebrow">EVIDENCE, NOT JUST “DONE”</span>
-            <h2>Your action history.</h2>
-            <p>
-              Local receipts verify browser storage—not external services or
-              notification delivery.
+          )}
+          <ol className="capture-steps" aria-label="How OneBrain works">
+            <li
+              aria-current={
+                !input.trim() && !workspace.items.length ? "step" : undefined
+              }
+            >
+              <span>1</span>Write or speak
+            </li>
+            <li aria-current={input.trim() ? "step" : undefined}>
+              <span>2</span>Review & save
+            </li>
+            <li
+              aria-current={
+                !input.trim() && workspace.items.length ? "step" : undefined
+              }
+            >
+              <span>3</span>Find it below
+            </li>
+          </ol>
+          {assistant.currentStatus === "processing" && (
+            <p className="answer-pending" role="status">
+              Working on your question…
             </p>
-            {workspace.receipts.length === 0 && (
-              <div className="plain-empty">
-                Your first saved action will appear here.
+          )}
+          {latest && (
+            <section
+              className="answer-inline"
+              aria-label="OneBrain response"
+              aria-live="polite"
+            >
+              <div>
+                <span className="answer-mark">ob.</span>
+                <h2>OneBrain</h2>
               </div>
+              <p>{latest.content}</p>
+              <small>
+                AI answers can be wrong. Check important information.
+              </small>
+            </section>
+          )}
+        </div>
+        <aside className="today-rail">
+          <div className="session-card">
+            <div
+              className={`voice-mark ${assistant.isActive ? "voice-on" : ""}`}
+              aria-hidden="true"
+            >
+              {[9, 20, 32, 44, 32, 20, 9].map((h, i) => (
+                <i
+                  key={i}
+                  style={{ height: h, animationDelay: `${i * 90}ms` }}
+                />
+              ))}
+            </div>
+            <h2>Prefer to talk?</h2>
+            <p className="voice-explainer">
+              Speak naturally. OneBrain can answer questions or help you capture
+              a thought.
+            </p>
+            <div className="session-state">
+              <span
+                className={
+                  assistant.isActive ? "status-dot active" : "status-dot"
+                }
+              />
+              {starting
+                ? "Requesting microphone"
+                : assistant.isActive
+                  ? assistant.currentStatus
+                  : assistant.currentStatus === "paused"
+                    ? "Paused — microphone released"
+                    : "Ready when you are"}
+            </div>
+            <button
+              data-testid={assistant.isActive ? "stop-button" : "active-button"}
+              className="primary-button"
+              onClick={assistant.isActive ? assistant.stopActive : start}
+              disabled={starting}
+            >
+              {assistant.isActive
+                ? "■  Stop listening"
+                : assistant.currentStatus === "paused"
+                  ? "Resume talking"
+                  : "Start talking"}
+              <Icon name="mic" />
+            </button>
+            {starting && (
+              <button
+                className="text-button cancel-start"
+                onClick={() => {
+                  startAttemptRef.current += 1;
+                  assistant.stopActive();
+                  setStarting(false);
+                  setNotice("Microphone start cancelled.");
+                }}
+              >
+                Cancel microphone start
+              </button>
             )}
-            {workspace.receipts.slice(0, listLimit).map((r) => (
-              <article className="receipt" key={r.id}>
-                <div>
-                  <span className="receipt-status">
-                    {r.status === "verified-local"
-                      ? "✓ Verified locally"
-                      : r.status === "session-only"
-                        ? "◌ Session only"
-                        : "↶ Undone"}
-                  </span>
-                  <h3>{r.summary}</h3>
-                  <small>
-                    {new Date(r.at).toLocaleString()} · {r.destination}
-                  </small>
-                  <details>
-                    <summary>Receipt details</summary>
-                    <code>{r.id}</code>
-                    <p>
-                      {r.itemIds.length} affected record(s).{" "}
-                      {r.status === "verified-local"
-                        ? "Atomic IndexedDB transaction committed."
-                        : "See status above."}
-                    </p>
-                  </details>
+            <div className="session-options">
+              {assistant.isActive && (
+                <button className="text-button" onClick={assistant.pauseActive}>
+                  Pause session
+                </button>
+              )}
+              <button
+                className="text-button"
+                aria-pressed={!!state.settings.silentMode}
+                onClick={() =>
+                  state.updateSettings({
+                    silentMode: !state.settings.silentMode,
+                  })
+                }
+              >
+                {state.settings.silentMode
+                  ? "◌ Silent mode on"
+                  : "◌ Spoken replies on"}
+              </button>
+              {assistant.isActive && (
+                <button className="text-button" onClick={() => setPocket(true)}>
+                  Dark screen
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="next-up">
+            <div className="next-up-heading">
+              <h2>Next up</h2>
+              <span>{openTasks.length} open</span>
+            </div>
+            {openTasks.length ? (
+              openTasks.slice(0, 3).map((item) => (
+                <button
+                  className="next-up-item"
+                  key={item.id}
+                  onClick={() => setSelectedId(item.id)}
+                >
+                  <span className="task-outline" />
+                  <span>{item.title}</span>
+                  <Icon name="arrow" />
+                </button>
+              ))
+            ) : (
+              <>
+                <p>
+                  No open tasks. Start with just one thing you’d like to do.
+                </p>
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setCaptureKind("task");
+                    document.getElementById("capture-input")?.focus();
+                  }}
+                >
+                  Add a task
+                  <Icon name="arrow" />
+                </button>
+              </>
+            )}
+            <a href="/control?panel=reminders">
+              Manage reminders
+              <Icon name="arrow" />
+            </a>
+          </div>
+          <button
+            className="quick-preferences"
+            aria-label="Open settings"
+            onClick={() => setOverlay("settings")}
+          >
+            <Icon name="sliders" />
+            Quick preferences
+          </button>
+        </aside>
+      </div>
+      <section className="memory-section">
+        <div className="memory-heading">
+          <div>
+            <h2>Your memory</h2>
+            <p>
+              {workspace.items.length
+                ? `${workspace.items.length} ${state.settings.memoryEnabled ? "saved" : "session-only"} ${workspace.items.length === 1 ? "item" : "items"}. A little less to remember.`
+                : "The things you save will live here. No setup needed."}
+            </p>
+          </div>
+          <span className="storage-label">
+            <Icon name="lock" />
+            {offline ? "Offline · on this browser" : "On this browser"}
+          </span>
+        </div>
+        <div className="workspace-toolbar">
+          <div
+            className="view-tabs"
+            role="tablist"
+            aria-label="Workspace view"
+            onKeyDown={(event) => {
+              const tabs = Array.from(
+                event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                  '[role="tab"]',
+                ),
+              );
+              const index = tabs.indexOf(
+                document.activeElement as HTMLButtonElement,
+              );
+              const next =
+                event.key === "ArrowRight"
+                  ? (index + 1) % tabs.length
+                  : event.key === "ArrowLeft"
+                    ? (index - 1 + tabs.length) % tabs.length
+                    : event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? tabs.length - 1
+                        : -1;
+              if (next >= 0) {
+                event.preventDefault();
+                tabs[next].focus();
+                tabs[next].click();
+              }
+            }}
+          >
+            {(["canvas", "list", "today", "activity"] as const).map((v) => (
+              <button
+                role="tab"
+                id={`workspace-tab-${v}`}
+                aria-controls="workspace-panel"
+                tabIndex={view === v ? 0 : -1}
+                aria-selected={view === v}
+                key={v}
+                onClick={() => setView(v)}
+                className={view === v ? "selected" : ""}
+              >
+                {v === "canvas"
+                  ? "Context map"
+                  : v[0].toUpperCase() + v.slice(1)}
+                {v === "today" && <span>{openTasks.length}</span>}
+              </button>
+            ))}
+          </div>
+          <button
+            className={`conversation-toggle ${prefs.enabled ? "enabled" : ""}`}
+            onClick={() => setOverlay("settings")}
+          >
+            <Icon name="mic" />{" "}
+            {prefs.enabled ? "Open to conversation" : "Suggestions off"}
+          </button>
+        </div>
+        {(view === "canvas" || view === "list") && (
+          <div className="search-row">
+            <label>
+              <span aria-hidden="true">⌕</span>
+              <input
+                aria-label="Search your memory"
+                placeholder="Find a person, project, or thought…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+            <select
+              aria-label="Filter by type"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            >
+              <option value="all">All types</option>
+              {KINDS.map((k) => (
+                <option key={k}>{k}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {(notice || workspace.error || assistant.micNotice) && (
+          <div className="workspace-notice" role="status">
+            {notice || workspace.error || assistant.micNotice}
+            {workspace.error ||
+            /another tab|Reload the workspace/.test(notice) ? (
+              <button
+                className="text-button"
+                disabled={busy}
+                onClick={() =>
+                  attempt(async () => {
+                    if (
+                      confirm(
+                        "Reload saved records? Unsaved session-only changes will be lost.",
+                      )
+                    ) {
+                      await workspace.load(state.user?.id || "device");
+                      if (useWorkspaceStore.getState().error)
+                        throw new Error(useWorkspaceStore.getState().error!);
+                    }
+                  })
+                }
+              >
+                Reload workspace
+              </button>
+            ) : null}
+            <button
+              onClick={() => {
+                setNotice("");
+                state.setMicNotice(null);
+              }}
+              aria-label="Dismiss notice"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {!state.settings.memoryEnabled && (
+          <p className="privacy-strip">
+            Memory is off. New workspace changes stay in this session and are
+            lost on reload.
+          </p>
+        )}
+        <div
+          id="workspace-panel"
+          role="tabpanel"
+          aria-labelledby={`workspace-tab-${view}`}
+        >
+          {view === "canvas" && (
+            <ContextMap
+              items={visible}
+              select={setSelectedId}
+              filtered={!!query.trim() || filter !== "all"}
+              clearFilters={() => {
+                setQuery("");
+                setFilter("all");
+              }}
+              ready={workspace.ready}
+              memoryEnabled={state.settings.memoryEnabled}
+            />
+          )}
+          {view === "list" && (
+            <div className="record-list">
+              {!workspace.ready ? (
+                <div className="memory-loading" role="status">
+                  <span />
+                  <span />
+                  Opening your saved thoughts…
                 </div>
-                {r.status !== "undone" && r.operation !== "undo" && (
+              ) : visible.length ? (
+                visible.slice(0, listLimit).map((item) => (
                   <button
+                    key={item.id}
+                    className="record-row"
+                    onClick={() => setSelectedId(item.id)}
+                  >
+                    <span className="record-symbol">{SYMBOLS[item.kind]}</span>
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small>
+                        {item.kind} · {item.status} ·{" "}
+                        {new Date(item.createdAt).toLocaleDateString()}
+                      </small>
+                    </span>
+                    <span>↗</span>
+                  </button>
+                ))
+              ) : (
+                <div className="memory-empty">
+                  <Icon name={query || filter !== "all" ? "search" : "note"} />
+                  <h3>
+                    {query || filter !== "all"
+                      ? "Nothing matches yet."
+                      : "Your first thought starts something."}
+                  </h3>
+                  <p>
+                    {query || filter !== "all"
+                      ? "Try another word or clear the filters."
+                      : "Save a note, a task, or an idea above. You can edit it, connect it to another thought, or find it again here."}
+                  </p>
+                  {(query || filter !== "all") && (
+                    <button
+                      onClick={() => {
+                        setQuery("");
+                        setFilter("all");
+                      }}
+                    >
+                      Clear search & filters
+                    </button>
+                  )}
+                </div>
+              )}
+              {visible.length > listLimit && (
+                <button
+                  className="text-button amber load-more"
+                  onClick={() => setListLimit((n) => n + 50)}
+                >
+                  Show more · {visible.length - listLimit} remaining
+                </button>
+              )}
+            </div>
+          )}
+          {view === "today" && (
+            <section className="today-panel">
+              <span className="eyebrow">YOUR NEXT STEPS</span>
+              <h2>
+                {openTasks.length
+                  ? `${openTasks.length} things on your mind.`
+                  : "Room for what matters."}
+              </h2>
+              <p>{summarizeDay(workspace.items)}</p>
+              <div className="today-actions">
+                <button
+                  onClick={() => setNotice(summarizeDay(workspace.items))}
+                >
+                  What am I forgetting?
+                </button>
+                <button
+                  onClick={() => {
+                    setCaptureKind("dump");
+                    document.getElementById("capture-input")?.focus();
+                  }}
+                >
+                  Clear my head
+                </button>
+              </div>
+              {openTasks.map((i) => (
+                <div className="task-row" key={i.id}>
+                  <button
+                    aria-label={`Complete ${i.title}`}
                     disabled={busy}
                     onClick={() =>
                       attempt(
-                        () => workspace.undo(r.id),
+                        () => workspace.update(i.id, { status: "done" }),
                         state.settings.memoryEnabled
-                          ? "Action undone locally."
-                          : "Undone for this session only.",
+                          ? "Marked complete locally."
+                          : "Marked complete for this session only.",
                       )
                     }
                   >
-                    Undo
+                    ○
                   </button>
-                )}
-              </article>
-            ))}
-            {workspace.receipts.length > listLimit && (
-              <button
-                className="text-button amber load-more"
-                onClick={() => setListLimit((n) => n + 50)}
-              >
-                Show older actions · {workspace.receipts.length - listLimit}{" "}
-                remaining
-              </button>
-            )}
-            <details className="conversation-record">
-              <summary>Conversation record ({state.messages.length})</summary>
-              {state.messages.slice(-50).map((m) => (
-                <article key={m.id}>
+                  <button onClick={() => setSelectedId(i.id)}>{i.title}</button>
                   <small>
-                    {m.role === "user" ? "You" : "OneBrain"} ·{" "}
-                    {new Date(m.createdAt).toLocaleTimeString()}
+                    {i.due
+                      ? new Date(i.due).toLocaleDateString()
+                      : "No deadline"}
                   </small>
-                  <p>{m.content}</p>
-                  {m.meta && <small>{m.meta}</small>}
+                </div>
+              ))}
+              {Object.entries(totals).map(([currency, total]) => (
+                <div className="finance-total" key={currency}>
+                  {currency}: {total.expense.toFixed(2)} expenses ·{" "}
+                  {total.payment.toFixed(2)} payments logged{" "}
+                  <small>
+                    Recorded entries only. Not bank-verified balances.
+                  </small>
+                </div>
+              ))}
+            </section>
+          )}
+          {view === "activity" && (
+            <section className="activity-panel">
+              <span className="eyebrow">EVIDENCE, NOT JUST “DONE”</span>
+              <h2>Your action history.</h2>
+              <p>
+                Local receipts verify browser storage—not external services or
+                notification delivery.
+              </p>
+              {workspace.receipts.length === 0 && (
+                <div className="plain-empty">
+                  Your first saved action will appear here.
+                </div>
+              )}
+              {workspace.receipts.slice(0, listLimit).map((r) => (
+                <article className="receipt" key={r.id}>
+                  <div>
+                    <span className="receipt-status">
+                      {r.status === "verified-local"
+                        ? "✓ Verified locally"
+                        : r.status === "session-only"
+                          ? "◌ Session only"
+                          : "↶ Undone"}
+                    </span>
+                    <h3>{r.summary}</h3>
+                    <small>
+                      {new Date(r.at).toLocaleString()} · {r.destination}
+                    </small>
+                    <details>
+                      <summary>Receipt details</summary>
+                      <code>{r.id}</code>
+                      <p>
+                        {r.itemIds.length} affected record(s).{" "}
+                        {r.status === "verified-local"
+                          ? "Atomic IndexedDB transaction committed."
+                          : "See status above."}
+                      </p>
+                    </details>
+                  </div>
+                  {r.status !== "undone" && r.operation !== "undo" && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        attempt(
+                          () => workspace.undo(r.id),
+                          state.settings.memoryEnabled
+                            ? "Action undone locally."
+                            : "Undone for this session only.",
+                        )
+                      }
+                    >
+                      Undo
+                    </button>
+                  )}
                 </article>
               ))}
-            </details>
+              {workspace.receipts.length > listLimit && (
+                <button
+                  className="text-button amber load-more"
+                  onClick={() => setListLimit((n) => n + 50)}
+                >
+                  Show older actions · {workspace.receipts.length - listLimit}{" "}
+                  remaining
+                </button>
+              )}
+              <details className="conversation-record">
+                <summary>Conversation record ({state.messages.length})</summary>
+                {state.messages.slice(-50).map((m) => (
+                  <article key={m.id}>
+                    <small>
+                      {m.role === "user" ? "You" : "OneBrain"} ·{" "}
+                      {new Date(m.createdAt).toLocaleTimeString()}
+                    </small>
+                    <p>{m.content}</p>
+                    {m.meta && <small>{m.meta}</small>}
+                  </article>
+                ))}
+              </details>
+            </section>
+          )}
+        </div>
+        {assistant.proactiveInvitation && (
+          <section className="proactive-card" aria-live="polite">
+            <span className="eyebrow">AN OPTIONAL OPENING</span>
+            <p>{assistant.proactiveInvitation.permission}</p>
+            <small>{assistant.proactiveInvitation.reason}</small>
+            <div>
+              <button onClick={() => assistant.handleTranscript("yes")}>
+                Go ahead
+              </button>
+              <button onClick={() => assistant.handleTranscript("not now")}>
+                Not now · pause 30 min
+              </button>
+              <button onClick={() => assistant.handleTranscript("stop asking")}>
+                Turn off
+              </button>
+            </div>
           </section>
         )}
-      </div>
-      {assistant.proactiveInvitation && (
-        <section className="proactive-card" aria-live="polite">
-          <span className="eyebrow">AN OPTIONAL OPENING</span>
-          <p>{assistant.proactiveInvitation.permission}</p>
-          <small>{assistant.proactiveInvitation.reason}</small>
-          <div>
-            <button onClick={() => assistant.handleTranscript("yes")}>
-              Go ahead
-            </button>
-            <button onClick={() => assistant.handleTranscript("not now")}>
-              Not now · pause 30 min
-            </button>
-            <button onClick={() => assistant.handleTranscript("stop asking")}>
-              Turn off
-            </button>
-          </div>
-        </section>
-      )}
-      {assistant.sharedPreview&&<section className="proactive-card" aria-label="Review shared upload"><span className="eyebrow">REVIEW SHARED UPLOAD · NOT DEVICE-LOCAL</span><p>{assistant.sharedPreview.kind}: {assistant.sharedPreview.title}</p><small>Destination: {assistant.sharedPreview.spaceName}. Members will be able to read this. A reminder is saved only as an action draft, not an approved schedule.</small><div><button onClick={()=>assistant.handleTranscript('save shared')}>Save shared</button><button onClick={()=>assistant.handleTranscript('cancel')}>Discard upload</button><a href="/operations">Open Operations ↗</a></div></section>}
-      {assistant.capturePreview && (
-        <section className="proactive-card">
-          <span className="eyebrow">REVIEW VOICE CAPTURE</span>
-          {assistant.capturePreview.map((d, i) => (
-            <p key={i}>
-              {d.kind}: {d.title}
+        {assistant.sharedPreview && (
+          <section className="proactive-card" aria-label="Review shared upload">
+            <span className="eyebrow">
+              REVIEW SHARED UPLOAD · NOT DEVICE-LOCAL
+            </span>
+            <p>
+              {assistant.sharedPreview.kind}: {assistant.sharedPreview.title}
             </p>
-          ))}
-          <small>
-            Dates and relationships are not inferred. Open the saved item to set
-            them.
-          </small>
-          <div>
-            <button onClick={() => assistant.handleTranscript("save")}>
-              Save on this device
-            </button>
-            <button onClick={() => assistant.handleTranscript("cancel")}>
-              Discard
-            </button>
-          </div>
-        </section>
-      )}
-      {latest && (
-        <div className="last-response" aria-live="polite">
-          <span className="eyebrow">LATEST RESPONSE</span>
-          <p>{latest.content}</p>
-        </div>
-      )}
-      <footer className="workspace-footer">
-        <span>Your context. Your control.</span>
-        <div>
-          <a href="/settings/privacy">Privacy</a>
-          <a href="/settings/data-export">Export & delete</a>
-          <Link href="/reminders">Reminders</Link>
-          <a href="/settings/debug">Diagnostics</a>
-        </div>
+            <small>
+              Destination: {assistant.sharedPreview.spaceName}. Members will be
+              able to read this. A reminder is saved only as an action draft,
+              not an approved schedule.
+            </small>
+            <div>
+              <button onClick={() => assistant.handleTranscript("save shared")}>
+                Save shared
+              </button>
+              <button onClick={() => assistant.handleTranscript("cancel")}>
+                Discard upload
+              </button>
+              <a href="/control?panel=shared">Open Operations ↗</a>
+            </div>
+          </section>
+        )}
+        {assistant.capturePreview && (
+          <section className="proactive-card">
+            <span className="eyebrow">REVIEW VOICE CAPTURE</span>
+            {assistant.capturePreview.map((d, i) => (
+              <p key={i}>
+                {d.kind}: {d.title}
+              </p>
+            ))}
+            <small>
+              Dates and relationships are not inferred. Open the saved item to
+              set them.
+            </small>
+            <div>
+              <button onClick={() => assistant.handleTranscript("save")}>
+                Save on this device
+              </button>
+              <button onClick={() => assistant.handleTranscript("cancel")}>
+                Discard
+              </button>
+            </div>
+          </section>
+        )}
+      </section>
+      <footer className="home-footer">
+        <p>Made for your thoughts. Not another feed.</p>
+        <a href="/control">
+          All tools & preferences
+          <Icon name="arrow" />
+        </a>
       </footer>
 
       {drafts && (
@@ -1083,12 +1215,29 @@ export function NeuralWorkspace() {
       {overlay === "settings" && (
         <Overlay
           notice={notice}
-          title="Make it yours"
+          title="Quick preferences"
           close={() => setOverlay(null)}
         >
-          <nav className="settings-shortcuts" aria-label="Settings sections"><a href="/settings/account">Account</a><a href="/settings/voice">Voice & conversation</a><a href="/settings/privacy">Memory & privacy</a><a href="/settings/advanced">Advanced</a></nav>
-          <ConversationPreferences/>
-          <VoicePreferences/>
+          <nav className="settings-shortcuts" aria-label="Settings sections">
+            <a href="/control?panel=account">Account</a>
+            <a href="/control?panel=voice">Voice & conversation</a>
+            <a href="/control?panel=privacy">Memory & privacy</a>
+            <a href="/control?panel=advanced">Advanced</a>
+          </nav>
+          <p className="quick-settings-explainer">
+            Adjust the essentials here. All your tools and detailed preferences
+            live in <a href="/control">Your space</a>.
+          </p>
+          <button
+            className="text-button"
+            aria-label="Open connections"
+            onClick={() => setOverlay("connections")}
+          >
+            Connected apps & shared work
+            <Icon name="arrow" />
+          </button>
+          <ConversationPreferences />
+          <VoicePreferences />
           <section className="settings-section">
             <h3>Your data belongs to you</h3>
             <p>
@@ -1122,32 +1271,21 @@ export function NeuralWorkspace() {
                 Delete workspace
               </button>
             </div>
-            <a href="/settings/privacy">Memory, privacy & data controls ↗</a>
+            <a href="/control?panel=privacy">
+              Memory, privacy & data controls ↗
+            </a>
           </section>
         </Overlay>
       )}
       {overlay === "connections" && (
-        <Overlay title="Your tools, connected" close={() => setOverlay(null)}>
-          <p className="sheet-description">
-            Adapters are not live connections until you authorize them. Open Operations to connect tools, create shared workspaces, and review scheduled actions. Local canvas records are not uploaded automatically.
+        <Overlay title="Connected work" close={() => setOverlay(null)}>
+          <p>
+            Connect apps, create shared workspaces, and review scheduled actions
+            in Your space. Local notes are not uploaded automatically.
           </p>
-          <p><a href="/operations" className="primary-button">Open Operations ↗</a></p>
-          <div className="connection-grid">
-            {CONNECTORS.map(([name, purpose, requirement]) => (
-              <article key={name}>
-                <span className="eyebrow">CONFIGURE IN OPERATIONS</span>
-                <h3>{name}</h3>
-                <p>{purpose}</p>
-                <small>
-                  {requirement}. Free hosted APIs still have limits.
-                </small>
-              </article>
-            ))}
-          </div>
-          <p className="settings-footnote">
-            Local capture stays on this device. Operations uses a separately authenticated server workspace with adapters, approvals and durable jobs. See
-            docs/IMPLEMENTATION-STATUS.md for the full scope and remaining work.
-          </p>
+          <a className="primary-button" href="/control?panel=shared">
+            Open connected work
+          </a>
         </Overlay>
       )}
     </div>

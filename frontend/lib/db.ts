@@ -118,7 +118,10 @@ export async function deleteConversationLocal(id: string) {
 export async function clearAllLocal() {
   // A failed clear must roll back every table rather than partially delete data.
   await db.transaction('rw', db.tables, async () => {
-    for (const table of db.tables) await table.clear();
+    for (const table of db.tables) {
+      if (table.name === 'kv') await table.filter(row => row.key !== 'encrypted-vault:v1').delete();
+      else await table.clear();
+    }
   });
 }
 
@@ -131,5 +134,5 @@ export async function exportAllLocal() {
     db.brainItems.toArray(),
     db.actionReceipts.toArray(),
   ]);
-  return { conversations, messages, reminders, kv: kv.filter(row => !['localUsers', 'user'].includes(row.key)), brainItems, actionReceipts, exportedAt: new Date().toISOString() };
+  return { conversations, messages, reminders, kv: kv.filter(row => !['localUsers', 'user', 'encrypted-vault:v1'].includes(row.key)), brainItems, actionReceipts, exportedAt: new Date().toISOString() };
 }

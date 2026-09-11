@@ -1,3 +1,7 @@
+"use client";
+import { useContext } from "react";
+import Link from "next/link";
+import { ControlContext } from "../control/ControlContext";
 import type { ReactNode } from "react";
 import "./settings.css";
 export type SettingsSection = "account" | "voice" | "privacy" | "advanced";
@@ -18,6 +22,24 @@ export function SettingsShell({
   description: string;
   children: ReactNode;
 }) {
+  const embedded = useContext(ControlContext);
+  if (embedded)
+    return (
+      <div className="embedded-settings">
+        <nav className="settings-subnav" aria-label="Settings sections">
+          {sections.map(([key, label]) => (
+            <Link
+              key={key}
+              href={`/control?panel=${key}`}
+              aria-current={active === key ? "page" : undefined}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <div className="settings-content">{children}</div>
+      </div>
+    );
   return (
     <div className="settings-center">
       <header className="settings-heading">

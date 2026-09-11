@@ -58,21 +58,21 @@ test('explicit shared voice review uploads only after save shared and persists o
  await page.getByLabel('Capture type').selectOption('ask');await page.getByLabel('Capture a thought',{exact:true}).fill('shared task: Call shared client');await page.getByRole('button',{name:'Ask OneBrain',exact:true}).click();
  const review=page.getByRole('region',{name:'Review shared upload'});await expect(review).toContainText('Browser test studio');
  const before=await page.request.get('/api/platform/spaces');const space=(await before.json()).spaces[0].id;const records=await page.request.get(`/api/platform/spaces/${space}/records`);expect((await records.json()).records).toHaveLength(0);
- await review.getByRole('button',{name:'Save shared',exact:true}).click();await expect(review).toHaveCount(0);await expect(page.locator('.last-response')).toContainText('Saved one shared task');
+ await review.getByRole('button',{name:'Save shared',exact:true}).click();await expect(review).toHaveCount(0);await expect(page.getByRole('region',{name:'OneBrain response'})).toContainText('Saved one shared task');
  await page.goto('/operations');await expect(page.locator('.ops-record')).toContainText('Call shared client');
 });
 test('voice-created server reminders remain drafts until separately reviewed in Operations',async({page})=>{
  await signUp(page);await page.getByRole('button',{name:'Use for explicit shared voice drafts'}).click();await page.goto('/');
  await page.getByRole('button',{name:'Open settings'}).click();await page.getByRole('checkbox',{name:/^Silent Mode/}).check();await page.getByRole('button',{name:'Close dialog'}).click();
  await page.getByLabel('Capture type').selectOption('ask');await page.getByLabel('Capture a thought',{exact:true}).fill('server reminder: Review the shared proposal');await page.getByRole('button',{name:'Ask OneBrain',exact:true}).click();
- await page.getByRole('region',{name:'Review shared upload'}).getByRole('button',{name:'Save shared',exact:true}).click();await expect(page.locator('.last-response')).toContainText('not scheduled for execution');
+ await page.getByRole('region',{name:'Review shared upload'}).getByRole('button',{name:'Save shared',exact:true}).click();await expect(page.getByRole('region',{name:'OneBrain response'})).toContainText('not scheduled for execution');
  await page.goto('/operations');await page.getByRole('button',{name:'Actions & schedules',exact:true}).click();await expect(page.locator('.ops-job')).toContainText('draft');await expect(page.locator('.ops-job')).toContainText('Review the shared proposal');
 });
 
 test('only Google sign-in is offered and retired password routes cannot authenticate',async({page})=>{
  await page.goto('/auth/signup');await expect(page.getByRole('button',{name:'Continue with Google',exact:true})).toBeVisible();await expect(page.locator('input[type=password]')).toHaveCount(0);
  const response=await page.request.post('/api/platform/login',{data:{email:'old@example.test',password:'old-password'}});expect(response.status()).toBe(410);
- await page.goto('/api/auth/google/callback?state=forged&code=forged');await expect(page).toHaveURL(/auth\/login\?error=google/);await expect(page.getByRole('alert').filter({hasText:'Google sign-in was not completed'})).toBeVisible();
+ await page.goto('/api/auth/google/callback?state=forged&code=forged');await expect(page).toHaveURL(/control\?panel=account&error=google/);await expect(page.getByRole('alert').filter({hasText:'Google sign-in was not completed'})).toBeVisible();
  const hidden=await page.request.post('/api/platform/auth/google/start',{data:{}});expect(hidden.status()).toBe(404);
  const csrf=await page.request.post('/api/auth/google/start',{headers:{origin:'https://attacker.example'},data:{}});expect(csrf.status()).toBe(403);
 });

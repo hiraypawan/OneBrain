@@ -7,9 +7,10 @@ Updated 2026-09-11. This is the implemented authentication setup, not a producti
 ## Where to sign in and manage settings
 
 - The workspace header has a visible **Sign in** button for guests and **Account** for a server-verified session.
-- **Account** (`/settings/account`, also used by `/auth/login`) contains Google-only sign-in, current-session sign-out and confirmed all-session revocation. A cached local profile is not treated as authentication.
-- **Voice & conversation**, **Memory & privacy**, and **Advanced** are separate sections of the same settings interface. `/settings` redirects to Account; the old combined settings page is retired.
+- **Account** (`/control?panel=account`; old `/settings/account` and `/auth/login` URLs redirect here) contains Google-only sign-in, current-session sign-out and confirmed all-session revocation. A cached local profile is not treated as authentication.
+- **Voice & conversation**, **Memory & privacy**, and **Advanced** are panels within **Your space**, the second primary screen. `/settings` redirects to the Account panel; the old combined page is retired.
 - The optional Gemini API key belongs only in **Advanced**. It is not a Google sign-in credential. OAuth client secrets belong exclusively in private server configuration.
+- Today and Your space are the only primary destinations; see [UI design and feature homes](UI-DESIGN.md).
 - Settings and authentication entries use fresh-document navigation so an AI SDK previously loaded by the canvas does not remain in that page. Opening settings does not activate the microphone.
 
 ## 1. Create the Google OAuth application

@@ -5,6 +5,8 @@ Updated 2026-09-11. **Full 175/175 completion has not been reached.** The additi
 
 ## Current implemented paths
 
+- **Two-screen UI rework:** Today for first-use capture, questions, voice and saved-item views; Your space for searchable, lazy-loaded tool/settings panels. Old feature URLs redirect to their panel. See [design decisions and verification limits](UI-DESIGN.md). Public Appllama skills informed the rework; MCP access was unavailable.
+
 - Neural Canvas, local structured/linked capture, financial review, undo/export, responsive accessible controls and opt-in proactive conversation.
 - Discoverable Google sign-in and a unified Account / Voice & conversation / Memory & privacy / Advanced settings interface, including restyled export and diagnostics. Shared quick-setting controls, server-confirmed account states, failure-aware sign-out, transactional local database deletion and explicit microphone-only enrollment.
 - Pocket voice start/pause/resume/stop, optional active-session wake phrase, recognition aliases, Silent Mode and resource/cancellation guards. Real physical-device behavior is not certified.
@@ -15,8 +17,8 @@ Updated 2026-09-11. **Full 175/175 completion has not been reached.** The additi
 
 ## Latest verification
 
-- **193 frontend unit tests; 45 Workers tests; 42 production Chromium browser tests pass.** Desktop/mobile Operations and vault screenshots were reviewed with no page errors. Browser flows include explicit pause/resume, shared voice records/reminder drafts, persisted financial edits, approval-to-inbox delivery, reviewed linked import, mobile errors and vault isolation.
-- **Next 15.5.25 production build** passes, including the separate Account, Voice and Advanced settings routes. Frontend, Workers and legacy Express TypeScript checks pass. Express was typechecked, not used as the new shared-platform runtime.
+- **194 frontend unit tests; 45 Workers tests; 52 production Chromium browser tests pass.** Desktop/mobile Operations and vault screenshots were reviewed with no page errors. Browser flows include explicit pause/resume, shared voice records/reminder drafts, persisted financial edits, approval-to-inbox delivery, reviewed linked import, mobile errors and vault isolation.
+- **Next 15.5.25 production build** passes, including the two-screen UI and compatibility redirects into Your space. Frontend, Workers and legacy Express TypeScript checks pass. Express was typechecked, not used as the new shared-platform runtime.
 - Production dependency audits: **0 findings** for frontend, Workers and Express. Frontend/Workers development tooling still has **5 findings each (2 moderate, 3 high)**. No critical dependency finding remains. This is not an independent application-security audit.
 - Settings browser coverage includes 320px navigation, persisted preferences, cached-profile rejection, sign-out failures and all-session confirmation, exports/deletion confirmation, SDK document isolation, optional-key safeguards and cancelled/late microphone enrollment. Server identity tests use local fixtures, not real Google consent.
 - Migrations 0001–0005 applied to local D1 only. The local API and browser-independent development scheduler run separately from Next. CI now initializes and starts the real local API for browser tests.
