@@ -11,7 +11,7 @@ const STOP = new Set(
 
 export function keywords(text: string): string[] {
   const out: string[] = [];
-  for (const w of (text || '').toLowerCase().split(/[^a-z\u0900-\u097f]+/)) {
+  for (const w of (text || '').toLowerCase().split(/[^\p{L}\p{M}]+/u)) {
     if (w.length > 3 && !STOP.has(w) && !out.includes(w)) out.push(w);
   }
   return out.slice(0, 8);

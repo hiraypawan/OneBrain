@@ -42,7 +42,7 @@ export function digestMessages(
       timeAsks++;
       timeHours.push(d.getHours());
     }
-    for (const w of text.toLowerCase().split(/[^a-z\u0900-\u097f]+/)) {
+    for (const w of text.toLowerCase().split(/[^\p{L}\p{M}]+/u)) {
       if (w.length > 3 && !STOP.has(w)) freq.set(w, (freq.get(w) || 0) + 1);
     }
   }

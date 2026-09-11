@@ -1,49 +1,22 @@
-name: Deploy to Cloudflare
-# Push-to-deploy for everything (no dashboard clicking needed):
-#  - frontend/ changes -> static export -> onebrains.pages.dev
-#  - workers/api/** changes -> onebrain-api worker
-# One-time setup: GitHub repo -> Settings -> Secrets -> Actions -> add
-#   CLOUDFLARE_API_TOKEN (dash.cloudflare.com/profile/api-tokens ->
-#   Create Custom Token -> template "Edit Cloudflare Workers" -> also add
-#   Account | Cloudflare Pages | Edit -> Create, then paste the value).
-
+name: Cloudflare artifact check (no deployment)
+# The former push-to-main static export cannot serve Google OAuth or the API proxy.
+# This manual workflow builds artifacts only. Production deployment needs a separate reviewed release.
 on:
-  push:
-    branches: [main]
-
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  frontend:
+  artifacts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: node --version && npm --version && ls
+        with: { node-version: '22' }
+      - run: npm ci
         working-directory: frontend
-      - run: npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund --legacy-peer-deps
+      - run: npx opennextjs-cloudflare build
         working-directory: frontend
-      - run: PAGES_EXPORT=1 npm run build
-        working-directory: frontend
-        env:
-          NEXT_PUBLIC_API_URL: https://onebrain-api.pawanhiray88.workers.dev
-      - run: npx -y wrangler@4 pages deploy out --project-name onebrains --branch main
-        working-directory: frontend
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: a4e4e2bec6f7d6bf6a4dc03d732bbdc9
-
-  api:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+      - run: npm ci
         working-directory: workers/api
-      - run: npx -y wrangler@4 deploy
+      - run: npx wrangler deploy --dry-run
         working-directory: workers/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: a4e4e2bec6f7d6bf6a4dc03d732bbdc9

@@ -1,13 +1,14 @@
 import type { Metadata, Viewport } from 'next';
-import Script from 'next/script';
+import { ProviderScript } from '@/components/ProviderScript';
 import './globals.css';
+import './product.css';
 import { StoreHydrator } from '@/components/StoreHydrator';
 import { MainNav } from '@/components/MainNav';
 import { InstallPrompt } from '@/components/InstallPrompt';
 
 export const metadata: Metadata = {
-  title: 'OneBrain — Your AI in your earbuds',
-  description: 'Your personal AI assistant that lives in your earbuds',
+  title: 'OneBrain — A little less to remember',
+  description: 'Your voice-first assistant for notes, tasks and questions. Write or speak, review what gets saved, and find it again.',
   manifest: '/manifest.json',
 };
 
@@ -32,9 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StoreHydrator />
         <MainNav />
         <InstallPrompt />
-        <main className="max-w-3xl mx-auto p-4 tabbar-clearance">{children}</main>
+        <main className="app-main">{children}</main>
         {/* Keyless AI engine (Puter.js): loads after interactive, fails silently offline */}
-        <Script src="https://js.puter.com/v2/" strategy="lazyOnload" />
+        <ProviderScript />
         <script
           dangerouslySetInnerHTML={{
             // Error trap: keeps the last 5 page errors where Debug can show them.

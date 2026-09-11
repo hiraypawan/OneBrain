@@ -46,7 +46,7 @@ describe('askGemini', () => {
 
   it('falls through every model until one answers', async () => {
     const fetchMock = vi.fn(async (url: string) =>
-      String(url).includes('models/gemini-1.5-flash:')
+      String(url).includes('models/gemini-2.5-flash-lite:')
         ? geminiOk('fallback model reply')
         : { ok: false, status: 404, json: async () => ({}) }
     );
@@ -117,7 +117,7 @@ describe('askGemini', () => {
     vi.stubGlobal('fetch', fetchMock);
     const res = await askGemini('KEY', 'hello', []);
     expect(res.error).toMatch(/gemini-3\.6-flash/);
-    expect(res.error).toMatch(/gemini-1\.5-flash/);
+    expect(res.error).toMatch(/gemini-2\.5-flash-lite/);
     expect(res.error).toMatch(/Quota exceeded/);
   });
 });

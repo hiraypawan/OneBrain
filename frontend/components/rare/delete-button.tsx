@@ -21,20 +21,20 @@ const WALL_TOP_OPEN = 13.5;
 const WALL_BASE = 20;
 
 const TILE = 48;
-const PANEL = 84;
+const PANEL = 108;
 const HOLD = { deleted: 1400, kept: 600 };
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 const EASE_LID = [0.34, 1.1, 0.64, 1] as const;
 
-const WIDTH = { duration: 0.62, ease: EASE } as const;
-const LID = { duration: 0.6, ease: EASE_LID } as const;
-const WALL = { duration: 0.56, ease: EASE } as const;
-const IN = { duration: 0.44, ease: EASE, delay: 0.14 } as const;
+const WIDTH = { duration: 0.24, ease: EASE } as const;
+const LID = { duration: 0.24, ease: EASE_LID } as const;
+const WALL = { duration: 0.24, ease: EASE } as const;
+const IN = { duration: 0.24, ease: EASE, delay: 0 } as const;
 const OUT = { duration: 0.3, ease: EASE } as const;
 const TAP = { duration: 0.2, ease: EASE } as const;
 const SWAP = { duration: 0.22, ease: EASE } as const;
-const SETTLE = { duration: 0.45, ease: EASE } as const;
+const SETTLE = { duration: 0.24, ease: EASE } as const;
 const PRESS = {
   type: "spring",
   stiffness: 520,
@@ -52,7 +52,7 @@ const ACCENT = "#FF5F2E";
 const LIFT =
   "shadow-[0_0.5px_1px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08),inset_0_0.5px_0_rgba(255,255,255,0.9)] dark:shadow-[0_0.5px_1px_rgba(0,0,0,0.35),0_1.5px_4px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.07)]";
 
-const CIRCLE = `grid h-7 w-7 place-items-center rounded-full transition-colors duration-200 hover:bg-[#FAFAFD] dark:hover:bg-[#2C2C2C] ${FOCUS} ${SURFACE} ${LIFT}`;
+const CIRCLE = `grid h-11 w-11 place-items-center rounded-full transition-colors duration-200 hover:bg-[#FAFAFD] dark:hover:bg-[#2C2C2C] ${FOCUS} ${SURFACE} ${LIFT}`;
 
 const ICON = {
   viewBox: "0 0 24 24",
@@ -114,7 +114,7 @@ export type DeleteButtonProps = Omit<
   ComponentProps<"div">,
   "onAnimationStart" | "onDrag" | "onDragStart" | "onDragEnd"
 > & {
-  onConfirm?: () => void;
+  onConfirm?: () => void | Promise<void>;
   onCancel?: () => void;
 };
 
@@ -126,6 +126,9 @@ export function DeleteButton({
 }: DeleteButtonProps) {
   const reduced = useReducedMotion() ?? false;
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const [error, setError] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const trigger = useRef<HTMLButtonElement>(null);
   const timing = (transition: Transition) => (reduced ? INSTANT : transition);
@@ -157,11 +160,18 @@ export function DeleteButton({
     };
   }, [status, reduced, settle]);
 
-  const resolve = (next: Exclude<Status, "idle">) => {
+  const resolve = async (next: Exclude<Status, "idle">) => {
+    if (pending.current) return;
     setOpen(false);
-    setStatus(next);
+    setError("");
+    if (next === "deleted") {
+      pending.current = true;
+      setBusy(true);
+      try { await onConfirm?.(); setStatus("deleted"); }
+      catch { setError("Deletion failed. Nothing is claimed deleted; please retry."); setStatus("idle"); }
+      finally { pending.current = false; setBusy(false); }
+    } else { onCancel?.(); setStatus(next); }
     trigger.current?.focus();
-    (next === "deleted" ? onConfirm : onCancel)?.();
   };
 
   return (
@@ -180,7 +190,9 @@ export function DeleteButton({
       <motion.button
         ref={trigger}
         type="button"
-        aria-label="Delete"
+        aria-label={props["aria-label"] || "Delete"}
+        disabled={busy}
+        aria-busy={busy}
         aria-expanded={open}
         onClick={() => {
           if (open) return resolve("kept");
@@ -244,8 +256,9 @@ export function DeleteButton({
         </AnimatePresence>
       </motion.button>
 
+      {error && <span role="alert" className="delete-error">{error}</span>}
       <span role="status" aria-live="polite" className="sr-only">
-        {status === "deleted" ? "Deleted" : status === "kept" ? "Kept" : ""}
+        {busy ? "Deleting…" : status === "deleted" ? "Deleted" : status === "kept" ? "Kept" : ""}
       </span>
 
       <AnimatePresence>

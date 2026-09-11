@@ -1,3 +1,5 @@
+> Historical implementation notes from upstream. These are not independent verification of the current workspace build. See `docs/IMPLEMENTATION-STATUS.md` and `docs/DEVICE-VALIDATION.md` for current evidence and limitations.
+
 # OneBrain — What Was Built (Build Dossier, Sept 2026)
 
 ## 1. The idea in one paragraph

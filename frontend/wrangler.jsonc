@@ -4,8 +4,17 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-20",
   "workers_dev": true,
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
-  }
+  },
+  "services": [
+    {
+      "binding": "PLATFORM_API",
+      "service": "onebrain-api"
+    }
+  ]
 }

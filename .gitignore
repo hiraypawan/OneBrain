@@ -31,3 +31,10 @@ npm-debug.log*
 Thumbs.db
 coverage/
 .opencode/
+
+# Local verification artifacts
+.arena/
+test-results/
+playwright-report/
+*.tsbuildinfo
+edge-test-results/

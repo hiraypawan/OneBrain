@@ -1,4 +1,4 @@
-export type AssistantStatus = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
+export type AssistantStatus = 'idle' | 'listening' | 'processing' | 'speaking' | 'error' | 'paused';
 
 export interface User {
   id: string;
@@ -22,6 +22,10 @@ export interface Conversation {
 }
 
 export interface UserSettings {
+  wakePhrase?: boolean;
+  speechAliases?: Record<string,string>;
+  proactive?: import('./proactive').ProactivePreferences;
+  silentMode?: boolean;
   memoryEnabled: boolean;
   voiceSpeed: number;
   language: string;

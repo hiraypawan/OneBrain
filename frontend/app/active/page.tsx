@@ -1,3 +1,4 @@
+'use client';
 import dynamic from 'next/dynamic';
 
 // Client-only: the voice engine touches mic/speech APIs that don't exist on

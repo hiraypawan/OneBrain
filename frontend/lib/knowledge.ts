@@ -29,28 +29,24 @@ export function cleanWikiText(text: string, maxChars = 600): string {
 
 export async function fetchWikipedia(message: string): Promise<WikiAnswer | null> {
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 7000);
+    const signal = AbortSignal.timeout(7000);
     const api = 'https://en.wikipedia.org/w/api.php';
     const s = await fetch(
       `${api}?action=query&list=search&srsearch=${encodeURIComponent(message)}&srlimit=3&format=json&origin=*`,
-      { signal: ctrl.signal }
+      { signal }
     );
     if (!s.ok) {
-      clearTimeout(timer);
       return null;
     }
     const sj = await s.json();
     const hit = sj?.query?.search?.[0];
     if (!hit?.title) {
-      clearTimeout(timer);
       return null;
     }
     const e = await fetch(
       `${api}?action=query&prop=extracts&exintro&explaintext&exsentences=3&titles=${encodeURIComponent(hit.title)}&format=json&origin=*`,
-      { signal: ctrl.signal }
+      { signal }
     );
-    clearTimeout(timer);
     if (!e.ok) return null;
     const ej = await e.json();
     const pages = ej?.query?.pages || {};

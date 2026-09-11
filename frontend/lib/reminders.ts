@@ -8,8 +8,8 @@ export function localDayKey(d: Date = new Date()): string {
 }
 
 function toMinutes(hhmm: string): number | null {
-  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm || '');
-  if (!m) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || '');
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
@@ -73,10 +73,10 @@ export function parseReminderIntent(text: string, now: Date = new Date()): Remin
   if (rel) {
     const n = Number(rel[1]);
     if (n > 0 && n < 24 * 60) {
-      const mins = /hour|hr|ghanta/.test(rel[2]) ? n * 60 : n;
+      const mins = /hour|hr|ghant[ae]/.test(rel[2]) ? n * 60 : n;
       const at = new Date(now.getTime() + mins * 60000);
       const intent: ReminderIntent = { title: stripRemindPrefix(t), time: hhmm(at) };
-      if (dayKey(at) !== dayKey(now)) intent.date = dayKey(at);
+      intent.date = dayKey(at);
       return intent;
     }
   }
@@ -86,7 +86,7 @@ export function parseReminderIntent(text: string, now: Date = new Date()): Remin
   if (!tm) return null;
   let h = Number(tm[1]);
   const min = tm[2] ? Number(tm[2]) : 0;
-  if (h > 23 || min > 59) return null;
+  if (h > 23 || min > 59 || (tm[3] && (h < 1 || h > 12))) return null;
   const ampm = tm[3];
   const period = /subah|morning/.test(lower) ? 'morning'
     : /dopahar|dopaher|afternoon/.test(lower) ? 'afternoon'
@@ -99,9 +99,12 @@ export function parseReminderIntent(text: string, now: Date = new Date()): Remin
     else if (period !== 'morning' && h < 12) h += 12;
   }
   const intent: ReminderIntent = { title: stripRemindPrefix(t), time: `${pad2(h)}:${pad2(min)}` };
-  if (/kal|tomorrow/.test(lower)) {
-    const tom = new Date(now.getTime() + 86400000);
-    intent.date = dayKey(tom);
+  // Repeat only when explicitly requested. Local calendar arithmetic survives DST.
+  if (!/\b(daily|every day|roz|rozana)\b/.test(lower)) {
+    const at = new Date(now);
+    at.setHours(h, min, 0, 0);
+    if (/\b(kal|tomorrow)\b/.test(lower) || at <= now) at.setDate(at.getDate() + 1);
+    intent.date = dayKey(at);
   }
   return intent;
 }
@@ -125,14 +128,17 @@ export async function fireReminderNotification(title: string, body: string): Pro
     if (Notification.permission !== 'granted') return false;
     if ('serviceWorker' in navigator) {
       try {
-        const reg = await navigator.serviceWorker.ready;
-        await (reg as any).showNotification(title, {
+        // ready never resolves when no worker is registered (common on Safari).
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg?.active) {
+        await reg.showNotification(title, {
           body,
           icon: '/icon-192.png',
           tag: `reminder-${Date.now()}`,
           requireInteraction: true,
         });
         return true;
+        }
       } catch {}
     }
     new Notification(title, { body });

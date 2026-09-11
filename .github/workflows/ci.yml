@@ -1,19 +1,105 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/**']
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  build:
+  frontend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm audit
+      - run: npm test
+      - name: Validate free-tier budget model
+        run: node --test ../scripts/capacity-budget.test.mjs
+      - run: npm run lint
+      - name: Initialize isolated local platform database
+        run: |
+          npm --prefix ../workers/api ci
+          node ../scripts/setup-platform.mjs
+          npm --prefix ../workers/api run migrate:local
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:e2e
+        env:
+          CI: 'true'
+      - run: npm run test:compat
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-evidence
+          path: frontend/test-results/
+          retention-days: 7
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - run: npm ci
+      - run: npm audit
+      - run: npx tsc --noEmit
+      - run: npm test
+  workers:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
-      - run: node --version && npm --version && ls
-        working-directory: frontend
-      - run: npm ci --ignore-scripts || npm install --ignore-scripts
-        working-directory: frontend
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm audit
       - run: npm test
+
+  cloudflare-runtime:
+    runs-on: ubuntu-latest
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm --prefix frontend ci
+      - run: npm --prefix workers/api ci
+      - run: node scripts/setup-platform.mjs
+      - run: npm --prefix workers/api run migrate:local
+      - run: npm --prefix frontend run build:cloudflare
+      - run: npx wrangler deploy --dry-run
+        working-directory: workers/api
+      - run: npx playwright install --with-deps chromium
         working-directory: frontend
-      - run: npm run build
+      - run: npm run test:edge
         working-directory: frontend
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cloudflare-runtime-failure-evidence
+          path: frontend/edge-test-results/
+          retention-days: 7

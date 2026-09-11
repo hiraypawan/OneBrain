@@ -3,6 +3,7 @@ import type { AssistantStatus } from '@/lib/types';
 
 const color: Record<AssistantStatus, string> = {
   idle: 'bg-gray-600',
+  paused: 'bg-amber-600',
   listening: 'bg-green-500 animate-pulse',
   processing: 'bg-yellow-500 animate-spin',
   speaking: 'bg-blue-500 animate-pulse',

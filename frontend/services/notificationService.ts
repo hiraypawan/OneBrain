@@ -28,7 +28,7 @@ export async function showActiveNotification(): Promise<boolean> {
       ]);
       if (reg) {
         await (reg as any).showNotification(title, {
-          body: 'Listening... Tap to open. Stop ends the session.',
+          body: 'Voice session started. Open to check microphone status; Stop ends the session.',
           icon: '/icon-192.png',
           tag: 'onebrain-active',
           requireInteraction: true,
@@ -44,7 +44,7 @@ export async function showActiveNotification(): Promise<boolean> {
   try {
     if ('Notification' in window && Notification.permission === 'granted') {
       fallbackNote = new Notification(title, {
-        body: 'Listening... (dev fallback, no actions)',
+        body: 'Voice session started. Open the app to check microphone status.',
         icon: '/icon-192.png',
         tag: 'onebrain-active',
       });

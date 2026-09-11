@@ -1,4 +1,5 @@
 import Dexie, { Table } from 'dexie';
+import type { BrainItem, ActionReceipt } from './workspace/model';
 
 export interface StoredMessage {
   id?: number;
@@ -35,6 +36,8 @@ export interface StoredUser {
 }
 
 class OneBrainDB extends Dexie {
+  brainItems!: Table<BrainItem, string>;
+  actionReceipts!: Table<ActionReceipt, string>;
   conversations!: Table<StoredConversation, string>;
   messages!: Table<StoredMessage, number>;
   reminders!: Table<StoredReminder, string>;
@@ -73,6 +76,11 @@ class OneBrainDB extends Dexie {
             m.uuid = m.uuid || `db-${m.id}`;
           })
       );
+    // v4 adds workspace tables without rewriting legacy conversations.
+    this.version(4).stores({
+      brainItems: 'id, scope, kind, updatedAt',
+      actionReceipts: 'id, scope, at',
+    });
   }
 }
 
@@ -103,24 +111,30 @@ export async function getConversations(): Promise<StoredConversation[]> {
 }
 
 export async function deleteConversationLocal(id: string) {
-  await db.messages.where('conversationId').equals(id).delete();
-  await db.conversations.delete(id);
+  await db.transaction('rw', db.messages, db.conversations, async () => {
+    await db.messages.where('conversationId').equals(id).delete();
+    await db.conversations.delete(id);
+  });
 }
 
 export async function clearAllLocal() {
-  await db.messages.clear();
-  await db.conversations.clear();
-  await db.reminders.clear();
-  await db.pendingSync.clear();
-  await db.kv.clear();
+  // A failed clear must roll back every table rather than partially delete data.
+  await db.transaction('rw', db.tables, async () => {
+    for (const table of db.tables) {
+      if (table.name === 'kv') await table.filter(row => row.key !== 'encrypted-vault:v1').delete();
+      else await table.clear();
+    }
+  });
 }
 
 export async function exportAllLocal() {
-  const [conversations, messages, reminders, kv] = await Promise.all([
+  const [conversations, messages, reminders, kv, brainItems, actionReceipts] = await Promise.all([
     db.conversations.toArray(),
     db.messages.toArray(),
     db.reminders.toArray(),
     db.kv.toArray(),
+    db.brainItems.toArray(),
+    db.actionReceipts.toArray(),
   ]);
-  return { conversations, messages, reminders, kv, exportedAt: new Date().toISOString() };
+  return { conversations, messages, reminders, kv: kv.filter(row => !['localUsers', 'user', 'encrypted-vault:v1'].includes(row.key)), brainItems, actionReceipts, exportedAt: new Date().toISOString() };
 }
