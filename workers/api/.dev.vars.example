@@ -1,0 +1,14 @@
+# Prefer: node ../../scripts/setup-platform.mjs (creates random ignored local keys).
+# Never paste real credentials into source control or chat.
+JWT_SECRET=replace-with-an-independent-random-secret-at-least-32-characters
+# Base64 encoding of exactly 32 random bytes; not the JWT secret.
+TOKEN_ENCRYPTION_KEY=
+OUTBOUND_HOSTS=
+# Optional operator-owned OAuth app; no live connection exists by default.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_LOGIN_REDIRECT=http://localhost:3000/api/auth/google/callback
+# Separate optional Calendar/Sheets/Gmail connector callback:
+GOOGLE_CONNECT_REDIRECT=
+ENABLE_HOST_AI=0
+ENABLE_CLOUD_SPEECH=0

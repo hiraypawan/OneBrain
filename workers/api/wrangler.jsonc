@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "onebrain-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-06",
+  "workers_dev": true,
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "FRONTEND_URL": "https://onebrain.pawanhiray88.workers.dev,https://onebrain.pages.dev,https://onebrain.handcricket.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "onebrain-db",
+      "database_id": "820e6832-45d3-468b-852f-c6cb0b28f0a0",
+      "migrations_dir": "./migrations"
+    }
+  ]
+}
