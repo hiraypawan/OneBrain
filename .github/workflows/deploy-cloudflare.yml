@@ -102,22 +102,41 @@ jobs:
           fi
           cp -a .open-next/assets/. "$bundle"/
 
-          # Pages advanced mode needs a single root-level _worker.js. Deploying
-          # static-only would silently drop every /api/* route, so this fails
-          # instead of falling back.
-          for candidate in .open-next/worker.js .open-next/_worker.js .open-next/worker/index.js; do
-            if [ -f "$candidate" ]; then
-              cp "$candidate" "$bundle/_worker.js"
-              echo "Using $candidate as _worker.js"
-              break
-            fi
+          # Static files alone are not enough. OpenNext's worker.js is a thin ESM
+          # wrapper that imports sibling modules (./cloudflare/*, ./middleware/*,
+          # ./.build/durable-objects/*, ./server-functions/*). Pages bundles
+          # _worker.js with esbuild at deploy time, so every imported path must
+          # be uploaded alongside it or the bundle fails with
+          # "Could not resolve". Copy every sibling except assets, which is
+          # already at the root. dotglob is needed for ./.build.
+          shopt -s dotglob nullglob
+          for entry in .open-next/*; do
+            name="$(basename "$entry")"
+            case "$name" in
+              assets|worker.js) continue ;;
+            esac
+            cp -a "$entry" "$bundle/"
           done
-          if [ ! -f "$bundle/_worker.js" ]; then
+          shopt -u dotglob nullglob
+
+          if [ ! -f .open-next/worker.js ]; then
             echo "::error::No OpenNext Worker bundle found; Pages would deploy without server routes."
             exit 1
           fi
+          cp .open-next/worker.js "$bundle/_worker.js"
 
-          echo "Bundle assembled ($(du -sh "$bundle" | cut -f1))."
+          # Fail here with a clear message rather than letting the Pages build
+          # stage report an opaque esbuild "Could not resolve".
+          missing=""
+          while IFS= read -r spec; do
+            [ -e "$bundle/${spec#./}" ] || missing="$missing $spec"
+          done < <(grep -oE 'from "\./[^"]+"' "$bundle/_worker.js" | sed -E 's/^from "\.\///; s/"$//')
+          if [ -n "$missing" ]; then
+            echo "::error::_worker.js imports files missing from the bundle:$missing"
+            exit 1
+          fi
+
+          echo "Bundle assembled ($(du -sh "$bundle" | cut -f1), $(find "$bundle" -type f | wc -l) files)."
 
       # Runs from the directory holding the Pages config, so wrangler.jsonc is
       # the default-path config Pages requires. Neither --config nor a
