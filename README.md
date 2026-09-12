@@ -38,15 +38,26 @@ Older release notes are retained in [the historical archive](docs/ARCHIVED-READM
 
 ## Deploy (Cloudflare)
 
-GitHub Actions **Deploy to Cloudflare** runs on push to `main` and publishes:
+GitHub Actions **Deploy to Cloudflare** runs on push to `main` and publishes **one frontend target only**:
 
-- App: https://onebrain.pawanhiray88.workers.dev (OpenNext Worker, Google callback + platform proxy)
-- Pages Direct Upload: https://onebrains.pages.dev (and `onebrain.pages.dev` when that project exists)
-- API: Worker `onebrain-api` (private `PLATFORM_API` service binding; not a public workers.dev URL)
+- App: **https://onebrains.pages.dev** (Pages Direct Upload; this is the only public frontend domain this workflow writes to)
+- API: Worker `onebrain-api` (private `PLATFORM_API` service binding; `workers_dev` is disabled, so it has no public URL)
+
+The deploy is gated: the workflow asserts `https://onebrains.pages.dev/api/platform/capabilities` returns HTTP 200 after publishing, so a deployment that lands on a preview branch or loses its service binding turns the run red instead of silently serving a broken shell.
 
 Repo secret **`CLOUDFLARE_API_TOKEN`** is required (Cloudflare token template **Edit Cloudflare Workers**, plus **Account → Cloudflare Pages → Edit**). Optional secret/variable: `CLOUDFLARE_ACCOUNT_ID`.
 
+`frontend/pages-deploy/wrangler.jsonc` is the Pages project config and **must keep `pages_build_output_dir`**: without it Wrangler logs *"Ignoring configuration file for now"* and uploads the bundle with no bindings, which breaks every `/api/platform/*` request while the deploy still reports success. Its `PLATFORM_API` service binding is what lets the Pages build reach the private API Worker.
+
+It lives in its own directory for two reasons: `wrangler pages deploy` rejects `--config` ("Pages does not support custom paths for the Wrangler configuration file"), so the file must sit at a default path in the deploy's working directory; and the OpenNext Worker config at `frontend/wrangler.jsonc` declares `main`, which a Pages config must not.
+
 Cloudflare Dashboard **Create Pages project → Connect Git** does not build this monorepo by itself (Next.js lives in `frontend/`, the API is a separate Worker). Use the GitHub Action; do not re-enable `PAGES_EXPORT=1` static export — it cannot serve `/api/auth/google/*` or the platform proxy.
+
+Operator checks after changing the deploy target:
+
+- Cloudflare → Workers & Pages → `onebrains` → **Settings → Production branch** must be `main`, otherwise Direct Uploads land in Preview and `onebrains.pages.dev` is never updated.
+- Pages **must not** be Git-connected to this repo; Git integration and Direct Upload conflict.
+- The API Worker secret `GOOGLE_LOGIN_REDIRECT` must be exactly `https://onebrains.pages.dev/api/auth/google/callback`.
 
 ## Free-tier capacity
 

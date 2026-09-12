@@ -1,0 +1,32 @@
+{
+  // Cloudflare Pages project for https://onebrains.pages.dev
+  //
+  // WHY THIS FILE LIVES IN ITS OWN DIRECTORY:
+  // `wrangler pages deploy` rejects `--config` ("Pages does not support custom
+  // paths for the Wrangler configuration file"), so the Pages config must sit at
+  // a default path (wrangler.jsonc) in the directory the deploy runs from. The
+  // OpenNext Worker config stays at frontend/wrangler.jsonc — a config with
+  // `main` is a Worker config, and a Pages config must never declare `main`.
+  //
+  // WHY pages_build_output_dir IS MANDATORY:
+  // Without it Wrangler logs "Ignoring configuration file for now, and
+  // proceeding with project deploy" and uploads with NO bindings and no
+  // compatibility flags. That is exactly what broke this domain: the site served
+  // its shell while every /api/platform/* request returned 503, and the deploy
+  // still reported success. Do not remove this key.
+  "name": "onebrains",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-08-20",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  // Server-side transport for every /api/platform/* request. onebrain-api is a
+  // private Worker (workers_dev: false), so this binding is the only way the
+  // Pages build can reach the platform API.
+  "services": [
+    {
+      "binding": "PLATFORM_API",
+      "service": "onebrain-api"
+    }
+  ]
+}

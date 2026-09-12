@@ -1,12 +1,18 @@
 name: Deploy to Cloudflare
 
-# Auto-deploy on push. Cloudflare Dashboard Git integration cannot build this
-# OpenNext + API monorepo (app lives in frontend/, API in workers/api/).
-# GitHub Actions uses CLOUDFLARE_API_TOKEN to publish both Workers and the
-# Pages project (onebrains / onebrain) via Direct Upload.
+# Single frontend target: https://onebrains.pages.dev
+#
+# Cloudflare Dashboard Git integration cannot build this OpenNext + API monorepo
+# (the app lives in frontend/, the API in workers/api/), so GitHub Actions
+# publishes both Workers and the Pages project (Direct Upload) with
+# CLOUDFLARE_API_TOKEN. No other domain is published by this workflow.
+#
+# The Pages step reads frontend/pages-deploy/wrangler.jsonc, which declares the
+# PLATFORM_API service binding. Without that binding the site serves the shell
+# but every /api/platform/* request returns 503.
 on:
   push:
-    branches: [main, arena/01a09522-onebrain]
+    branches: [main, arena/01a09530-onebrain]
   workflow_dispatch:
 
 permissions:
@@ -23,6 +29,7 @@ env:
   CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
   CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || 'a4e4e2bec6f7d6bf6a4dc03d732bbdc9' }}
+  PUBLIC_URL: https://onebrains.pages.dev
 
 jobs:
   credentials:
@@ -30,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require API token
-        run: |
+        run: |-
           if [ -z "$CLOUDFLARE_API_TOKEN" ] && { [ -z "$CLOUDFLARE_API_KEY" ] || [ -z "$CLOUDFLARE_EMAIL" ]; }; then
             echo "::error::Missing Cloudflare credentials. Add repo secret CLOUDFLARE_API_TOKEN (Cloudflare Dashboard → My Profile → API Tokens → Edit Cloudflare Workers, and include Account.Cloudflare Pages.Edit). Optional: CLOUDFLARE_ACCOUNT_ID."
             exit 1
@@ -56,8 +63,10 @@ jobs:
         working-directory: workers/api
 
   frontend:
-    name: Deploy frontend Worker + Pages
-    needs: credentials
+    name: Deploy onebrains.pages.dev
+    # The Pages build resolves its PLATFORM_API service binding to onebrain-api,
+    # so the API must exist (and be current) before the frontend is published.
+    needs: [credentials, api]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -71,51 +80,87 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --no-audit --no-fund
         working-directory: frontend
+
       - name: Build OpenNext
         run: npx opennextjs-cloudflare build
         working-directory: frontend
-      - name: Publish onebrain Worker
-        id: worker
-        run: npx wrangler deploy --outdir .cf-bundle
-        working-directory: frontend
-      - name: Publish Cloudflare Pages projects
-        continue-on-error: true
+
+      # The bundle lands next to its Pages config so `wrangler pages deploy`
+      # resolves wrangler.jsonc from the working directory (Pages rejects
+      # --config).
+      - name: Assemble Pages bundle
         working-directory: frontend
         run: |
-          set -uo pipefail
-          bundle=".pages-bundle"
+          set -euo pipefail
+          bundle="pages-deploy/dist"
           rm -rf "$bundle"
           mkdir -p "$bundle"
-          if [ -d .open-next/assets ]; then cp -a .open-next/assets/. "$bundle"/; fi
-          if [ -f .cf-bundle/index.js ]; then
-            cp .cf-bundle/index.js "$bundle/_worker.js"
-          elif [ -f .cf-bundle/worker.js ]; then
-            cp .cf-bundle/worker.js "$bundle/_worker.js"
-          elif [ -f .open-next/worker.js ]; then
-            cp .open-next/worker.js "$bundle/_worker.js"
-          else
-            echo "No Worker bundle for Pages Direct Upload; Worker URL still published."
-            ls -la .cf-bundle .open-next || true
-            exit 0
+
+          if [ ! -d .open-next/assets ]; then
+            echo "::error::OpenNext produced no .open-next/assets directory."
+            exit 1
           fi
-          # Direct Upload updates onebrains.pages.dev. Git-connected Pages
-          # projects reject this and are skipped without failing the job.
-          status=0
-          for project in onebrains onebrain; do
-            if npx wrangler pages deploy "$bundle" --project-name "$project" --branch main --commit-dirty=true; then
-              echo "Published Pages project $project → https://${project}.pages.dev"
-            else
-              echo "Pages project $project was not updated (missing, or connected to Git instead of Direct Upload)."
-              status=1
+          cp -a .open-next/assets/. "$bundle"/
+
+          # Pages advanced mode needs a single root-level _worker.js. Deploying
+          # static-only would silently drop every /api/* route, so this fails
+          # instead of falling back.
+          for candidate in .open-next/worker.js .open-next/_worker.js .open-next/worker/index.js; do
+            if [ -f "$candidate" ]; then
+              cp "$candidate" "$bundle/_worker.js"
+              echo "Using $candidate as _worker.js"
+              break
             fi
           done
-          exit 0
-      - name: Deployment summary
-        if: always()
+          if [ ! -f "$bundle/_worker.js" ]; then
+            echo "::error::No OpenNext Worker bundle found; Pages would deploy without server routes."
+            exit 1
+          fi
+
+          echo "Bundle assembled ($(du -sh "$bundle" | cut -f1))."
+
+      # Runs from the directory holding the Pages config, so wrangler.jsonc is
+      # the default-path config Pages requires. Neither --config nor a
+      # positional directory is passed: the config supplies the project name,
+      # the output directory and the PLATFORM_API binding. Omitting
+      # --project-name is deliberate — if the config were ignored the deploy
+      # fails instead of silently publishing a binding-less bundle.
+      - name: Publish onebrains.pages.dev
+        working-directory: frontend/pages-deploy
         run: |
+          set -euo pipefail
+          npx wrangler pages deploy --branch main --commit-dirty=true
+
+      # A green publish is not proof the domain was updated: uploads to a
+      # non-production branch never reach the onebrains.pages.dev alias, and a
+      # missing service binding fails only at request time.
+      - name: Verify onebrains.pages.dev is live
+        run: |
+          set -uo pipefail
+          url="$PUBLIC_URL/api/platform/capabilities"
+          for attempt in $(seq 1 12); do
+            code=$(curl -sS -o /tmp/capabilities.json -w '%{http_code}' --max-time 20 "$url" || echo 000)
+            echo "attempt ${attempt}/12 → HTTP ${code}"
+            if [ "$code" = "200" ]; then
+              echo "PLATFORM_API service binding is reachable from the Pages deployment."
+              head -c 200 /tmp/capabilities.json; echo
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::${url} did not return 200 (last: ${code}). The deployment may have landed on a preview branch, or frontend/pages-deploy/wrangler.jsonc is not supplying the PLATFORM_API binding. Check Cloudflare → Workers & Pages → onebrains → Settings → Production branch."
+          exit 1
+
+      - name: Report deployed commit
+        if: always()
+        working-directory: frontend/pages-deploy
+        run: |
+          npx wrangler pages deployment list --project-name onebrains > /tmp/deployments.txt 2>&1 || true
+          echo "### onebrains.pages.dev" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          head -20 /tmp/deployments.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "deployment list unavailable" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
           {
-            echo "### Cloudflare"
-            echo "- App Worker: https://onebrain.pawanhiray88.workers.dev"
-            echo "- Pages: https://onebrains.pages.dev and https://onebrain.pages.dev"
-            echo "- API Worker: \`onebrain-api\` (private service binding)"
+            echo "- Expected commit: \`${GITHUB_SHA}\`"
+            echo "- URL: ${PUBLIC_URL}"
           } >> "$GITHUB_STEP_SUMMARY"
