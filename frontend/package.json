@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "test:compat": "playwright test --config playwright.compat.config.ts",
     "test:edge": "playwright test --config playwright.edge.config.ts",
-    "build:cloudflare": "opennextjs-cloudflare build"
+    "build:cloudflare": "opennextjs-cloudflare build",
+    "deploy": "opennextjs-cloudflare build && wrangler deploy"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.3",

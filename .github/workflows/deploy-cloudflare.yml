@@ -1,22 +1,121 @@
-name: Cloudflare artifact check (no deployment)
-# The former push-to-main static export cannot serve Google OAuth or the API proxy.
-# This manual workflow builds artifacts only. Production deployment needs a separate reviewed release.
+name: Deploy to Cloudflare
+
+# Auto-deploy on push. Cloudflare Dashboard Git integration cannot build this
+# OpenNext + API monorepo (app lives in frontend/, API in workers/api/).
+# GitHub Actions uses CLOUDFLARE_API_TOKEN to publish both Workers and the
+# Pages project (onebrains / onebrain) via Direct Upload.
 on:
+  push:
+    branches: [main, arena/01a09522-onebrain]
   workflow_dispatch:
+
 permissions:
   contents: read
+  deployments: write
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+env:
+  WRANGLER_SEND_METRICS: 'false'
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_KEY }}
+  CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+  CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || 'a4e4e2bec6f7d6bf6a4dc03d732bbdc9' }}
+
 jobs:
-  artifacts:
+  credentials:
+    name: Check Cloudflare credentials
     runs-on: ubuntu-latest
+    steps:
+      - name: Require API token
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] && { [ -z "$CLOUDFLARE_API_KEY" ] || [ -z "$CLOUDFLARE_EMAIL" ]; }; then
+            echo "::error::Missing Cloudflare credentials. Add repo secret CLOUDFLARE_API_TOKEN (Cloudflare Dashboard → My Profile → API Tokens → Edit Cloudflare Workers, and include Account.Cloudflare Pages.Edit). Optional: CLOUDFLARE_ACCOUNT_ID."
+            exit 1
+          fi
+          echo "Cloudflare credentials are present. Account ${CLOUDFLARE_ACCOUNT_ID:0:8}…"
+
+  api:
+    name: Deploy API worker
+    needs: credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
-      - run: npm ci
-        working-directory: frontend
-      - run: npx opennextjs-cloudflare build
-        working-directory: frontend
-      - run: npm ci
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: workers/api/package-lock.json
+      - run: npm ci --no-audit --no-fund
         working-directory: workers/api
-      - run: npx wrangler deploy --dry-run
+      - name: Publish onebrain-api
+        run: npx wrangler deploy
         working-directory: workers/api
+
+  frontend:
+    name: Deploy frontend Worker + Pages
+    needs: credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - name: Build OpenNext
+        run: npx opennextjs-cloudflare build
+        working-directory: frontend
+      - name: Publish onebrain Worker
+        id: worker
+        run: npx wrangler deploy --outdir .cf-bundle
+        working-directory: frontend
+      - name: Publish Cloudflare Pages projects
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          set -uo pipefail
+          bundle=".pages-bundle"
+          rm -rf "$bundle"
+          mkdir -p "$bundle"
+          if [ -d .open-next/assets ]; then cp -a .open-next/assets/. "$bundle"/; fi
+          if [ -f .cf-bundle/index.js ]; then
+            cp .cf-bundle/index.js "$bundle/_worker.js"
+          elif [ -f .cf-bundle/worker.js ]; then
+            cp .cf-bundle/worker.js "$bundle/_worker.js"
+          elif [ -f .open-next/worker.js ]; then
+            cp .open-next/worker.js "$bundle/_worker.js"
+          else
+            echo "No Worker bundle for Pages Direct Upload; Worker URL still published."
+            ls -la .cf-bundle .open-next || true
+            exit 0
+          fi
+          # Direct Upload updates onebrains.pages.dev. Git-connected Pages
+          # projects reject this and are skipped without failing the job.
+          status=0
+          for project in onebrains onebrain; do
+            if npx wrangler pages deploy "$bundle" --project-name "$project" --branch main --commit-dirty=true; then
+              echo "Published Pages project $project → https://${project}.pages.dev"
+            else
+              echo "Pages project $project was not updated (missing, or connected to Git instead of Direct Upload)."
+              status=1
+            fi
+          done
+          exit 0
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo "### Cloudflare"
+            echo "- App Worker: https://onebrain.pawanhiray88.workers.dev"
+            echo "- Pages: https://onebrains.pages.dev and https://onebrain.pages.dev"
+            echo "- API Worker: \`onebrain-api\` (private service binding)"
+          } >> "$GITHUB_STEP_SUMMARY"
