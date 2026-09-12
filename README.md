@@ -51,6 +51,8 @@ Repo secret **`CLOUDFLARE_API_TOKEN`** is required (Cloudflare token template **
 
 It lives in its own directory for two reasons: `wrangler pages deploy` rejects `--config` ("Pages does not support custom paths for the Wrangler configuration file"), so the file must sit at a default path in the deploy's working directory; and the OpenNext Worker config at `frontend/wrangler.jsonc` declares `main`, which a Pages config must not.
 
+The assembled bundle must carry **all** of `.open-next`, not just `assets/` and `worker.js`: `worker.js` is a thin ESM wrapper whose relative imports (`./cloudflare/*`, `./middleware/handler.mjs`, `./.build/durable-objects/*`, `./server-functions/default/handler.mjs`) are resolved by Pages' esbuild step from the uploaded directory. Uploading only the wrapper fails the build with `Could not resolve` for each missing path. The workflow copies every sibling and pre-checks the imports.
+
 Cloudflare Dashboard **Create Pages project → Connect Git** does not build this monorepo by itself (Next.js lives in `frontend/`, the API is a separate Worker). Use the GitHub Action; do not re-enable `PAGES_EXPORT=1` static export — it cannot serve `/api/auth/google/*` or the platform proxy.
 
 Operator checks after changing the deploy target:
