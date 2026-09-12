@@ -7,7 +7,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev": "wrangler dev --local --ip 0.0.0.0 --port 8787 --test-scheduled",
-    "migrate:local": "wrangler d1 migrations apply onebrain-db --local"
+    "migrate:local": "wrangler d1 migrations apply onebrain-db --local",
+    "deploy": "wrangler deploy"
   },
   "keywords": [],
   "author": "",

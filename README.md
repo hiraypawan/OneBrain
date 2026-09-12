@@ -3,7 +3,7 @@
 > **Google-only authentication:** Account sign-up/sign-in now uses Google. See [secure setup steps](docs/GOOGLE-AUTH-SETUP.md) and [PR/release gates](docs/PR-RELEASE-GATES.md). Password login is retired; live Google configuration is still required.
 > **Build status:** Neural Canvas, pocket voice, opt-in proactive conversation, local encrypted vault, utilities, and a real local D1-backed shared platform are implemented within the documented limits. **The full 175-item product scope is not complete.** See the [numbered requirement ledger](docs/IMPLEMENTATION-STATUS.md).
 >
-> Start the full stack with the [platform setup guide](docs/PLATFORM-SETUP.md). No production deployment, remote migration, paid API activation, or live connector authorization was performed.
+> Start the full stack with the [platform setup guide](docs/PLATFORM-SETUP.md). Push to `main` auto-deploys the OpenNext app Worker and API Worker through GitHub Actions (`CLOUDFLARE_API_TOKEN`). Remote D1 migrations, Google OAuth secrets, paid API activation, and live connector authorization remain operator steps.
 
 ## Working surfaces
 
@@ -35,6 +35,18 @@ npm --prefix frontend run test:e2e
 ```
 
 Older release notes are retained in [the historical archive](docs/ARCHIVED-README.md), not as current capability claims.
+
+## Deploy (Cloudflare)
+
+GitHub Actions **Deploy to Cloudflare** runs on push to `main` and publishes:
+
+- App: https://onebrain.pawanhiray88.workers.dev (OpenNext Worker, Google callback + platform proxy)
+- Pages Direct Upload: https://onebrains.pages.dev (and `onebrain.pages.dev` when that project exists)
+- API: Worker `onebrain-api` (private `PLATFORM_API` service binding; not a public workers.dev URL)
+
+Repo secret **`CLOUDFLARE_API_TOKEN`** is required (Cloudflare token template **Edit Cloudflare Workers**, plus **Account → Cloudflare Pages → Edit**). Optional secret/variable: `CLOUDFLARE_ACCOUNT_ID`.
+
+Cloudflare Dashboard **Create Pages project → Connect Git** does not build this monorepo by itself (Next.js lives in `frontend/`, the API is a separate Worker). Use the GitHub Action; do not re-enable `PAGES_EXPORT=1` static export — it cannot serve `/api/auth/google/*` or the platform proxy.
 
 ## Free-tier capacity
 

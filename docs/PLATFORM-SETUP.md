@@ -51,7 +51,7 @@ The first four migrations create the original schema, the platform/relationship/
 **2026-09-11 free-tier update:** Follow [FREE-TIER-CAPACITY.md](FREE-TIER-CAPACITY.md) for migration 0006 and deployment order. The Cloudflare frontend now uses a private `PLATFORM_API` service binding; the API disables its public workers.dev/preview URLs. `PLATFORM_API_URL` remains for plain Next.js/local development. Default scheduling is every five minutes, two candidates per tick. Do not disable an existing public API before verifying the replacement binding.
 
 
-No deployment or remote database operation was performed in this session. Before deploying, an operator must select the correct Cloudflare account/database, back up existing data, review all migrations and legacy account interactions, configure secrets through the provider's secret manager, and test in an isolated staging environment. Do not blindly deploy using the historical database ID already in the repository.
+GitHub Actions deploys the API Worker and OpenNext frontend on push to `main` using `CLOUDFLARE_API_TOKEN`. That publish step does **not** apply remote D1 migrations or write Google/API secrets. Before treating a deploy as production, an operator must select the correct Cloudflare account/database, back up existing data, review all migrations and legacy account interactions, configure secrets through the provider's secret manager, and test in an isolated staging environment. Do not blindly migrate using the historical database ID already in the repository.
 
 | Setting | Location and purpose |
 | --- | --- |

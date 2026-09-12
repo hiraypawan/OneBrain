@@ -26,5 +26,5 @@ A draft PR blocks normal merging until marked ready, but it does not replace bra
 - [ ] Back up existing D1 data and approve the Google-only cutover. Existing unlinked email accounts need an operator-reviewed identity migration; no automatic email linking is allowed.
 - [ ] Test live authorized connectors, real devices, deployment infrastructure and remaining security/privacy controls.
 - [ ] Resolve or explicitly risk-review development dependency findings and independent application-security findings.
-- [ ] Replace the historical static-export deployment with a reviewed server-capable frontend release process. The supplied manual workflow builds artifacts only and never deploys.
+- [ ] Confirm GitHub Actions **Deploy to Cloudflare** published the OpenNext Worker (not a static `PAGES_EXPORT` site) and that Google OAuth secrets/callback match the live origin.
 - [ ] Keep the remaining requirements in `IMPLEMENTATION-STATUS.md` open. SSO/SAML login is superseded by the owner's Google-only authentication instruction; enterprise administration, broader workflows, billing/entitlements and other unfinished software are not completed by this PR.

@@ -84,9 +84,9 @@ Refresh `/auth/login` or `/operations`. **Continue with Google** stays disabled 
 
 In Cloudflare Dashboard → Workers & Pages → **the API Worker** → Settings → Variables and Secrets, add the client ID, client secret, exact login redirect and independent encryption key. Store `GOOGLE_CLIENT_SECRET` and `TOKEN_ENCRYPTION_KEY` as secrets. Alternatively, from `workers/api`, an authorized operator can use interactive `npx wrangler secret put GOOGLE_CLIENT_SECRET` and equivalent commands. Never pass a real secret as a shell command-line argument.
 
-The frontend runtime needs its **server-only** `PLATFORM_API_URL` pointing at the deployed API HTTPS origin. The client secret lives on the API Worker, not the browser. Google login requires a server-capable frontend (Next server/OpenNext); the historical static Pages export cannot serve the callback/proxy.
+The frontend runtime uses the private `PLATFORM_API` service binding in production. The client secret lives on the API Worker, not the browser. Google login requires a server-capable frontend (Next server/OpenNext); the historical static Pages export cannot serve the callback/proxy.
 
-**No remote migration, Worker deployment or Google authorization has been performed by this change.** Review backups, migrations, permissions and release gates before any production operation. The old automatic push-to-main deployment has been replaced by a manual artifact-only check.
+Push to `main` auto-deploys the OpenNext Worker and API Worker via GitHub Actions. **Remote D1 migrations and Google authorization are still operator steps** — review backups, migrations, permissions and release gates before treating a deploy as a production cutover. Add the production callback `https://YOUR-APP-DOMAIN/api/auth/google/callback` in Google Cloud.
 
 `GOOGLE_CONNECT_REDIRECT` is separate. Only configure it when enabling Calendar/Sheets/Gmail connections; its callback is `/api/platform/oauth/google/callback`, not the sign-in callback above.
 
