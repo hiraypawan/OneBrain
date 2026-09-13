@@ -10,7 +10,7 @@
     ]
   },
   "vars": {
-    "FRONTEND_URL": "https://onebrain.pawanhiray88.workers.dev,https://onebrain.pages.dev,https://onebrain.handcricket.com",
+    "FRONTEND_URL": "https://onebrains.pages.dev",
     "PLATFORM_MODE": "normal",
     "SCHEDULED_JOB_BATCH_SIZE": "2"
   },
