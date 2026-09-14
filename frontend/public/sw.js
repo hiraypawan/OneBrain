@@ -1,6 +1,6 @@
 /* OneBrain: cache public app shells and immutable assets only.
    APIs, RSC navigation payloads and development chunks are never cache-first. */
-const CACHE = "onebrain-workspace-v6";
+const CACHE = "onebrain-workspace-v7";
 const CORE = ["/offline", "/manifest.json", "/icon-192.png"];
 
 self.addEventListener("install", (event) => {

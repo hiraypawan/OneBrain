@@ -40,10 +40,10 @@ Older release notes are retained in [the historical archive](docs/ARCHIVED-READM
 
 GitHub Actions **Deploy to Cloudflare** runs on push to `main` and publishes **one frontend target only**:
 
-- App: **https://onebrains.pages.dev** (Pages Direct Upload; this is the only public frontend domain this workflow writes to)
+- App: **https://onebrains.pages.dev** (Pages alias of OpenNext Worker `onebrain`; this is the only public frontend domain this workflow writes to)
 - API: Worker `onebrain-api` (private `PLATFORM_API` service binding; `workers_dev` is disabled, so it has no public URL)
 
-The deploy is gated: the workflow asserts `https://onebrains.pages.dev/api/platform/capabilities` returns HTTP 200 after publishing, so a deployment that lands on a preview branch or loses its service binding turns the run red instead of silently serving a broken shell.
+The deploy is gated: capabilities must return HTTP 200 **and** `/_next/static/*.css` must load. A Pages upload of OpenNext without ASSETS serves HTML with no CSS (unstyled phone UI) while the Worker URL still looks correct.
 
 Repo secret **`CLOUDFLARE_API_TOKEN`** is required (Cloudflare token template **Edit Cloudflare Workers**, plus **Account → Cloudflare Pages → Edit**). Optional secret/variable: `CLOUDFLARE_ACCOUNT_ID`.
 

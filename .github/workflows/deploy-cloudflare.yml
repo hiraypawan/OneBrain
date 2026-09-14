@@ -2,14 +2,9 @@ name: Deploy to Cloudflare
 
 # Single frontend target: https://onebrains.pages.dev
 #
-# Cloudflare Dashboard Git integration cannot build this OpenNext + API monorepo
-# (the app lives in frontend/, the API in workers/api/), so GitHub Actions
-# publishes both Workers and the Pages project (Direct Upload) with
-# CLOUDFLARE_API_TOKEN. No other domain is published by this workflow.
-#
-# The Pages step reads frontend/pages-deploy/wrangler.jsonc, which declares the
-# PLATFORM_API service binding. Without that binding the site serves the shell
-# but every /api/platform/* request returns 503.
+# OpenNext is published as Worker `onebrain` (ASSETS + PLATFORM_API). Pages
+# Direct Upload only aliases onebrains.pages.dev onto that Worker. Uploading
+# OpenNext as Pages `_worker.js` drops ASSETS and serves unstyled HTML.
 on:
   push:
     branches: [main]
@@ -67,8 +62,7 @@ jobs:
 
   frontend:
     name: Deploy onebrains.pages.dev
-    # The Pages build resolves its PLATFORM_API service binding to onebrain-api,
-    # so the API must exist (and be current) before the frontend is published.
+    # OpenNext Worker first (CSS via ASSETS + PLATFORM_API), then Pages alias.
     needs: [credentials, api]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -88,74 +82,27 @@ jobs:
         run: npx opennextjs-cloudflare build
         working-directory: frontend
 
-      # The bundle lands next to its Pages config so `wrangler pages deploy`
-      # resolves wrangler.jsonc from the working directory (Pages rejects
-      # --config).
-      - name: Assemble Pages bundle
+      - name: Publish OpenNext Worker
+        run: npx wrangler deploy
+        working-directory: frontend
+
+      # Pages cannot host the OpenNext Worker (no ASSETS binding → unstyled HTML).
+      # Dist is only the alias _worker.js that forwards to service onebrain.
+      - name: Assemble Pages alias
         working-directory: frontend
         run: |
           set -euo pipefail
           bundle="pages-deploy/dist"
           rm -rf "$bundle"
           mkdir -p "$bundle"
+          cp pages-deploy/_worker.js "$bundle/_worker.js"
 
-          if [ ! -d .open-next/assets ]; then
-            echo "::error::OpenNext produced no .open-next/assets directory."
-            exit 1
-          fi
-          cp -a .open-next/assets/. "$bundle"/
-
-          # Static files alone are not enough. OpenNext's worker.js is a thin ESM
-          # wrapper that imports sibling modules (./cloudflare/*, ./middleware/*,
-          # ./.build/durable-objects/*, ./server-functions/*). Pages bundles
-          # _worker.js with esbuild at deploy time, so every imported path must
-          # be uploaded alongside it or the bundle fails with
-          # "Could not resolve". Copy every sibling except assets, which is
-          # already at the root. dotglob is needed for ./.build.
-          shopt -s dotglob nullglob
-          for entry in .open-next/*; do
-            name="$(basename "$entry")"
-            case "$name" in
-              assets|worker.js) continue ;;
-            esac
-            cp -a "$entry" "$bundle/"
-          done
-          shopt -u dotglob nullglob
-
-          if [ ! -f .open-next/worker.js ]; then
-            echo "::error::No OpenNext Worker bundle found; Pages would deploy without server routes."
-            exit 1
-          fi
-          cp .open-next/worker.js "$bundle/_worker.js"
-
-          # Fail here with a clear message rather than letting the Pages build
-          # stage report an opaque esbuild "Could not resolve".
-          missing=""
-          while IFS= read -r spec; do
-            [ -e "$bundle/${spec#./}" ] || missing="$missing $spec"
-          done < <(grep -oE 'from "\./[^"]+"' "$bundle/_worker.js" | sed -E 's/^from "\.\///; s/"$//')
-          if [ -n "$missing" ]; then
-            echo "::error::_worker.js imports files missing from the bundle:$missing"
-            exit 1
-          fi
-
-          echo "Bundle assembled ($(du -sh "$bundle" | cut -f1), $(find "$bundle" -type f | wc -l) files)."
-
-      # Runs from the directory holding the Pages config, so wrangler.jsonc is
-      # the default-path config Pages requires. Neither --config nor a
-      # positional directory is passed: the config supplies the project name,
-      # the output directory and the PLATFORM_API binding. Omitting
-      # --project-name is deliberate — if the config were ignored the deploy
-      # fails instead of silently publishing a binding-less bundle.
       - name: Publish onebrains.pages.dev
         working-directory: frontend/pages-deploy
         run: |
           set -euo pipefail
           npx wrangler pages deploy --branch main --commit-dirty=true
 
-      # A green publish is not proof the domain was updated: uploads to a
-      # non-production branch never reach the onebrains.pages.dev alias, and a
-      # missing service binding fails only at request time.
       - name: Verify onebrains.pages.dev is live
         run: |
           set -uo pipefail
@@ -164,13 +111,31 @@ jobs:
             code=$(curl -sS -o /tmp/capabilities.json -w '%{http_code}' --max-time 20 "$url" || echo 000)
             echo "attempt ${attempt}/12 → HTTP ${code}"
             if [ "$code" = "200" ]; then
-              echo "PLATFORM_API service binding is reachable from the Pages deployment."
+              echo "PLATFORM_API is reachable through the Pages alias."
               head -c 200 /tmp/capabilities.json; echo
-              exit 0
+              break
+            fi
+            if [ "$attempt" = "12" ]; then
+              echo "::error::${url} did not return 200 (last: ${code}). Check APP binding to Worker onebrain and Pages production branch main."
+              exit 1
             fi
             sleep 10
           done
-          echo "::error::${url} did not return 200 (last: ${code}). The deployment may have landed on a preview branch, or frontend/pages-deploy/wrangler.jsonc is not supplying the PLATFORM_API binding. Check Cloudflare → Workers & Pages → onebrains → Settings → Production branch."
+          html=""
+          for attempt in $(seq 1 8); do
+            html=$(curl -sS --max-time 20 "$PUBLIC_URL/" || true)
+            css=$(printf '%s' "$html" | grep -oE '/_next/static/[^"[:space:]]+\.css' | head -1 || true)
+            if [ -n "$css" ]; then
+              ccode=$(curl -sS -o /tmp/app.css -w '%{http_code}' --max-time 20 "$PUBLIC_URL$css" || echo 000)
+              echo "stylesheet ${css} → HTTP ${ccode}"
+              if [ "$ccode" = "200" ] && grep -qE 'ob-bg|--amber|bg-black' /tmp/app.css; then
+                echo "CSS is reachable; pages.dev should match the Worker UI."
+                exit 0
+              fi
+            fi
+            sleep 8
+          done
+          echo "::error::$PUBLIC_URL did not serve OpenNext CSS. HTML would render unstyled (purple links, numbered 1. 1Write)."
           exit 1
 
       - name: Report deployed commit
