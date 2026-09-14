@@ -20,10 +20,13 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  // Server-side transport for every /api/platform/* request. onebrain-api is a
-  // private Worker (workers_dev: false), so this binding is the only way the
-  // Pages build can reach the platform API.
+  // APP is the OpenNext Worker that owns CSS/JS (ASSETS) and PLATFORM_API.
+  // Pages only aliases https://onebrains.pages.dev onto that Worker.
   "services": [
+    {
+      "binding": "APP",
+      "service": "onebrain"
+    },
     {
       "binding": "PLATFORM_API",
       "service": "onebrain-api"
