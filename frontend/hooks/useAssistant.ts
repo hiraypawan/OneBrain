@@ -14,6 +14,10 @@ import {
 } from "@/lib/proactive";
 import { previewShared, saveShared, sharedIntent, type SharedPreview } from "@/lib/shared-voice";
 import { prepareVoiceInput } from "@/lib/voice-input";
+import {
+  createFinalCollector,
+  type FinalCollector,
+} from "@/lib/transcript-gate";
 import { useWorkspaceStore } from "@/store/workspace";
 import { interpretLocal } from "@/lib/workspace/voice";
 import {
@@ -23,9 +27,14 @@ import {
 import { db } from "@/lib/db";
 import { useAssistantStore } from "@/store/assistant";
 import { askPuter } from "@/lib/puter";
-import { buildSystem } from "@/lib/gemini";
+import { buildSystem, fallback as offlineFallback } from "@/lib/gemini";
 import { looksFactual, fetchWikipedia } from "@/lib/knowledge";
-import { cleanForSpeech, splitReply, ttsLangFor } from "@/lib/speech";
+import {
+  cleanForSpeech,
+  splitReply,
+  splitForSpeech,
+  ttsLangFor,
+} from "@/lib/speech";
 import {
   micConstraints,
   diagnoseMicError,
@@ -117,13 +126,21 @@ async function fetchChat(
         const j = await r.json();
         if (j.answer) return j.answer as string;
       }
+      // Static (Pages) export has no API routes: 404/405 means "no server
+      // brain here", so fall straight through to the local answer.
     } catch {}
   }
   return localBrain(message);
 }
 
-function localBrain(_message: string): string {
-  return "The AI service is unavailable. I have not looked up live information or performed any external action. You can still use “note:”, “task:”, “search memory”, or a simple calculation.";
+// Last resort when no provider answered. Still a real, spoken sentence:
+// greetings get a greeting, everything else gets an honest explanation, so
+// the user always hears SOMETHING instead of a silent turn.
+export function localBrain(message: string): string {
+  const m = (message || "").toLowerCase();
+  if (/\b(hello|hi|hey|namaste|namaskar|hola)\b|हेलो|नमस्ते/.test(m))
+    return offlineFallback(message);
+  return "I heard you, but the AI service is unavailable right now, so I could not answer that. I have not looked up live information or performed any external action. You can still use “note:”, “task:”, “search memory”, or a simple calculation.";
 }
 
 export function useAssistant() {
@@ -192,6 +209,31 @@ export function useAssistant() {
   const streamRef = useRef<MediaStream | null>(null);
   const recogRef = useRef<any>(null);
   const recognitionReadyRef = useRef(false);
+  // Result gate for the live recognizer (Android confidence-0 finals etc.).
+  const collectorRef = useRef<FinalCollector | null>(null);
+  // Set while a stop() is in flight so onend knows to bring the mic back.
+  const restartAfterEndRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Resume listening on the current recognizer. Chrome throws
+  // InvalidStateError ("already started") when start() races the previous
+  // stop(); in that case we ask for a restart once onend arrives instead of
+  // silently swallowing the error and leaving the session deaf.
+  const resumeListening = useCallback(() => {
+    const recog = recogRef.current;
+    if (!recog) return;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    try {
+      recog.start();
+      restartAfterEndRef.current = false;
+    } catch {
+      // Still winding down (or already running): onend will restart it.
+      restartAfterEndRef.current = true;
+    }
+  }, []);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const oscRef = useRef<OscillatorNode | null>(null);
   const wakeLockRef = useRef<any>(null);
@@ -200,7 +242,6 @@ export function useAssistant() {
   const speechRequestRef = useRef(0);
   const cancelSpeechRef = useRef<() => void>(() => {});
   const expectingRef = useRef(false); // true only while we genuinely want mic input
-  const lastFinalRef = useRef<{ text: string; t: number }>({ text: "", t: 0 });
   // Breaks the callback cycle (transcript -> command -> start/stop -> transcript):
   // cross-calls go through this ref, filled in after all callbacks exist.
   const controlsRef = useRef<{
@@ -229,9 +270,7 @@ export function useAssistant() {
         const st = useAssistantStore.getState();
         st.setCurrentStatus(st.isActive ? "listening" : "idle");
         expectingRef.current = st.isActive;
-        try {
-          if (st.isActive) recogRef.current?.start();
-        } catch {}
+        if (st.isActive) resumeListening();
         return;
       }
       // Speak only the user's-language part, scrubbed of emojis/markdown.
@@ -320,41 +359,103 @@ export function useAssistant() {
         // Fallback: Web Speech API (routes to earbuds automatically).
         // Voice locale follows the reply's script: Marathi answers in a
         // Marathi voice, English answers in English, and so on.
-        await new Promise<void>((resolve) => {
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          let u: SpeechSynthesisUtterance | undefined;
-          const done = () => {
-            clearTimeout(timer);
-            if (u) {
-              u.onend = null;
-              u.onerror = null;
-            }
-            resolve();
-          };
-          cancelSpeechRef.current = () => {
+        //
+        // Hardening for real devices: (1) rate is clamped to the 0.1–2 range
+        // engines accept — an out-of-range rate makes Chrome fail silently;
+        // (2) long replies are spoken in sentence-sized chunks because Chrome
+        // desktop stops mid-utterance after ~15 s and Android often ends
+        // without any event; (3) an utterance that produces no start event
+        // within a few seconds is treated as a failed speak() so the mic
+        // comes back instead of hanging in "speaking" for a minute.
+        const synth = window.speechSynthesis;
+        if (!synth || typeof SpeechSynthesisUtterance === "undefined") return;
+        const settings = useAssistantStore.getState().settings;
+        const rate = Math.min(
+          2,
+          Math.max(0.5, Number(settings.voiceSpeed) || 1),
+        );
+        const lang = ttsLangFor(clean, settings.language);
+        const chunks = splitForSpeech(clean);
+        for (const chunk of chunks) {
+          if (!current() || useAssistantStore.getState().settings.silentMode)
+            break;
+          const ok = await new Promise<boolean>((resolve) => {
+            let watchdog: ReturnType<typeof setTimeout> | undefined;
+            let started = false;
+            let u: SpeechSynthesisUtterance | undefined;
+            const done = (result: boolean) => {
+              clearTimeout(watchdog);
+              if (u) {
+                u.onstart = null;
+                u.onend = null;
+                u.onerror = null;
+              }
+              resolve(result);
+            };
+            cancelSpeechRef.current = () => {
+              try {
+                synth.cancel();
+              } finally {
+                done(false);
+              }
+            };
             try {
-              window.speechSynthesis?.cancel();
-            } finally {
-              done();
+              u = new SpeechSynthesisUtterance(chunk);
+              u.rate = rate;
+              u.lang = lang;
+              u.onstart = () => {
+                started = true;
+                clearTimeout(watchdog);
+                // Generous ceiling per chunk; real speech ends far sooner.
+                watchdog = setTimeout(() => {
+                  if (current()) cancelSpeechRef.current();
+                  else done(false);
+                }, 60000);
+              };
+              u.onend = () => done(true);
+              u.onerror = (ev: any) => {
+                // 'interrupted'/'canceled' come from a cancel(); anything else
+                // means the engine failed and we should not keep queueing.
+                const code = String(ev?.error || "unknown");
+                const benign = code === "interrupted" || code === "canceled";
+                if (!benign)
+                  useAssistantStore.getState().logBgEvent("tts-error", code);
+                done(benign);
+              };
+              // Never hang on a speak() that never starts: no voices, muted
+              // engine, or a stuck queue. 5 s covers slow voice loading; an
+              // engine that is audibly speaking (but skipped onstart) is
+              // left alone until the per-chunk ceiling.
+              watchdog = setTimeout(() => {
+                if (started) return;
+                if (synth.speaking) {
+                  started = true;
+                  watchdog = setTimeout(() => {
+                    if (current()) cancelSpeechRef.current();
+                    else done(false);
+                  }, 60000);
+                  return;
+                }
+                useAssistantStore
+                  .getState()
+                  .logBgEvent("tts-stall", "no start event");
+                try {
+                  synth.cancel();
+                } catch {}
+                done(false);
+              }, 5000);
+              // A stuck/paused queue silently swallows speak() in Chrome.
+              try {
+                if (synth.paused) synth.resume();
+              } catch {}
+              synth.cancel();
+              synth.speak(u);
+            } catch {
+              done(false);
             }
-          };
-          try {
-            u = new SpeechSynthesisUtterance(clean);
-            const settings = useAssistantStore.getState().settings;
-            u.rate = settings.voiceSpeed;
-            u.lang = ttsLangFor(clean, settings.language);
-            timer = setTimeout(() => {
-              if (current()) cancelSpeechRef.current();
-              else done();
-            }, 60000);
-            u.onend = done;
-            u.onerror = done;
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(u);
-          } catch {
-            done();
-          }
-        });
+          });
+          if (!ok) break;
+        }
       } finally {
         if (current()) {
         cancelSpeechRef.current = () => {};
@@ -365,14 +466,12 @@ export function useAssistant() {
         st.setCurrentStatus(st.isActive ? "listening" : "idle");
         if (st.isActive) {
           expectingRef.current = true;
-          try {
-            recogRef.current?.start();
-          } catch {}
+          resumeListening();
         }
         }
       }
     },
-    [store],
+    [store, resumeListening],
   );
 
   // Median pitch of the last few seconds of mic audio -> who just spoke?
@@ -442,9 +541,7 @@ export function useAssistant() {
         } catch {}
         st.setCurrentStatus("listening");
         expectingRef.current = true;
-        try {
-          recogRef.current?.start();
-        } catch {}
+        resumeListening();
         return;
       }
       if (cmd === "new") {
@@ -479,7 +576,7 @@ export function useAssistant() {
         st.addMessage("assistant", msg);
         await ctl.speak(msg);
       }
-    }, []);
+    }, [resumeListening]);
 
   const processTranscript = useCallback(
     async (transcript: string, confidence?: number) => {
@@ -514,9 +611,7 @@ export function useAssistant() {
         }
         store.setCurrentStatus("listening");
         expectingRef.current = true;
-        try {
-          recogRef.current?.start();
-        } catch {}
+        resumeListening();
         return;
       }
       // Local confirmations are never sent to a model or allowed to imply remote success.
@@ -761,7 +856,7 @@ export function useAssistant() {
       await speak(answer);
       if (store.isActive) store.setCurrentStatus("listening");
     },
-    [store, speak, utteranceMeta, runVoiceCommand, persistProactive],
+    [store, speak, utteranceMeta, runVoiceCommand, persistProactive, resumeListening],
   );
 
   const handleTranscript = useCallback(
@@ -802,13 +897,11 @@ export function useAssistant() {
         const st = useAssistantStore.getState();
         st.setCurrentStatus(st.isActive ? "listening" : "idle");
         expectingRef.current = st.isActive;
-        try {
-          if (st.isActive) recogRef.current?.start();
-        } catch {}
+        if (st.isActive) resumeListening();
         }
       }
     },
-    [processTranscript],
+    [processTranscript, resumeListening],
   );
 
   const stopPitchTracking = useCallback(() => {
@@ -927,6 +1020,13 @@ export function useAssistant() {
       try {
         try {
           recogRef.current = null;
+          collectorRef.current?.reset();
+          collectorRef.current = null;
+          if (restartTimerRef.current) {
+            clearTimeout(restartTimerRef.current);
+            restartTimerRef.current = null;
+          }
+          restartAfterEndRef.current = false;
           streamRef.current?.getTracks().forEach((t) => {
             t.onended = null;
             t.onmute = null;
@@ -1172,43 +1272,65 @@ export function useAssistant() {
           if (!current() || recogRef.current !== recog) return;
           lastActivityRef.current = Date.now();
         };
+        // One accepted utterance = one turn: stop capturing (no runaway
+        // listening / hearing our own reply), process, speak, then resume.
+        const collector = createFinalCollector({
+          onAccept: (text, confidence) => {
+            if (!current() || recogRef.current !== recog) return;
+            expectingRef.current = false;
+            restartAfterEndRef.current = false;
+            try {
+              recog.stop();
+            } catch {}
+            // Roman-script transcript: the AI understands "time kya hai" far
+            // better than mixed-script guesses, and chat shows one clean
+            // script. Confidence travels along so stranger voices can be
+            // gated precisely (undefined = engine gave no score).
+            const cleaned = prepareVoiceInput(
+              normalizeHinglish(text),
+              useAssistantStore.getState().settings,
+            );
+            if (cleaned === null) {
+              // Wake phrase armed and not heard: keep listening quietly.
+              useAssistantStore
+                .getState()
+                .logBgEvent("heard-ignored", text.slice(0, 60));
+              expectingRef.current = true;
+              resumeListening();
+              return;
+            }
+            void handleTranscript(cleaned, confidence);
+          },
+        });
+        collectorRef.current = collector;
         recog.onresult = (e: any) => {
           if (!current() || recogRef.current !== recog) return;
           lastActivityRef.current = Date.now();
-          const res = e.results[e.results.length - 1];
-          if (!res.isFinal) return;
-          const alt = res[0];
-          // Ignore very-low-confidence hits: usually background song/TV bleed,
-          // not the user. Real speech scores much higher.
-          if (typeof alt.confidence === "number" && alt.confidence < 0.3)
-            return;
-          // Clean turn-taking: one final result = one turn. Stop capturing NOW
-          // (no runaway listening), process, speak, then resume listening.
-          expectingRef.current = false;
-          try {
-            recog.stop();
-          } catch {}
-          // Dedupe: continuous mode sometimes re-fires the same final twice.
-          const now = Date.now();
-          if (
-            alt.transcript === lastFinalRef.current.text &&
-            now - lastFinalRef.current.t < 3000
-          ) {
-            expectingRef.current = true;
-            try {
-              recog.start();
-            } catch {}
-            return;
+          // Walk every new result: continuous mode can deliver several per
+          // event, and an interim followed by a final in the same batch.
+          const results = e?.results;
+          if (!results?.length) return;
+          const from = Math.max(0, Number(e.resultIndex) || 0);
+          for (let i = from; i < results.length; i++) {
+            const res = results[i];
+            const alt = res?.[0];
+            if (!alt) continue;
+            const outcome = collector.push({
+              isFinal: !!res.isFinal,
+              transcript: alt.transcript || "",
+              confidence: alt.confidence,
+            });
+            if (outcome === "noise")
+              useAssistantStore
+                .getState()
+                .logBgEvent(
+                  "recog-noise",
+                  `${String(alt.transcript || "").slice(0, 40)} @${Number(alt.confidence).toFixed(2)}`,
+                );
+            // A turn was accepted: the recognizer is stopping, later
+            // entries in this batch belong to the next turn.
+            if (outcome === "accept" || expectingRef.current === false) break;
           }
-          lastFinalRef.current = { text: alt.transcript, t: now };
-          // Roman-script transcript: the AI understands "time kya hai" far
-          // better than mixed-script guesses, and chat shows one clean script.
-          // Confidence travels along so stranger-voices can be gated precisely.
-          const conf =
-            typeof alt.confidence === "number" ? alt.confidence : undefined;
-          const cleaned=prepareVoiceInput(normalizeHinglish(alt.transcript),useAssistantStore.getState().settings);
-        if(cleaned===null){expectingRef.current=true;try{recog.start();}catch{}return;}
-        handleTranscript(cleaned, conf);
         };
         recog.onerror = (e: any) => {
           if (!current() || recogRef.current !== recog) return;
@@ -1217,6 +1339,7 @@ export function useAssistant() {
           useAssistantStore.getState().logBgEvent("recog-error", err);
           if (err === "not-allowed" || err === "service-not-allowed") {
             expectingRef.current = false;
+            collector.reset();
             useAssistantStore.getState().setCurrentStatus("error");
             useAssistantStore
               .getState()
@@ -1229,22 +1352,64 @@ export function useAssistant() {
               .setMicNotice(
                 "🎤 Mic busy hai — laptop (multipoint) ya koi aur app use kar raha hai.",
               );
+          } else if (err === "network") {
+            // Chrome's recognizer is a cloud service: tell the user instead
+            // of restarting silently forever.
+            useAssistantStore
+              .getState()
+              .setMicNotice(
+                "Speech recognition needs internet — the browser could not reach its speech service. Retrying…",
+              );
           }
-          // 'network' / 'no-speech' / 'aborted' ignored — loop resumes via onend.
+          // 'no-speech' / 'aborted' / 'network' — loop resumes via onend.
         };
         recog.onend = () => {
           if (!current() || recogRef.current !== recog) return;
           recognitionReadyRef.current = false;
           const st = useAssistantStore.getState();
-          // Restart ONLY while genuinely expecting input — not while processing,
-          // speaking, or between turns. This is what stops endless re-listening.
+          // Android ends the session right after an unscored final: accept
+          // what was held now rather than losing the whole utterance.
+          if (collector.flush()) {
+            st.logBgEvent("recog-end", "flushed final");
+            return;
+          }
+          // Restart while genuinely expecting input (not processing/speaking
+          // between turns), or when a start() raced this end and asked for it.
           const want =
-            st.isActive && !speakingRef.current && expectingRef.current;
+            st.isActive &&
+            !speakingRef.current &&
+            !processingRef.current &&
+            (expectingRef.current || restartAfterEndRef.current);
           st.logBgEvent("recog-end", want ? "restarting" : "paused");
-          if (want) {
-            try {
-              recog.start();
-            } catch {}
+          restartAfterEndRef.current = false;
+          if (!want) return;
+          expectingRef.current = true;
+          try {
+            recog.start();
+          } catch {
+            // Some engines refuse an immediate restart (iOS Safari, Android
+            // right after 'aborted'): back off briefly, then try again.
+            if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+            restartTimerRef.current = setTimeout(() => {
+              restartTimerRef.current = null;
+              if (!current() || recogRef.current !== recog) return;
+              const now = useAssistantStore.getState();
+              if (
+                !now.isActive ||
+                speakingRef.current ||
+                processingRef.current ||
+                !expectingRef.current
+              )
+                return;
+              try {
+                recog.start();
+              } catch {
+                now.logBgEvent("recog-error", "restart failed");
+                now.setMicNotice(
+                  "Listening stopped — tap Stop, then Start talking again.",
+                );
+              }
+            }, 400);
           }
         };
         recogRef.current = recog;
@@ -1309,15 +1474,13 @@ export function useAssistant() {
         await acquireMic(true);
       if (!current() || processingRef.current || speakingRef.current) return;
       expectingRef.current = true;
-      try {
-        recogRef.current?.start();
-      } catch {}
+      resumeListening();
       useAssistantStore.getState().setCurrentStatus("listening");
     } finally {
       if (generation === sessionGenerationRef.current)
         recoveryInFlightRef.current = false;
     }
-  }, [acquireMic]);
+  }, [acquireMic, resumeListening]);
 
   const stopActive = useCallback(() => {
     sessionGenerationRef.current += 1;
@@ -1346,6 +1509,13 @@ export function useAssistant() {
     cancelSpeechRef.current = () => {};
     speakingRef.current = false;
     expectingRef.current = false;
+    restartAfterEndRef.current = false;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    collectorRef.current?.reset();
+    collectorRef.current = null;
     stopPitchTracking();
     void dismissActiveNotification();
     try {

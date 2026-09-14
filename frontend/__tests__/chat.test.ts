@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fallback, askGemini, askPollinations, buildSystem, foldPrompt } from '../lib/gemini';
-import { askPuter } from '../lib/puter';
+import { askPuter, puterReady } from '../lib/puter';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -162,30 +162,56 @@ describe('askPollinations (keyless fallback)', () => {
   });
 });
 
+// A signed-in SDK stub: `auth.isSignedIn()` is what decides whether Puter may
+// be called at all (see puterReady).
+const signedIn = (chat: (...args: any[]) => any) => ({
+  puter: { ai: { chat }, auth: { isSignedIn: () => true } },
+});
+
+describe('puterReady', () => {
+  it('is false without the SDK or without a session', () => {
+    expect(puterReady(undefined)).toBe(false);
+    expect(puterReady({})).toBe(false);
+    expect(puterReady({ puter: { ai: { chat: async () => 'x' } } })).toBe(false);
+    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, auth: { isSignedIn: () => false } } })).toBe(false);
+    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, auth: { isSignedIn: () => { throw new Error('boom'); } } } })).toBe(false);
+  });
+  it('is true when signed in (isSignedIn or a raw authToken)', () => {
+    expect(puterReady(signedIn(async () => 'x'))).toBe(true);
+    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, authToken: 'tok' } })).toBe(true);
+  });
+});
+
 describe('askPuter (keyless browser AI)', () => {
   it('returns null when the SDK is absent (offline/blocked/SSR)', async () => {
     const res = await askPuter([], 'sys');
     expect(res).toBeNull();
   });
 
+  it('never calls chat() when the user is not signed in (that would open a sign-in dialog and stall the voice turn)', async () => {
+    const chat = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal('window', { puter: { ai: { chat }, auth: { isSignedIn: () => false } } });
+    expect(await askPuter([], 'sys', 50)).toBeNull();
+    expect(chat).not.toHaveBeenCalled();
+  });
+
   it('reads string content', async () => {
-    vi.stubGlobal('window', {
-      puter: { ai: { chat: async () => ({ message: { content: '  hello  ' } }) } },
-    });
+    vi.stubGlobal('window', signedIn(async () => ({ message: { content: '  hello  ' } })));
     expect(await askPuter([], 'sys')).toBe('hello');
   });
 
   it('joins array content blocks', async () => {
-    vi.stubGlobal('window', {
-      puter: { ai: { chat: async () => ({ message: { content: [{ text: 'a' }, { text: 'b' }] } }) } },
-    });
+    vi.stubGlobal('window', signedIn(async () => ({ message: { content: [{ text: 'a' }, { text: 'b' }] } })));
     expect(await askPuter([], 'sys')).toBe('ab');
   });
 
   it('returns null when the SDK throws', async () => {
-    vi.stubGlobal('window', {
-      puter: { ai: { chat: async () => { throw new Error('rate limited'); } } },
-    });
+    vi.stubGlobal('window', signedIn(async () => { throw new Error('rate limited'); }));
     expect(await askPuter([], 'sys')).toBeNull();
+  });
+
+  it('gives up after the timeout when chat() hangs', async () => {
+    vi.stubGlobal('window', signedIn(() => new Promise(() => {})));
+    expect(await askPuter([], 'sys', 20)).toBeNull();
   });
 });
