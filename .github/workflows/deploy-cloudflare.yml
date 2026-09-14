@@ -12,8 +12,11 @@ name: Deploy to Cloudflare
 # but every /api/platform/* request returns 503.
 on:
   push:
-    branches: [main, arena/01a09530-onebrain]
+    branches: [main]
   workflow_dispatch:
+
+# Source: https://github.com/hiraypawan/OneBrain.git
+# Single domain: https://onebrains.pages.dev
 
 permissions:
   contents: read
