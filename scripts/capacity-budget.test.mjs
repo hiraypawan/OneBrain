@@ -1,7 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {estimate,estimateBurst} from './capacity-budget.mjs';
-test('10,000 mostly local daily users fit ONLY the stated assumptions',()=>{const x=estimate();assert.equal(x.fits,true);assert.equal(x.budgets.workerRequests.estimated,31288);assert.equal(x.budgets.d1RowsWritten.estimated,66400);assert.equal(x.budgets.singleDatabaseBytes.estimated,200000000);});
+test('10,000 mostly local daily users fit ONLY the stated assumptions',()=>{const x=estimate();assert.equal(x.fits,true);// 2026-09-15: server entitlements added quota consumption, usage-snapshot reads
+// and ledger storage to the same 10,000-user day (worker requests 31,288 -> 35,288;
+// rows written 66,400 -> 70,400; stored bytes 200,000,000 -> 209,600,000).
+assert.equal(x.budgets.workerRequests.estimated,35288);assert.equal(x.budgets.d1RowsWritten.estimated,70400);assert.equal(x.budgets.singleDatabaseBytes.estimated,209600000);});
 test('10,000 cloud-active users exhaust budgets rather than magically becoming free',()=>{const x=estimate({cloudFraction:1});assert.equal(x.fits,false);assert.equal(x.budgets.d1RowsRead.fits,false);assert.equal(x.budgets.d1RowsWritten.fits,false);assert.equal(x.budgets.singleDatabaseBytes.fits,false);});
 test('all account traffic and mutation index costs are included',()=>{assert.equal(estimate({otherRequests:60000}).fits,false);assert.equal(estimate({writeRowsPerMutation:40}).budgets.d1RowsWritten.fits,false);});
 test('scheduler backlog is not represented as delivered work',()=>{const x=estimate({scheduledJobs:1000});assert.equal(x.scheduler.maxCandidatesPerDay,576);assert.equal(x.scheduler.fits,false);assert.equal(x.fits,false);});

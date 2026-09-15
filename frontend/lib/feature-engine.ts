@@ -576,21 +576,44 @@ export async function handleFeatureTurn(transcript: string): Promise<FeatureTurn
     return { messages: [{ text: `${line} (General guidance from YOUR logs — not medical advice.)`, meta: 'Recovery whisperer' }], speak: line };
   }
 
-  // 14. Plan / upgrade.
+  // 14. Plan / upgrade. The plan is decided by the server when you are signed
+  // in; saying a key here redeems it on your account instead of this browser.
   if (/^(my plan|upgrade|pro (plan|features)|pricing|plan dikhao|payment)/i.test(text.trim())) {
-    const msg = `You are on ${f.plan.toUpperCase()}. ${f.plan === 'free' ? 'Say “unlock” followed by your beta key, or open Your space → Plan.' : 'Beta unlock active — billing connects at launch.'}`;
+    const where =
+      f.planSource === 'server'
+        ? f.planVerified
+          ? 'confirmed by your account'
+          : 'cached from your account, not re-confirmed yet'
+        : f.planSource === 'device-beta'
+          ? 'unlocked in this browser only'
+          : 'the free plan';
+    const used = `Research ${f.usage.researchCount} of ${FREE_LIMITS.researchPerDay} today`;
+    const msg = `You are on ${f.plan.toUpperCase()} (${where}). ${f.plan === 'free' ? 'Say “unlock” plus a key from the operator, or open Your space → Plan.' : `${used} so far.`}`;
     return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'info' } };
   }
   const unlockM = text.match(/unlock\s+([A-Za-z0-9-]+)/i);
   if (unlockM) {
+    const rawKey = unlockM[1];
+    const signedIn = !!useAssistantStore.getState().isAuthenticated;
+    if (signedIn) {
+      const { redeemKeyOnServer } = await import('./entitlements');
+      const result = await redeemKeyOnServer(rawKey);
+      if (!result.ok) {
+        const msg = `The server refused that key: ${result.error}`;
+        return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'invalid-key' } };
+      }
+      f.applyServerEntitlement(result.entitlement);
+      const msg = `${result.entitlement.plan.toUpperCase()} redeemed on your account. It now applies on every device you sign in on.`;
+      return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'unlocked' } };
+    }
     const { validateBetaKey } = await import('./plans');
-    const plan = validateBetaKey(unlockM[1]);
+    const plan = validateBetaKey(rawKey);
     if (!plan) {
-      const msg = 'That key did not validate. Check the code — format OB-PRO-XXXXXX — or open Your space → Plan to paste it.';
+      const msg = 'That key did not validate. Check the code — format OB-PRO-XXXXXX — or sign in and redeem it on your account.';
       return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'invalid-key' } };
     }
-    f.unlock(plan, unlockM[1].toUpperCase());
-    const msg = `${plan === 'family' ? 'Family' : 'Pro'} unlocked! (Beta unlock — billing connects at launch.) Enjoy the full brain.`;
+    f.unlock(plan, rawKey.toUpperCase());
+    const msg = `${plan === 'family' ? 'Family' : 'Pro'} unlocked in this browser only. Sign in with Google and say the same key again to attach it to your account.`;
     return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'unlocked' } };
   }
 
@@ -599,6 +622,31 @@ export async function handleFeatureTurn(transcript: string): Promise<FeatureTurn
 
 // ---------- helpers ----------
 
+/**
+ * Ask the server to count one use of a persistent quota (research, email,
+ * scribe, story) before doing the expensive work.
+ *
+ * Returns null when the use is allowed, when the user is signed out, or when
+ * the server could not answer — in that last case the local count stands and
+ * no server decision is claimed. Translator minutes stay device-counted: a
+ * session is a device-local concept, and the server ledger counts the four
+ * quotas that outlive a session.
+ */
+async function serverQuotaRefusal(
+  feature: 'research' | 'email' | 'scribe' | 'story',
+  units = 1,
+): Promise<string | null> {
+  try {
+    if (!useAssistantStore.getState().isAuthenticated) return null;
+    const { consumeOnServer } = await import('./entitlements');
+    const result = await consumeOnServer(feature, units);
+    if (!result.serverAnswered || result.allowed) return null;
+    return result.message || `Your account allowance for ${feature} is reached. Nothing was charged.`;
+  } catch {
+    return null;
+  }
+}
+
 async function finishEmail(slots: EmailSlots): Promise<FeatureTurn> {
   const f = useFeaturesStore.getState();
   const tk = monthKey();
@@ -606,6 +654,11 @@ async function finishEmail(slots: EmailSlots): Promise<FeatureTurn> {
     f.setEmailSession(null);
     const msg = quotaMessage('email', f.plan);
     return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'email-quota' } };
+  }
+  const emailRefusal = await serverQuotaRefusal('email');
+  if (emailRefusal) {
+    f.setEmailSession(null);
+    return { messages: [{ text: emailRefusal }], speak: emailRefusal, card: { kind: 'plan', reason: 'email-quota' } };
   }
   f.trackUse({ emailMonth: tk, emailCount: f.usage.emailMonth === tk ? f.usage.emailCount + 1 : 1 });
   f.setEmailSession(null);
@@ -785,6 +838,10 @@ async function storyTurn(text: string, action: 'enter' | 'continue' | 'new', kid
       const msg = quotaMessage('story', f.plan);
       return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'story-trial' } };
     }
+    const storyRefusal = await serverQuotaRefusal('story');
+    if (storyRefusal) {
+      return { messages: [{ text: storyRefusal }], speak: storyRefusal, card: { kind: 'plan', reason: 'story-trial' } };
+    }
   }
   const cap = useFeaturesStore.getState().storyCap || BEDTIME_CAP;
   if (episodesToday(thread) >= cap && action === 'continue') {
@@ -836,6 +893,10 @@ async function researchTurn(query: string): Promise<FeatureTurn> {
   if (!deep && f.usage.researchDay === tk && f.usage.researchCount >= FREE_LIMITS.researchPerDay) {
     const msg = quotaMessage('research', f.plan);
     return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'research-quota' } };
+  }
+  const researchRefusal = await serverQuotaRefusal('research');
+  if (researchRefusal) {
+    return { messages: [{ text: researchRefusal }], speak: researchRefusal, card: { kind: 'plan', reason: 'research-quota' } };
   }
   lastBriefQuery = query;
   const entities = planEntitySearches(query).slice(0, deep ? 3 : 2);
@@ -939,6 +1000,10 @@ async function scribeTurn(text: string): Promise<FeatureTurn> {
   if (f.plan === 'free' && f.usage.scribeDay === tk && f.usage.scribeCount >= FREE_LIMITS.scribePerDay) {
     const msg = quotaMessage('scribe', f.plan);
     return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'scribe-quota' } };
+  }
+  const scribeRefusal = await serverQuotaRefusal('scribe');
+  if (scribeRefusal) {
+    return { messages: [{ text: scribeRefusal }], speak: scribeRefusal, card: { kind: 'plan', reason: 'scribe-quota' } };
   }
   f.trackUse({ scribeDay: tk, scribeCount: f.usage.scribeDay === tk ? f.usage.scribeCount + 1 : 1 });
   const minutes = extractMinutes(text);

@@ -63,10 +63,26 @@ GitHub Actions deploys the API Worker and OpenNext frontend on push to `main` us
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Operator-owned Google OAuth application, required for Google account sign-in; optional Google connectors request separate permissions. No credentials were supplied or authorized here. |
 | `GOOGLE_CONNECT_REDIRECT` | Exact registered HTTPS callback, normally the frontend's `/api/platform/oauth/google/callback` route. Keep the callback same-origin so its scoped session cookie is available. |
 | Host AI/speech enable flags | Leave off for the free-only configuration. A key's presence is not permission to spend. |
+| `ENTITLEMENTS_ACCEPT_LEGACY_BETA` | Optional worker variable, default unset. Set to `1` only to keep honouring pre-0008 browser-side beta unlocks; leave unset so the server ledger is the single source of truth. |
 
 The verified production frontend runtime is `next build` + `next start`. The repository retains the OpenNext Cloudflare adapter/configuration, with `nodejs_compat` enabled; **that adapter's deployment and production cron were not verified in this session**. The obsolete Next-on-Pages adapter was removed during the patched Next 15 upgrade. Do not use historical Next-on-Pages instructions for this branch.
 
 A deployed API Worker has a minute cron declaration. The development scheduler is not a production daemon. Cloudflare infrastructure has account quotas; hosting is not promised to be free or unlimited. Configure infrastructure spending restrictions separately—an application cap cannot disable a provider account's billing.
+
+## Plans, quota ledger and keys (no payments)
+
+Migration **0008** adds three tables: `entitlements` (one row per owner: plan, source, expiry), `entitlement_keys` (hashed keys an operator minted, with redemption audit) and `entitlement_usage` (per-feature counters bucketed by session, day and month). Apply migrations in order after a backup; the publish workflow does not migrate remote D1.
+
+The worker resolves the plan **once per authenticated request** from the session join, so `/me` stays a single-read identity+plan call. Usage is returned by `/bootstrap` and `GET /entitlements`. Quota is consumed atomically inside the feature dispatch, and exhaustion returns `429` with `Retry-After` and the bucket that refills. `total` rows are never swept; session rows expire after two days and day/month rows after 70.
+
+```sh
+# Dry run prints the command and a key preview; --execute writes to the database.
+node scripts/mint-entitlement-keys.mjs --plan pro --count 5 --days 90 --label "Beta cohort" --execute
+```
+
+Plaintext keys are printed **once** and only the hash is stored. Keep them in the operator's password manager, never in the repository, logs or issues. Revoking access means updating the owner's `entitlements` row; there is no self-service portal.
+
+**No payment, checkout, invoice, subscription renewal or conversion reporting exists in this codebase, and none may be implied by UI copy.** Pro and Family are granted by an operator. The client cannot mint a plan: `lib/plans.ts` no longer exports a key generator, and a signed-out redemption is labelled as browser-only. If the server is unreachable the client keeps the last confirmed plan for up to 24 hours, marks it unverified in the UI, and never silently upgrades or downgrades. Translator minutes stay device-counted because a session is a device-local concept; the server ledger counts research, email, scribe and story.
 
 ## Connector implementation versus live authorization
 
@@ -104,6 +120,8 @@ Implemented HTTP adapters: Google Calendar event creation/read-back, Sheets RAW 
 
 Frankfurter v1: <https://frankfurter.dev/v1/> — dated institutional reference rates, not an executable bank quote. MET Norway: <https://api.met.no/doc/License> — credit MET Norway; data is supplied under the documented open-data licenses, including CC BY 4.0. Coordinates are rounded before an explicit lookup. No API key or paid fallback is configured.
 
+**Media playback sources (reintroduced 2026-09-15, unverified):** song search uses the keyless JioSaavn community API; podcasts use the Apple iTunes lookup/search RSS endpoints and each show's own feed; video uses public Invidious instances. None requires an account or key, nothing is downloaded to the device, and all fan-out is bounded and parallel with per-source timeouts. These are third-party community services: they can rate-limit, region-block, change shape or disappear. When every source fails the player says so and offers a YouTube search hand-off instead of pretending to play. **No source could be reached from the build sandbox (no network egress), so live playback is unproven; probe each source from the deployed workerd runtime before announcing the feature.**
+
 **Verification boundary:** source documentation was checked. Direct source smoke requests in this sandbox ended in connection resets, and the app correctly returned 502 without invented values. Successful live FX/weather retrieval remains unverified here. Cached lookups and an in-process concurrency cap are not a durable multi-tenant rate limiter. Timers/stopwatch are session-only and are not guaranteed background OS alarms.
 
 ## Tests and remaining release gates
@@ -119,8 +137,8 @@ npm --prefix frontend run test:e2e
 
 CI initializes a fresh local D1 database and starts both servers for browser tests. It never applies remote migrations.
 
-Latest completed evidence: **183 frontend unit tests; 45 Workers tests; 29 production-browser tests; Next 15.5.25 production build; frontend/Workers/legacy Express TypeScript checks.** The browser tests cover the two shared-voice command paths through the common transcript handler; they do not certify real spoken recognition or physical phones.
+Latest completed evidence (2026-09-15): **527 frontend unit tests; 88 Workers tests; Next 15.5.25 production build; frontend/Workers TypeScript and ESLint checks.** The 29 production-browser tests and the compatibility matrix were **not re-run** in that sandbox (no browser binaries, no network egress) and must pass in CI before merge. The browser tests cover the two shared-voice command paths through the common transcript handler; they do not certify real spoken recognition or physical phones.
 
 Production dependency audits report **zero vulnerabilities** for frontend, Workers API and legacy Express. Critical Next/Vitest advisories and vulnerable PostCSS/Express transitive dependencies were addressed. Frontend and Workers development toolchains still each report **5 findings (2 moderate, 3 high)**; do not expose test/debug servers as production services. Dependency audits are not penetration tests or proof of application security.
 
-Remaining software includes fuller language/workflow extraction, automatic relationship/conflict resolution, stable manually arranged canvas positions, native connectors beyond the bounded adapters, inbox/briefing pipelines, SSO, tenant residency/retention/offboarding, entitlements/billing/analytics and production operations. Remaining external checks include live authorized provider tests, real devices/earbuds/calls, deployment/load/security/accessibility audits, legal/compliance review and user studies. See the full numbered [requirement ledger](IMPLEMENTATION-STATUS.md); incomplete items remain in scope.
+Remaining software includes fuller language/workflow extraction, automatic relationship/conflict resolution, stable manually arranged canvas positions, native connectors beyond the bounded adapters, inbox/briefing pipelines, SSO, tenant residency/retention/offboarding, billing/analytics (server entitlements exist without payments; operator-configurable limits and conversion reporting do not) and production operations. Remaining external checks include live authorized provider tests, real devices/earbuds/calls, deployment/load/security/accessibility audits, legal/compliance review and user studies. See the full numbered [requirement ledger](IMPLEMENTATION-STATUS.md); incomplete items remain in scope.

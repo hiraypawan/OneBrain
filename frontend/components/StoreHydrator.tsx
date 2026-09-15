@@ -5,6 +5,7 @@ import { dueReminders, markFired, fireReminderNotification } from '@/lib/reminde
 import { setToken } from '@/lib/sync';
 import { shouldRestoreSession } from '@/lib/session-hint';
 import { platformApi } from '@/lib/platform';
+import { fetchEntitlements } from '@/lib/entitlements';
 import { db } from '@/lib/db';
 
 // Loads persisted key + settings AFTER mount, so server HTML and the first
@@ -41,6 +42,25 @@ export function StoreHydrator() {
     }).catch(() => {});
     return () => { alive = false; };
   }, []);
+
+  // Server-authoritative plan. One request per sign-in transition (not per
+  // render), and a hard clear on sign-out so a shared device never inherits the
+  // previous account's plan. The browser's own beta key stays device-only.
+  useEffect(
+    () =>
+      useAssistantStore.subscribe((state, previous) => {
+        if (state.isAuthenticated === previous.isAuthenticated) return;
+        void import('@/store/features').then(async (m) => {
+          const features = m.useFeaturesStore.getState();
+          if (!state.isAuthenticated) {
+            features.clearServerEntitlement();
+            return;
+          }
+          features.applyServerEntitlement(await fetchEntitlements());
+        }).catch(() => { /* entitlements stay at their cached/Free value */ });
+      }),
+    [],
+  );
 
   useEffect(() => {
     let stopped = false;

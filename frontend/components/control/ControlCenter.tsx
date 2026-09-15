@@ -38,6 +38,7 @@ const PANELS: Record<string, React.ComponentType> = {
   stories: dynamic(() => import("./Stories").then((m) => m.Stories), { loading }),
   drafts: dynamic(() => import("./Drafts").then((m) => m.Drafts), { loading }),
   plan: dynamic(() => import("./Plan").then((m) => m.Plan), { loading }),
+  music: dynamic(() => import("./Music").then((m) => m.Music), { loading }),
 };
 export function ControlCenter() {
   const storageNotice = useAssistantStore(s => s.storageNotice);

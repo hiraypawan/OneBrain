@@ -59,6 +59,7 @@ export type MediaAction =
   | { action: 'play'; query: string; kinds?: ('song' | 'podcast' | 'video')[] }
   | { action: 'pause' }
   | { action: 'resume' }
+  | { action: 'next' }
   | { action: 'close' };
 
 // "play kesariya" / "kesariya bajao" / "pause" / "stop song".
@@ -73,6 +74,10 @@ export function parseMediaCommand(text: string): MediaAction | null {
 
   const resumeRe = /^(resume|phir se chalao|continue (the )?(song|music|gaana|video))$/;
   if (resumeRe.test(t)) return { action: 'resume' };
+
+  // "next song" / "agli gaana" — the results list is a queue, not one item.
+  const nextRe = /^(next|next (song|track|gaana|episode|video)|agli (song|gaana|track)|agla (gaana|song)|chalo next)$/;
+  if (nextRe.test(t)) return { action: 'next' };
 
   const closeRe = /^(close|band karo )?(song|music|gaana|video|player)( band karo| stop)?$/;
   if (closeRe.test(t) || /^(stop (the )?(song|music|gaana|video))$/.test(t)) {

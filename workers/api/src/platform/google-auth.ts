@@ -53,7 +53,17 @@ export async function finishGoogleLogin(env:PlatformEnv,input:unknown){
 function sessionInsert(env:PlatformEnv,tokenHash:string,user:string,now:number){
  return env.DB.prepare("INSERT INTO platform_sessions (token_hash,user_id,created_at,expires_at,auth_provider) VALUES (?,?,?,?,'google')").bind(tokenHash,user,now,now+7*86400000);
 }
+/**
+ * Session -> identity + entitlement in ONE query. The plan rides along with
+ * authentication so gating never costs an extra D1 read per request. An
+ * expired grant resolves to Free in `resolveEntitlement`, never silently here.
+ */
 export async function sessionUser(env:PlatformEnv,token:string){
  if(!/^[a-f0-9]{64}$/.test(token))return null;
- return env.DB.prepare("SELECT u.id,u.email,u.display_name AS displayName FROM platform_sessions s JOIN users u ON u.id=s.user_id JOIN google_identities g ON g.user_id=u.id WHERE s.token_hash=? AND s.expires_at>? AND s.auth_provider='google'").bind(await hash(token),Date.now()).first<{id:string;email:string;displayName:string}>();
+ return env.DB.prepare(
+  "SELECT u.id,u.email,u.display_name AS displayName,e.plan AS plan,e.source AS planSource,e.granted_at AS planGrantedAt,e.expires_at AS planExpiresAt " +
+  "FROM platform_sessions s JOIN users u ON u.id=s.user_id JOIN google_identities g ON g.user_id=u.id " +
+  "LEFT JOIN user_entitlements e ON e.user_id=u.id " +
+  "WHERE s.token_hash=? AND s.expires_at>? AND s.auth_provider='google'"
+ ).bind(await hash(token),Date.now()).first<{id:string;email:string;displayName:string;plan:string|null;planSource:string|null;planGrantedAt:number|null;planExpiresAt:number|null}>();
 }

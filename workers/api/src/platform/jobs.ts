@@ -1,4 +1,5 @@
 import { canonical, fail, hash, id, number, object, text, type PlatformEnv } from './core';
+import { dispatchAllowance } from './entitlements';
 import { DeliveryError, executeConnector, PROVIDERS, validatePayload, type Provider } from './connectors';
 export async function prepareJob(env: PlatformEnv, space: string, input: unknown) {
   const raw=object(input), action=text(raw.action,'Action');
@@ -58,8 +59,11 @@ export async function runDue(env: PlatformEnv, space?: string, now=Date.now(), b
         if (!connection) throw new DeliveryError('failed','Connection was revoked or expired. Reconnect and create a newly reviewed action.');
         // Bounded server allowance; no auto-purchase or paid overflow.
         const budgetKey=`executions:${job.space_id}:${new Date(now).toISOString().slice(0,10)}`;
-        const allowance=await env.DB.prepare('INSERT INTO platform_rate_limits (key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 WHERE count<100 RETURNING count').bind(budgetKey,now+2*86400000).first<{count:number}>();
-        if(!allowance)throw new DeliveryError('failed','Daily external-dispatch allowance reached. No paid overflow was enabled.');
+        // The workspace owner's server-side plan decides this cap; the counter
+        // itself stays atomic so concurrent runs cannot overshoot it.
+        const cap=await dispatchAllowance(env,job.space_id,now);
+        const allowance=await env.DB.prepare('INSERT INTO platform_rate_limits (key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 WHERE count+1<=? RETURNING count').bind(budgetKey,now+2*86400000,cap).first<{count:number}>();
+        if(!allowance)throw new DeliveryError('failed',`Daily external-dispatch allowance reached (${cap} per day on this plan). No paid overflow was enabled.`);
         proof=await executeConnector(env,connection,job.action,validatePayload(job.action,JSON.parse(job.payload)),occurrence);
       }
       const candidateNext=Math.max(now,Date.now())+plan.everyMinutes*60000;

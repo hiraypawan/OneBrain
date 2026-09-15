@@ -10,6 +10,11 @@ export const defaults={
  readRowsPerApi:220,readRowsPerMutation:200,writeRowsPerMutation:12,
  cronMinutes:5,jobBatch:2,scheduledJobs:200,jobRowsRead:100,jobRowsWritten:12,
  maintenanceRowsRead:30000,maintenanceRowsWritten:30000,
+ // Server entitlements (migration 0008): gated feature uses consume quota
+ // atomically, bootstrap/entitlement calls read the usage snapshot, and the
+ // ledger itself stores bounded rows per owner.
+ quotaUsesPerCloudUser:2,quotaRowsReadPerUse:2,quotaRowsWrittenPerUse:1,usageRowsReadPerCloudUser:8,
+ entitlementRowsPerCloudUser:12,bytesPerEntitlementRow:200,
  rowsStoredPerCloudUser:30,bytesPerStoredRow:1500,indexStorageFactor:2,
  otherRequests:0,otherRowsRead:0,otherRowsWritten:0,otherStorageBytes:20000000,headroom:0.2,
 };
@@ -18,11 +23,12 @@ export function estimate(input={}) {
  for(const [k,v] of Object.entries(x))if(!(k in defaults)||typeof v!=='number'||!Number.isFinite(v)||v<0)throw new Error(`Invalid assumption: ${k}`);
  if(x.cloudFraction>1||x.headroom>=1||!x.cronMinutes||!x.jobBatch)throw new Error('Fractions must be 0–1 and scheduler intervals/batches positive.');
  const cloudUsers=x.dailyUsers*x.cloudFraction, reads=cloudUsers*x.readsPerCloudUser,writes=cloudUsers*x.writesPerCloudUser,cron=Math.ceil(1440/x.cronMinutes),identityReads=(x.dailyUsers-cloudUsers)*x.identityReadsPerLocalUser;
+ const quotaUses=cloudUsers*x.quotaUsesPerCloudUser;
  const demand={
-  workerRequests:x.dailyUsers*x.pageInvocationsPerUser+(reads+writes+identityReads)*x.invocationsPerApi+x.dailyLogins*x.invocationsPerLogin+cron+x.otherRequests,
-  d1RowsRead:identityReads*x.identityRowsPerRead+reads*x.readRowsPerApi+writes*x.readRowsPerMutation+x.dailyLogins*x.loginRowsRead+cron*10+x.scheduledJobs*x.jobRowsRead+x.maintenanceRowsRead+x.otherRowsRead,
-  d1RowsWritten:writes*x.writeRowsPerMutation+x.dailyLogins*x.loginRowsWritten+x.scheduledJobs*x.jobRowsWritten+x.maintenanceRowsWritten+x.otherRowsWritten,
-  singleDatabaseBytes:cloudUsers*x.rowsStoredPerCloudUser*x.bytesPerStoredRow*x.indexStorageFactor+x.otherStorageBytes,
+  workerRequests:x.dailyUsers*x.pageInvocationsPerUser+(reads+writes+identityReads+quotaUses)*x.invocationsPerApi+x.dailyLogins*x.invocationsPerLogin+cron+x.otherRequests,
+  d1RowsRead:identityReads*x.identityRowsPerRead+reads*x.readRowsPerApi+writes*x.readRowsPerMutation+quotaUses*x.quotaRowsReadPerUse+cloudUsers*x.usageRowsReadPerCloudUser+x.dailyLogins*x.loginRowsRead+cron*10+x.scheduledJobs*x.jobRowsRead+x.maintenanceRowsRead+x.otherRowsRead,
+  d1RowsWritten:writes*x.writeRowsPerMutation+quotaUses*x.quotaRowsWrittenPerUse+x.dailyLogins*x.loginRowsWritten+x.scheduledJobs*x.jobRowsWritten+x.maintenanceRowsWritten+x.otherRowsWritten,
+  singleDatabaseBytes:cloudUsers*x.rowsStoredPerCloudUser*x.bytesPerStoredRow*x.indexStorageFactor+cloudUsers*x.entitlementRowsPerCloudUser*x.bytesPerEntitlementRow*x.indexStorageFactor+x.otherStorageBytes,
  };
  // This repository binds ONE free database, not all 5 GB of account storage.
  const limits={workerRequests:100000,d1RowsRead:5000000,d1RowsWritten:100000,singleDatabaseBytes:500000000};

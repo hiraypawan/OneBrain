@@ -8,6 +8,11 @@ import { jsonRequest, PROVIDERS, validateConnection, type Provider } from './con
 import { prepareJob, runDue } from './jobs';
 import { readPage, pageResult } from './pages';
 import { RECORD_KINDS, validateRecord } from './records';
+import {
+  consume, entitlementCatalog, entitlementFor, FREE_ENTITLEMENT, grantInput, isCountedFeature,
+  isEntitlementAdmin, limitsFor, mintKeys, publicEntitlement, redeemKey, resolveEntitlement,
+  revokeEntitlement, usageSnapshot, writeGrant, type CountedFeature,
+} from './entitlements';
 export const platform = new Hono<PlatformContext>();
 platform.onError((error,c) => {
   if(noteD1Failure(c.env.DB,error)) { c.header('Retry-After','60'); return c.json({error:'Server capacity is temporarily unavailable. Device-local capture still works; no server save is claimed.'},503); }
@@ -27,7 +32,7 @@ platform.use('*',async(c,next)=>{
 });
 platform.use('*',bodyLimit({maxSize:750000,onError:c=>c.json({error:'Request exceeds 750 KB.'},413)}));
 platform.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
-platform.get('/capabilities',c=>c.json({service:'OneBrain platform',configured:googleConfigured(c.env),authMode:'google-only',encryptedConnections:!!c.env.TOKEN_ENCRYPTION_KEY,googleOAuth:!!(c.env.GOOGLE_CLIENT_ID&&c.env.GOOGLE_CLIENT_SECRET&&c.env.GOOGLE_CONNECT_REDIRECT),providers:PROVIDERS,recordKinds:RECORD_KINDS,limits:{records:2000,connections:20,jobs:500,executionsPerDay:100},mode:c.env.PLATFORM_MODE||'normal',requestLimiter:c.env.API_RATE_LIMITER?'native':'d1-fallback',scheduler:{cadenceMinutes:5,batchSize:Number(c.env.SCHEDULED_JOB_BATCH_SIZE)||2},billing:'No paid overflow or payment collection enabled'}));
+platform.get('/capabilities',c=>c.json({service:'OneBrain platform',configured:googleConfigured(c.env),authMode:'google-only',encryptedConnections:!!c.env.TOKEN_ENCRYPTION_KEY,googleOAuth:!!(c.env.GOOGLE_CLIENT_ID&&c.env.GOOGLE_CLIENT_SECRET&&c.env.GOOGLE_CONNECT_REDIRECT),providers:PROVIDERS,recordKinds:RECORD_KINDS,limits:{records:2000,connections:20,jobs:500,executionsPerDay:limitsFor('free').dispatchPerDay},entitlements:entitlementCatalog(),mode:c.env.PLATFORM_MODE||'normal',requestLimiter:c.env.API_RATE_LIMITER?'native':'d1-fallback',scheduler:{cadenceMinutes:5,batchSize:Number(c.env.SCHEDULED_JOB_BATCH_SIZE)||2},billing:'No paid overflow or payment collection enabled'}));
 platform.post('/register',c=>c.json({error:'Password signup is disabled. Use Google sign-in.'},410));
 platform.post('/login',c=>c.json({error:'Password login is disabled. Use Google sign-in.'},410));
 platform.post('/auth/google/start',async c=>{await rateLimit(c,'google-start',20);return c.json(await startGoogleLogin(c.env));});
@@ -39,14 +44,84 @@ platform.use('*',async(c,next)=>{
  const revocation=['/api/platform/logout','/api/platform/logout-all'].includes(c.req.path);
  if(!revocation&&c.env.API_RATE_LIMITER)await rateLimit(c,'platform',240);
  const user=await sessionUser(c.env,token!);if(!user)fail(401,'Session expired or revoked. Sign in with Google again.');
- c.set('actor',user!);if(!revocation&&!c.env.API_RATE_LIMITER)await rateLimit(c,'platform',240);await next();
+ c.set('actor',user!);
+ // Plan comes from the same row as identity (LEFT JOIN), so gating is free.
+ const entitlement=resolveEntitlement({plan:user!.plan,source:user!.planSource,granted_at:user!.planGrantedAt,expires_at:user!.planExpiresAt});
+ c.set('entitlement',entitlement);c.set('plan',entitlement.plan);
+ if(!revocation&&!c.env.API_RATE_LIMITER)await rateLimit(c,'platform',240);await next();
 });
-platform.get('/me',c=>c.json({user:actor(c)}));
+/** Identity + plan only. The plan arrives in the session JOIN, so /me still
+ * costs exactly one D1 query (guarded by capacity.test.ts). Counted usage is
+ * returned by /bootstrap once per session and by /entitlements on demand. */
+platform.get('/me',c=>{
+ const entitlement=c.get('entitlement')||FREE_ENTITLEMENT;
+ return c.json({user:actor(c),plan:entitlement.plan,entitlement:{...publicEntitlement(entitlement,{} as any),usage:undefined,usageHint:'GET /api/platform/bootstrap or /api/platform/entitlements for counted usage.'}});
+});
 platform.post('/logout',async c=>{await c.env.DB.prepare('DELETE FROM platform_sessions WHERE token_hash=?').bind(c.get('session')).run();return c.json({ok:true});});
 platform.post('/logout-all',async c=>{await c.env.DB.prepare('DELETE FROM platform_sessions WHERE user_id=?').bind(actor(c).id).run();return c.json({ok:true});});
 platform.get('/spaces',async c=>c.json({spaces:(await c.env.DB.prepare('SELECT s.id,s.name,s.created_at,m.role FROM spaces s JOIN space_members m ON m.space_id=s.id WHERE m.user_id=? ORDER BY s.created_at').bind(actor(c).id).all()).results}));
 // One authenticated request instead of separate identity and workspace-list calls.
-platform.get('/bootstrap',async c=>c.json({user:actor(c),spaces:(await c.env.DB.prepare('SELECT s.id,s.name,s.created_at,m.role FROM space_members m JOIN spaces s ON s.id=m.space_id WHERE m.user_id=? ORDER BY s.created_at').bind(actor(c).id).all()).results}));
+platform.get('/bootstrap',async c=>{
+ const entitlement=c.get('entitlement')||FREE_ENTITLEMENT;
+ // One authenticated request instead of separate identity, workspace and plan calls.
+ const [spaces,usage]=await Promise.all([
+  c.env.DB.prepare('SELECT s.id,s.name,s.created_at,m.role FROM space_members m JOIN spaces s ON s.id=m.space_id WHERE m.user_id=? ORDER BY s.created_at').bind(actor(c).id).all(),
+  usageSnapshot(c.env,actor(c).id,entitlement),
+ ]);
+ return c.json({user:actor(c),spaces:spaces.results,plan:entitlement.plan,entitlement:publicEntitlement(entitlement,usage)});
+});
+// ---- Entitlements: server-authoritative plan, keys and counted quotas ----
+platform.get('/entitlements',async c=>{
+ const entitlement=c.get('entitlement')||await entitlementFor(c.env,actor(c).id);
+ const sessionId=c.req.query('translateSession')||undefined;
+ return c.json(publicEntitlement(entitlement,await usageSnapshot(c.env,actor(c).id,entitlement,Date.now(),sessionId)));
+});
+platform.post('/entitlements/redeem',async c=>{
+ await rateLimit(c,'entitlements',10);
+ const body=object(await c.req.json());
+ const granted=await redeemKey(c.env,actor(c).id,body.key);
+ return c.json({...publicEntitlement(granted,await usageSnapshot(c.env,actor(c).id,granted)),notice:'Redeemed on your account. This server, not this browser, now decides your plan.'});
+});
+platform.post('/entitlements/consume',async c=>{
+ const body=object(await c.req.json()),feature=text(body.feature,'Feature',32);
+ if(!isCountedFeature(feature))fail(400,'That is not a counted quota feature.');
+ const units=body.units===undefined?1:number(body.units,'Units',1,1000);
+ const entitlement=c.get('entitlement')||await entitlementFor(c.env,actor(c).id);
+ const sessionId=body.sessionId===undefined?undefined:text(body.sessionId,'Session',64);
+ const result=await consume(c.env,actor(c).id,feature as CountedFeature,entitlement,units,Date.now(),sessionId);
+ // 429 (not a fabricated success) when the allowance is reached.
+ if(!result.allowed){c.header('Retry-After','3600');return c.json({error:result.message,...result},429);}
+ return c.json(result);
+});
+platform.post('/entitlements/grant',async c=>{
+ await rateLimit(c,'entitlements',10);
+ if(!isEntitlementAdmin(c.env,actor(c).email))fail(403,'Only an operator listed in ENTITLEMENT_ADMINS can grant a plan.');
+ const input=grantInput(await c.req.json());
+ const row=input.userId
+  ? await c.env.DB.prepare('SELECT id,email FROM users WHERE id=?').bind(input.userId).first<{id:string;email:string}>()
+  : await c.env.DB.prepare('SELECT id,email FROM users WHERE email=?').bind(input.email).first<{id:string;email:string}>();
+ if(!row)fail(404,'No account matches that user. They must sign in with Google once first.');
+ const granted=await writeGrant(c.env,row!.id,input.plan,'operator',actor(c).id,{days:input.days,reason:input.reason});
+ return c.json({userId:row!.id,email:row!.email,...publicEntitlement(granted,await usageSnapshot(c.env,row!.id,granted))},201);
+});
+platform.post('/entitlements/revoke',async c=>{
+ await rateLimit(c,'entitlements',10);
+ if(!isEntitlementAdmin(c.env,actor(c).email))fail(403,'Only an operator listed in ENTITLEMENT_ADMINS can revoke a plan.');
+ const body=object(await c.req.json()),userId=text(body.userId,'User ID',64),reason=body.reason===undefined?'':text(body.reason,'Reason',200);
+ await revokeEntitlement(c.env,userId,actor(c).id,reason);
+ return c.json({ok:true,userId,plan:'free',notice:'Returned to Free. Counted usage rows were kept for honest reporting.'});
+});
+platform.post('/entitlements/keys',async c=>{
+ await rateLimit(c,'entitlements',5);
+ if(!isEntitlementAdmin(c.env,actor(c).email))fail(403,'Only an operator listed in ENTITLEMENT_ADMINS can mint keys.');
+ const body=object(await c.req.json()),plan=text(body.plan,'Plan',10);
+ if(plan!=='pro'&&plan!=='family')fail(400,'Mint pro or family keys.');
+ const count=body.count===undefined?1:number(body.count,'Count',1,50);
+ const days=body.days===undefined?0:number(body.days,'Days',0,3650);
+ const issued=await mintKeys(c.env,{plan:plan as 'pro'|'family',count,createdBy:actor(c).id,label:body.label===undefined?'':text(body.label,'Label',120),days});
+ // Plaintext is returned exactly once; only hashes are stored.
+ return c.json({keys:issued,storage:'hash-only',notice:'Copy these now. The server stores only their hashes and cannot show them again.'},201);
+});
 platform.post('/spaces',async c=>{
   const name=text(object(await c.req.json()).name,'Workspace name',100),space=id(),now=Date.now();
   const n=await c.env.DB.prepare('SELECT COUNT(*) AS n FROM spaces WHERE owner_id=?').bind(actor(c).id).first<{n:number}>();if((n?.n||0)>=20)fail(429,'20-workspace limit reached.');

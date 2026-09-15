@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  planAllows, validateBetaKey, mintBetaKey, quotaMessage, PLANS, FREE_LIMITS,
+  planAllows, validateBetaKey, quotaMessage, PLANS, FREE_LIMITS,
 } from '../lib/plans';
+import { mintTestBetaKey } from './helpers/beta-keys';
 
 describe('planAllows', () => {
   it('gates features by plan', () => {
@@ -15,8 +16,8 @@ describe('planAllows', () => {
 
 describe('beta keys', () => {
   it('mints and validates keys', () => {
-    const pro = mintBetaKey('pro');
-    const fam = mintBetaKey('family', 'OTHERSEED');
+    const pro = mintTestBetaKey('pro');
+    const fam = mintTestBetaKey('family', 'OTHERSEED');
     expect(validateBetaKey(pro)).toBe('pro');
     expect(validateBetaKey(fam)).toBe('family');
     expect(validateBetaKey(' OB-pro-' + pro.slice(-6).toLowerCase() + ' ')).toBe('pro');

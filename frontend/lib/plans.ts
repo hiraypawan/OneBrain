@@ -1,7 +1,12 @@
-// Local entitlements: Free / Pro / Family gates + quotas. No checkout is
-// connected yet, so upgrades use beta keys (validated locally) with honest
-// labeling everywhere: "Beta unlock — billing connects at launch."
-// Quotas are enforced in the feature engine; this module is pure policy.
+// Plan policy: Free / Pro / Family gates + quotas.
+//
+// Authority moved to the server (workers/api/src/platform/entitlements.ts).
+// This module remains for two honest reasons:
+//   1. Signed-out / offline use, where nothing else can decide.
+//   2. Instant UI while the server answer is in flight.
+// A key validated here unlocks features IN THIS BROWSER ONLY. Server features
+// need a key redeemed on an account (`lib/entitlements.ts`). No checkout and no
+// payment collection exist anywhere in this product.
 
 export type PlanId = 'free' | 'pro' | 'family';
 
@@ -62,9 +67,16 @@ export function planAllows(plan: PlanId, feature: GatedFeature): boolean {
   return false;
 }
 
-const BETA_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const BETA_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
-/** Beta key validation. Format: OB-PRO-XXXXXX or OB-FAM-XXXXXX; last char is a check digit. */
+/**
+ * Device-only beta key format check: OB-PRO-XXXXXX or OB-FAM-XXXXXX, where the
+ * last character is a check digit.
+ *
+ * This is a FORMAT check, not authority. The algorithm is public in this
+ * repository, so a key that passes here only unlocks features in this browser;
+ * the server (which stores operator-minted key hashes) decides account plans.
+ */
 export function validateBetaKey(raw: string): PlanId | null {
   const key = String(raw || '').trim().toUpperCase().replace(/[\s-]/g, '');
   const m = key.match(/^OB(PRO|FAM)([A-Z2-9]{6})$/);
@@ -75,19 +87,6 @@ export function validateBetaKey(raw: string): PlanId | null {
   const sum = [...body.slice(0, 5)].reduce((a, c) => a + c.charCodeAt(0), 0);
   if (body[5] !== BETA_ALPHABET[sum % BETA_ALPHABET.length]) return null;
   return m[1] === 'FAM' ? 'family' : 'pro';
-}
-
-/** Generate a valid beta key (used by tests/docs; operators mint these). */
-export function mintBetaKey(plan: 'pro' | 'family', seed = 'BETA01'): string {
-  let body = '';
-  let h = [...seed].reduce((a, c) => a + c.charCodeAt(0), 0);
-  for (let i = 0; i < 5; i++) {
-    h = (h * 31 + 7) % 997;
-    body += BETA_ALPHABET[h % BETA_ALPHABET.length];
-  }
-  const sum = [...body].reduce((a, c) => a + c.charCodeAt(0), 0);
-  body += BETA_ALPHABET[sum % BETA_ALPHABET.length];
-  return `OB-${plan === 'family' ? 'FAM' : 'PRO'}-${body}`;
 }
 
 export function quotaMessage(feature: string, plan: PlanId): string {

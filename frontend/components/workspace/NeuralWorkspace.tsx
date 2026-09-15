@@ -109,7 +109,7 @@ function Overlay({
     >
       <div className="sheet-heading">
         <div>
-          <span className="eyebrow">ONEBRAIN / WORKSPACE</span>
+          <span className="eyebrow">ONEBRAIN</span>
           <h2 id={titleId}>{title}</h2>
         </div>
         <button
@@ -281,7 +281,7 @@ export function NeuralWorkspace() {
     return (
       <section className="pocket-screen">
         <div className={`listening-line ${assistant.isActive ? "on" : ""}`} />
-        <span className="eyebrow">POCKET MODE</span>
+        <span className="eyebrow">SCREEN-OFF MODE</span>
         <h1>{assistant.isActive ? assistant.currentStatus : "Paused"}</h1>
         <p>
           Background listening depends on your phone and browser. This screen
@@ -311,7 +311,7 @@ export function NeuralWorkspace() {
       <div className="home-stage">
         <div className="thought-stage">
           <section className="workspace-intro">
-            <span className="overline">YOUR EVERYDAY SECOND BRAIN</span>
+            <span className="overline">TODAY · WRITE IT, SPEAK IT, FIND IT AGAIN</span>
             <h1>
               Notes. Tasks. <span>Answers.</span>
             </h1>
@@ -471,7 +471,7 @@ export function NeuralWorkspace() {
           <WorkoutRunner />
           <WitnessRunner />
           <FeatureCards say={say} />
-          <FeatureHint />
+          <FeatureHint say={say} />
           {latest && (
             <section
               className="answer-inline"
@@ -577,8 +577,12 @@ export function NeuralWorkspace() {
                   : "◌ Voice replies active — tap to mute"}
               </button>
               {assistant.isActive && (
-                <button className="text-button" onClick={() => setPocket(true)}>
-                  Dark screen
+                <button
+                  className="text-button"
+                  onClick={() => setPocket(true)}
+                  title="Keep listening with the screen dark to save battery"
+                >
+                  Screen off
                 </button>
               )}
             </div>
@@ -869,7 +873,7 @@ export function NeuralWorkspace() {
           )}
           {view === "today" && (
             <section className="today-panel">
-              <span className="eyebrow">YOUR NEXT STEPS</span>
+              <span className="eyebrow">WHAT YOU CAN DO NEXT</span>
               <h2>
                 {openTasks.length
                   ? `${openTasks.length} things on your mind.`
@@ -928,7 +932,7 @@ export function NeuralWorkspace() {
           )}
           {view === "activity" && (
             <section className="activity-panel">
-              <span className="eyebrow">EVIDENCE, NOT JUST “DONE”</span>
+              <span className="eyebrow">WHAT YOU ACTUALLY DID</span>
               <h2>Your action history.</h2>
               <p>
                 Local receipts verify browser storage—not external services or
@@ -1008,7 +1012,7 @@ export function NeuralWorkspace() {
         </div>
         {assistant.proactiveInvitation && (
           <section className="proactive-card" aria-live="polite">
-            <span className="eyebrow">AN OPTIONAL OPENING</span>
+            <span className="eyebrow">ONE QUESTION — ONLY IF YOU WANT IT</span>
             <p>{assistant.proactiveInvitation.permission}</p>
             <small>{assistant.proactiveInvitation.reason}</small>
             <div>
@@ -1050,7 +1054,7 @@ export function NeuralWorkspace() {
         )}
         {assistant.capturePreview && (
           <section className="proactive-card">
-            <span className="eyebrow">REVIEW VOICE CAPTURE</span>
+            <span className="eyebrow">REVIEW WHAT YOU SAID</span>
             {assistant.capturePreview.map((d, i) => (
               <p key={i}>
                 {d.kind}: {d.title}

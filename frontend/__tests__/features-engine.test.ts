@@ -4,7 +4,8 @@ import { handleFeatureTurn, observeTranscript } from '../lib/feature-engine';
 import { useFeaturesStore } from '../store/features';
 import { useAssistantStore } from '../store/assistant';
 import { INITIAL_WITNESS } from '../lib/witness';
-import { EMPTY_QUOTA, mintBetaKey } from '../lib/plans';
+import { EMPTY_QUOTA } from '../lib/plans';
+import { mintTestBetaKey } from './helpers/beta-keys';
 
 beforeEach(async () => {
   vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
@@ -230,7 +231,7 @@ describe('plan and unlock', () => {
   it('shows plan and unlocks with a beta key', async () => {
     const p = await handleFeatureTurn('my plan');
     expect(p?.card).toMatchObject({ kind: 'plan' });
-    const key = mintBetaKey('pro');
+    const key = mintTestBetaKey('pro');
     const u = await handleFeatureTurn(`unlock ${key}`);
     expect(u?.speak).toMatch(/Pro unlocked/);
     expect(useFeaturesStore.getState().plan).toBe('pro');

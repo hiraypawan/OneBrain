@@ -132,6 +132,8 @@ export default function Operations() {
           setUser(me.user);
           useAssistantStore.getState().loginBackend(me.user);
           setSpaces(me.spaces); setSpace(me.spaces[0]?.id || "");
+          // Bootstrap already carries the server plan: apply it for free.
+          if (me.entitlement) void import("@/store/features").then((m) => m.useFeaturesStore.getState().applyServerEntitlement(me.entitlement));
         }
       } catch (e) {
         if(alive){setBootstrapError(!(e instanceof PlatformRequestError && e.status===401));setUser(null);}
