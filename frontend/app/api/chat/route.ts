@@ -23,14 +23,18 @@ export async function POST(req: NextRequest) {
   const message = input.message as string, history = (input.history || []) as ChatHistory[];
   const userKey = input.userKey as string | undefined, verbosity = input.verbosity as string | undefined;
   const profile = input.profile as string | undefined, recall = input.recall as string | undefined;
+  const systemOverride = typeof input.systemOverride === 'string' && input.systemOverride.length <= 12000
+    ? input.systemOverride as string : undefined;
 
   // Explicit user key, keyless community API, then offline fallback.
   // Never spend host keys or silently overflow into a paid provider.
   // Memory-aware system: clock + verbosity + who they are + relevant past chats.
-  const sysParts = [buildSystem()];
-  sysParts.push(verbosity === 'long' ? 'Give fuller explanations when asked.' : 'Be concise: short spoken answers.');
-  if (profile) sysParts.push(profile);
-  if (recall) sysParts.push(recall);
+  const sysParts = systemOverride ? [systemOverride] : [buildSystem()];
+  if (!systemOverride) {
+    sysParts.push(verbosity === 'long' ? 'Give fuller explanations when asked.' : 'Be concise: short spoken answers.');
+    if (profile) sysParts.push(profile);
+    if (recall) sysParts.push(recall);
+  }
   const system = sysParts.join('\n\n');
   const maxTokens = verbosityBudget(verbosity);
   const geminiKey = userKey;
@@ -48,7 +52,7 @@ export async function POST(req: NextRequest) {
   // providers so a user's own key (better quality) always wins when present.
   // Live facts first for factual questions (fresh > training cutoff).
   try {
-    if (looksFactual(message)) {
+    if (!systemOverride && looksFactual(message)) {
       const wiki = await fetchWikipedia(message);
       if (wiki?.text) return NextResponse.json({ answer: wiki.text, provider: 'wikipedia' });
     }

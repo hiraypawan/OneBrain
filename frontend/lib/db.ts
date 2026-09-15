@@ -1,5 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import type { BrainItem, ActionReceipt } from './workspace/model';
+import type { FitnessLog } from './fitness';
+import type { StoryThread } from './story';
 
 export interface StoredMessage {
   id?: number;
@@ -35,6 +37,17 @@ export interface StoredUser {
   displayName?: string;
 }
 
+export interface StoredEmailDraft {
+  id: string;
+  subject: string;
+  body: string;
+  tone: string;
+  kind: string;
+  to?: string;
+  toEmail?: string;
+  createdAt: number;
+}
+
 class OneBrainDB extends Dexie {
   brainItems!: Table<BrainItem, string>;
   actionReceipts!: Table<ActionReceipt, string>;
@@ -42,6 +55,9 @@ class OneBrainDB extends Dexie {
   messages!: Table<StoredMessage, number>;
   reminders!: Table<StoredReminder, string>;
   kv!: Table<{ key: string; value: any }, string>;
+  fitnessLogs!: Table<FitnessLog, string>;
+  stories!: Table<StoryThread, string>;
+  emailDrafts!: Table<StoredEmailDraft, string>;
   pendingSync!: Table<any, number>;
 
   constructor() {
@@ -80,6 +96,13 @@ class OneBrainDB extends Dexie {
     this.version(4).stores({
       brainItems: 'id, scope, kind, updatedAt',
       actionReceipts: 'id, scope, at',
+    });
+    // v5 adds feature tables (fitness timeline, stories, email drafts).
+    // Older tables carry over untouched.
+    this.version(5).stores({
+      fitnessLogs: 'id, kind, createdAt',
+      stories: 'id, updatedAt',
+      emailDrafts: 'id, createdAt',
     });
   }
 }
@@ -128,13 +151,16 @@ export async function clearAllLocal() {
 }
 
 export async function exportAllLocal() {
-  const [conversations, messages, reminders, kv, brainItems, actionReceipts] = await Promise.all([
+  const [conversations, messages, reminders, kv, brainItems, actionReceipts, fitnessLogs, stories, emailDrafts] = await Promise.all([
     db.conversations.toArray(),
     db.messages.toArray(),
     db.reminders.toArray(),
     db.kv.toArray(),
     db.brainItems.toArray(),
     db.actionReceipts.toArray(),
+    db.fitnessLogs.toArray().catch(() => []),
+    db.stories.toArray().catch(() => []),
+    db.emailDrafts.toArray().catch(() => []),
   ]);
-  return { conversations, messages, reminders, kv: kv.filter(row => !['localUsers', 'user', 'encrypted-vault:v1'].includes(row.key)), brainItems, actionReceipts, exportedAt: new Date().toISOString() };
+  return { conversations, messages, reminders, kv: kv.filter(row => !['localUsers', 'user', 'encrypted-vault:v1'].includes(row.key)), brainItems, actionReceipts, fitnessLogs, stories, emailDrafts, exportedAt: new Date().toISOString() };
 }

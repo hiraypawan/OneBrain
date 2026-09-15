@@ -34,6 +34,10 @@ const PANELS: Record<string, React.ComponentType> = {
   timeline: dynamic(() => import("./Timeline"), { loading }),
   conversations: dynamic(() => import("./Conversations"), { loading }),
   conversation: dynamic(() => import("./Conversation"), { loading }),
+  fitness: dynamic(() => import("./Fitness").then((m) => m.Fitness), { loading }),
+  stories: dynamic(() => import("./Stories").then((m) => m.Stories), { loading }),
+  drafts: dynamic(() => import("./Drafts").then((m) => m.Drafts), { loading }),
+  plan: dynamic(() => import("./Plan").then((m) => m.Plan), { loading }),
 };
 export function ControlCenter() {
   const storageNotice = useAssistantStore(s => s.storageNotice);
