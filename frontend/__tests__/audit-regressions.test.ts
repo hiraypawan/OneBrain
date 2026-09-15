@@ -164,8 +164,13 @@ describe('API request and spending boundaries', () => {
     expect((await stt()).status).toBe(501);
     expect(await (await tts(request({ text: 'Hello' }))).json()).toEqual({ fallback: true });
     const answer = await (await chat(request({ message: 'hello' }))).json(); expect(answer.provider).toBe('offline');
-    expect(fetch.mock.calls).toHaveLength(1);
-    expect(String((fetch.mock.calls[0] as unknown[])[0])).toBe('https://text.pollinations.ai/');
+    // Both speech and chat may only reach the KEYLESS community endpoints —
+    // never a host-key provider, even with those keys configured.
+    expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of fetch.mock.calls) expect(String((call as unknown[])[0])).toMatch(/^https:\/\/text\.pollinations\.ai\//);
+    const dumped = JSON.stringify(fetch.mock.calls);
+    expect(dumped).not.toContain('test-only-host-key');
+    expect(dumped).not.toContain('generativelanguage');
   });
   it('validates TTS data instead of throwing a server error', async () => {
     expect((await tts(request({ text: {} }))).status).toBe(400);

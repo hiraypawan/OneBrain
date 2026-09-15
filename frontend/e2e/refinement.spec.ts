@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { stubSpeechService } from "./audio-stub";
 
 test.beforeEach(async ({ page }) => {
   await page.route("https://js.puter.com/**", (route) => route.abort());
@@ -305,6 +306,7 @@ test("stopping speech releases the turn and its old timeout cannot cancel a new 
 }) => {
   await page.clock.install({ time: new Date(2026, 8, 10, 12) });
   await mockAudio(page);
+  await stubSpeechService(page);
   await page.evaluate(() => {
     const w = window as any;
     w.__cancelCount = 0;
@@ -350,6 +352,7 @@ test("revoking topic permission invalidates an invitation that was already offer
 }) => {
   await page.clock.install({ time: new Date(2026, 8, 10, 12) });
   await mockAudio(page);
+  await stubSpeechService(page);
   await page.evaluate(() => {
     (window as any).__spoken = [];
     Object.defineProperty(window, "speechSynthesis", {

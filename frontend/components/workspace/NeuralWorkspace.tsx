@@ -704,6 +704,14 @@ export function NeuralWorkspace() {
         {assistant.voiceNotice && (
           <div className="workspace-notice voice-notice" role="status">
             <span>{assistant.voiceNotice}</span>
+            {assistant.hasReplay && (
+              <button
+                className="text-button"
+                onClick={() => void assistant.replayLastReply()}
+              >
+                Hear it
+              </button>
+            )}
             <button
               className="text-button"
               onClick={() => assistant.clearVoiceNotice()}

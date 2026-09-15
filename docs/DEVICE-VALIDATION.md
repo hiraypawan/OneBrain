@@ -7,6 +7,7 @@
 | Headless Chromium desktop | Local capture/reload/links/completion/undo/settings pass | Real recognition or audible output |
 | Chromium at 320/390/768/1440px widths | No page/map overflow at default zoom; zoom/pagination/capture tests pass | iOS WebKit behavior or physical-device touch testing |
 | Simulated recognition + speech + clock | Idle wait, permission-first invitation, revoked consent, startup cancellation/unmount/recovery and old speech-timeout isolation pass | Bluetooth, battery behavior, actual spoken-language quality |
+| Unit tests for the audio path (`tts-route`, `tts-client`, `browser-speak`, `output-routing`) | Provider fallback chain, WAV wrapping, no host-key spending, cache keys, cancel/speak ordering, stall retry, automatic device resolution, pinned-device fallback | Real audibility, real Bluetooth routing, real lock-screen behavior |
 
 The current production build passed **20 browser tests**. See [UI and bug audit](UI-AND-BUG-AUDIT.md) for the detailed scope. Keyboard/dialog checks are targeted regressions, not a full accessibility audit.
 
@@ -16,6 +17,12 @@ Record the exact phone, OS, browser/PWA version, earbud model, network, and perm
 
 For each situation, issue a new utterance and verify all four steps:
 **speech → transcript → correct result/record → audible reply**.
+
+Replies are no longer spoken by the browser voice alone: audio bytes are played
+through an `<audio>` element and routed automatically (see
+[VOICE-OUTPUT.md](VOICE-OUTPUT.md)). Verify audibility on **each** output —
+phone speaker, Bluetooth neckband, earbuds, desk speaker — including a mid-session
+device switch and a locked screen.
 
 - Foreground session, including mixed English/Hindi/Marathi and business names.
 - Browser backgrounded without force-quitting.

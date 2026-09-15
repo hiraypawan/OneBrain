@@ -14,7 +14,7 @@
 - **Your space, Everyday tools panel:** local calculations, units and dates, session-only timers/stopwatch, explicit source-linked FX/weather lookup. Live source requests failed with connection resets in this sandbox; successful live lookups remain unverified, and failures never produce invented values.
 - **Your space, Private vault panel:** password-derived AES-GCM local storage, lock on hide/inactivity, encrypted backup/restore. Not an audited password manager; no voice/AI secret entry.
 
-Device-local records, server workspace records and encrypted vault entries are separate storage boundaries. General browser speech and optional AI may use external processors. Hosted APIs have quotas; **free unlimited service is not promised**. No automatic paid overflow or payment collection exists.
+Device-local records, server workspace records and encrypted vault entries are separate storage boundaries. General browser speech, spoken-reply audio (your own provider key, or a keyless community voice, with the browser voice as fallback) and optional AI may use external processors. Hosted APIs have quotas; **free unlimited service is not promised**. No automatic paid overflow or payment collection exists.
 
 HTTP adapters exist for Calendar, Sheets, Gmail, Telegram, Slack, Todoist, Notion, HubSpot, Home Assistant, signed webhooks and a limited JSON-HTTP MCP transport. **Written adapters are not evidence of live authorization or successful delivery.** See the setup guide for exact supported actions and limits.
 

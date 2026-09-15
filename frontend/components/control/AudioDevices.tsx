@@ -1,11 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  activeSinkId,
   autoPickOutput,
   cleanDeviceLabel,
   listAudioDevices,
   listOutputDevices,
   outputSelectionSupported,
+  resolvedOutput,
   pickableOutputs,
   playTestTone,
   speakerPlan,
@@ -124,7 +126,7 @@ export function AudioDevices() {
   async function testTone() {
     setBusy("tone");
     setStatus(null);
-    const ok = await playTestTone(speakerDeviceId);
+    const ok = await playTestTone(activeSinkId(speakerDeviceId));
     setStatus(
       ok
         ? "Test tone played. If you did not hear it, raise that device's volume."
@@ -191,9 +193,10 @@ export function AudioDevices() {
     <section className="settings-card audio-devices">
       <h2>Microphone &amp; speaker</h2>
       <p>
-        Spoken replies go to whichever output your device has set as the system
-        default. Pick your neckband or speaker here to test it, and set it as
-        the default in your device sound settings to hear OneBrain on it.
+        Nothing here has to be set. Spoken replies are real audio and follow
+        whatever your phone, tablet or computer is currently playing through —
+        connect a neckband, earbuds or speaker and the voice goes there
+        automatically. Pick a device below only to pin replies to one output.
       </p>
 
       <label>
@@ -203,7 +206,11 @@ export function AudioDevices() {
           onChange={(e) => setSpeakerDeviceId(e.target.value || null)}
           disabled={!choices.length}
         >
-          {!choices.length && <option value="">No output detected</option>}
+          <option value="">
+            {choices.length
+              ? `Automatic — ${resolvedOutput().label || plan.defaultLabel || "follow my device"}`
+              : "No output detected"}
+          </option>
           {choices.map((d) => (
             <option key={d.deviceId} value={d.deviceId}>
               {d.label}
@@ -284,9 +291,11 @@ export function AudioDevices() {
       {status && <p role="status">{status}</p>}
 
       <p className="settings-footnote">
-        Devices are detected automatically and re-read when something connects
-        or disconnects. Output routing for spoken replies is decided by the
-        operating system, not by this page.
+        Devices are detected automatically and re-read the moment something
+        connects or disconnects. Replies are played as audio, so they follow
+        the system output; on Chromium browsers a pinned device is also applied
+        through setSinkId. On iPhone/iPad the system alone decides — connect the
+        neckband or earbuds and it plays there with no setting to change.
       </p>
     </section>
   );

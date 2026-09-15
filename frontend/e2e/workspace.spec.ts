@@ -1,8 +1,10 @@
 import { test, expect } from "@playwright/test";
+import { stubSpeechService } from "./audio-stub";
 
 test.beforeEach(async ({ page }) => {
   // Tests exercise deterministic functionality without sending any content to AI providers.
   await page.route("https://js.puter.com/**", (route) => route.abort());
+  await stubSpeechService(page);
   await page.goto("/");
   await page.getByRole("tab", {name:"Context map",exact:true}).click();
 });
