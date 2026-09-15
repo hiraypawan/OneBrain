@@ -33,7 +33,7 @@ export const CATALOG: ToolEntry[] = [
   {
     id: "shared",
     title: "Connected work",
-    description: "Signed-in server work: shared spaces, connections, schedules, approvals.",
+    description: "Shared workspaces, app connections, schedules and approvals — signed-in server work.",
     group: "Do more",
     icon: "link",
     keywords:
