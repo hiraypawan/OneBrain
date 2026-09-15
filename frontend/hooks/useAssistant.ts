@@ -423,12 +423,15 @@ export function useAssistant() {
                 done(benign);
               };
               // Never hang on a speak() that never starts: no voices, muted
-              // engine, or a stuck queue. 5 s covers slow voice loading; an
-              // engine that is audibly speaking (but skipped onstart) is
-              // left alone until the per-chunk ceiling.
+              // engine, or a stuck queue. Only when the engine positively
+              // reports an idle queue (not speaking, nothing pending) is the
+              // utterance treated as stalled; engines that merely skip
+              // onstart keep the per-chunk ceiling below.
+              const idle = () =>
+                synth.speaking === false && synth.pending === false;
               watchdog = setTimeout(() => {
                 if (started) return;
-                if (synth.speaking) {
+                if (!idle()) {
                   started = true;
                   watchdog = setTimeout(() => {
                     if (current()) cancelSpeechRef.current();

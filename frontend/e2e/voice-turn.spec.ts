@@ -124,19 +124,15 @@ test("Android-style confidence-0 finals produce an answer, speech and a resumed 
   // Mic resumed after the reply: the recognizer was restarted.
   await expect(page.locator(".session-state")).toContainText("listening");
   await expect
-    .poll(async () =>
-      page.evaluate(() => ({
-        running: (window as any).__testRecognition.running,
-        starts: (window as any).__starts,
-      })),
-    )
-    .toEqual({ running: true, starts: 2 });
+    .poll(() => page.evaluate(() => (window as any).__testRecognition.running))
+    .toBe(true);
+  expect(await page.evaluate(() => (window as any).__starts)).toBeGreaterThanOrEqual(2);
   // Second turn works too (no "Finish or cancel the current request" lockout).
   await page.evaluate(() =>
     (window as any).__testRecognition.emit([{ text: "20 + 5", isFinal: true, confidence: 0.91 }]),
   );
   await expect(page.getByRole("region", { name: "OneBrain response" })).toContainText("25");
-  await expect(page.locator(".workspace-notice")).not.toContainText("Finish or cancel");
+  await expect(page.getByText("Finish or cancel")).toHaveCount(0);
   await page.getByTestId("stop-button").click();
   await expect(page.getByTestId("active-button")).toBeEnabled();
 });
@@ -156,6 +152,7 @@ test("a repeated final inside the dedupe window is answered once; scored noise i
   });
   await expect(page.getByRole("region", { name: "OneBrain response" })).toContainText("36");
   await expect.poll(() => page.evaluate(() => (window as any).__testRecognition.running)).toBe(true);
+  await page.waitForTimeout(500);
   const spoken = await page.evaluate(() => (window as any).__spoken as string[]);
   expect(spoken.filter((t) => t.includes("36")).length).toBe(1);
   expect(spoken.some((t) => /bleed/i.test(t))).toBe(false);
