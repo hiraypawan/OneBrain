@@ -13,6 +13,10 @@ import { db } from '@/lib/db';
 export function StoreHydrator() {
   useEffect(() => {
     let alive = true;
+    // Feature store (plan, fitness, stories, commitments) loads alongside.
+    try {
+      void import('@/store/features').then((m) => m.useFeaturesStore.getState().load());
+    } catch { /* features stay session-only */ }
     useAssistantStore.getState().hydrate().then(async () => {
       if (!alive) return;
       const revision = useAssistantStore.getState().authRevision;

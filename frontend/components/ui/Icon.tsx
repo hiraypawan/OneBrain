@@ -17,6 +17,10 @@ const paths = {
   tool: "M4 3h16v18H4zM7 7h10m-10 5h2m4 0h4m-10 5h2m4 0h4",
   close: "m6 6 12 12M6 18 18 6",
   help: "M12 17v.1M9 8a3 3 0 1 1 4 3c-1 1-1 2-1 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
+  fitness: "M3 12h4l2-7 4 14 2-7h6",
+  mail: "M3 6h18v12H3zM3 7l9 6 9-6",
+  star: "M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6L12 16.7 6.6 19.6l1.1-6L3.2 9.4l6.1-.8L12 3",
+  book: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4m0 13a3 3 0 0 1 3-3h11",
 };
 export type IconName = keyof typeof paths;
 export function Icon({

@@ -1855,3 +1855,42 @@ button:active:not(:disabled):not(.thought-node) {
 
 /* Storage failures remain readable rather than hiding inside an icon control. */
 .delete-error { position: absolute; right: 0; top: 100%; z-index: 10; width: min(260px, 75vw); padding: 10px; background: var(--surface, #22211e); color: var(--text, #f2eee6); border: 1px solid currentColor; border-radius: 8px; font-size: 12px; }
+
+/* ---- Feature cards (email, fitness, workout, translator, story, witness, briefs…) ---- */
+.feat-wrap { display: flex; flex-direction: column; gap: 12px; margin: 12px 0; }
+.feat-modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.feat-mode { display: inline-flex; align-items: center; gap: 8px; background: var(--ob-raised); border: 1px solid var(--ob-line); border-radius: 999px; padding: 6px 8px 6px 14px; font-size: 13px; color: var(--ob-text); }
+.feat-mode button { border: 1px solid var(--ob-line); background: transparent; color: var(--ob-muted); border-radius: 999px; width: 24px; height: 24px; line-height: 1; cursor: pointer; }
+.feat-alert { border-color: #e5484d; color: #ffb3b3; animation: feat-pulse 1.2s ease-in-out infinite; }
+@keyframes feat-pulse { 50% { background: #2a1214; } }
+@media (prefers-reduced-motion: reduce) { .feat-alert { animation: none; } }
+.feat-card { position: relative; background: var(--ob-surface); border: 1px solid var(--ob-line); border-radius: var(--ob-radius); padding: 16px 16px 14px; text-align: left; }
+.feat-card .eyebrow { display: block; font-size: 11px; letter-spacing: 0.12em; color: var(--ob-accent); margin-bottom: 8px; }
+.feat-close { position: absolute; top: 8px; right: 8px; border: none; background: transparent; color: var(--ob-muted); font-size: 20px; width: 32px; height: 32px; cursor: pointer; }
+.feat-big { font-size: 17px; margin: 4px 0 8px; }
+.feat-note { color: var(--ob-muted); font-size: 13px; margin: 6px 0; }
+.feat-h { font-size: 13px; margin: 12px 0 4px; color: var(--ob-text); }
+.feat-list { margin: 4px 0 8px; padding-left: 20px; font-size: 14px; }
+.feat-list li { margin: 4px 0; }
+.feat-list a { color: var(--ob-accent); }
+.feat-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 10px; }
+.feat-row .primary-button, .feat-row .text-button { font-size: 14px; }
+.feat-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ob-muted); margin-top: 8px; flex: 1 1 160px; }
+.feat-input { background: var(--ob-raised); border: 1px solid var(--ob-line); color: var(--ob-text); border-radius: 8px; padding: 10px 12px; width: 100%; }
+.feat-input[readonly] { opacity: 0.75; }
+.feat-pre { white-space: pre-wrap; background: var(--ob-raised); border: 1px solid var(--ob-line); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.feat-details { margin-top: 8px; font-size: 13px; }
+.feat-details summary { cursor: pointer; color: var(--ob-muted); }
+.feat-clock { font-size: 56px; font-weight: 700; margin: 4px 0; font-variant-numeric: tabular-nums; }
+.feat-progress { height: 8px; background: var(--ob-raised); border-radius: 999px; overflow: hidden; margin: 8px 0; }
+.feat-progress i { display: block; height: 100%; background: var(--ob-accent); border-radius: 999px; }
+.feat-translate p { background: var(--ob-raised); border: 1px solid var(--ob-line); border-radius: 8px; padding: 10px 12px; margin: 6px 0; }
+.feat-translate small { color: var(--ob-accent); }
+.feat-translate-to { border-color: var(--ob-accent) !important; }
+.feat-story { font-size: 16px; line-height: 1.65; }
+.feat-reframe { background: var(--ob-raised); border: 1px solid var(--ob-line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; font-size: 14px; }
+.feat-reframe p { margin: 4px 0; }
+.feat-hint { display: flex; gap: 8px; align-items: flex-start; color: var(--ob-muted); font-size: 12px; margin: 4px 0 0; }
+.feat-hint svg { flex: none; margin-top: 1px; }
+.control-panel .feat-row { margin-top: 12px; }
+.control-panel .feat-input { max-width: 320px; }

@@ -31,6 +31,12 @@ import {
   type CaptureDraft,
   type ItemKind,
 } from "@/lib/workspace/model";
+import { useFeaturesStore } from "@/store/features";
+import { FeatureCards, FeatureHint } from "@/components/features/FeatureCards";
+import {
+  WitnessRunner,
+  WorkoutRunner,
+} from "@/components/features/FeatureRunners";
 
 const KINDS: ItemKind[] = [
   "note",
@@ -151,6 +157,19 @@ export function NeuralWorkspace() {
   const [listLimit, setListLimit] = useState(50);
   const [pocket, setPocket] = useState(false);
   const [filter, setFilter] = useState("all");
+  // Feature runners speak through the live assistant voice (stable ref so
+  // store churn never re-registers the speaker).
+  const speakRef = useRef(assistant.speak);
+  speakRef.current = assistant.speak;
+  useEffect(() => {
+    useFeaturesStore.getState().setSpeaker((t) => speakRef.current(t));
+    void useFeaturesStore.getState().load();
+    return () => useFeaturesStore.getState().setSpeaker(null);
+  }, []);
+  const say = (text: string) => {
+    void unlockAudioOutput();
+    void assistant.handleTranscript(text);
+  };
   const prefs = normalizeProactive(state.settings.proactive);
   const selected = workspace.items.find((i) => i.id === selectedId);
   const visible = useMemo(
@@ -449,6 +468,10 @@ export function NeuralWorkspace() {
               Working on your question…
             </p>
           )}
+          <WorkoutRunner />
+          <WitnessRunner />
+          <FeatureCards say={say} />
+          <FeatureHint />
           {latest && (
             <section
               className="answer-inline"
