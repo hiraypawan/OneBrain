@@ -29,6 +29,11 @@ export function AccountSettings() {
       if (turn !== generation.current) return;
       setAccount(data.user);
       useAssistantStore.getState().loginBackend(data.user);
+      // Same response, no second request: /me carries the account plan.
+      if (data.entitlement) {
+        const features = await import("@/store/features");
+        features.useFeaturesStore.getState().applyServerEntitlement(data.entitlement);
+      }
       setStatus("ready");
     } catch {
       if (turn === generation.current) setStatus("error");

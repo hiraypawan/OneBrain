@@ -33,11 +33,19 @@ export const CATALOG: ToolEntry[] = [
   {
     id: "shared",
     title: "Connected work",
-    description: "Shared workspaces, app connections, schedules and approvals.",
+    description: "Shared workspaces, app connections, schedules and approvals — signed-in server work.",
     group: "Do more",
     icon: "link",
     keywords:
       "operations team calendar gmail sheets telegram slack jobs tasks inbox records import",
+  },
+  {
+    id: "music",
+    title: "Music & podcasts",
+    description: "Say “play kesariya”, or search here. Free sources, no accounts.",
+    group: "Do more",
+    icon: "music",
+    keywords: "song gaana music podcast player audio video youtube kesariya bajao sunao",
   },
   {
     id: "tools",
@@ -82,7 +90,7 @@ export const CATALOG: ToolEntry[] = [
   {
     id: "plan",
     title: "Plan",
-    description: "Free vs Pro vs Family, usage and unlock.",
+    description: "What you have, who decided it, and how a key changes it.",
     group: "Make it yours",
     icon: "star",
     keywords: "plan pro family upgrade pricing beta key subscription",
@@ -114,7 +122,7 @@ export const CATALOG: ToolEntry[] = [
   {
     id: "advanced",
     title: "Advanced",
-    description: "Optional AI provider, speaker filter and diagnostics.",
+    description: "Optional AI key, who may speak to OneBrain, and diagnostics.",
     group: "Make it yours",
     icon: "tool",
     keywords: "settings gemini key debug enrollment",

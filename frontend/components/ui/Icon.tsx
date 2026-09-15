@@ -21,6 +21,8 @@ const paths = {
   mail: "M3 6h18v12H3zM3 7l9 6 9-6",
   star: "M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6L12 16.7 6.6 19.6l1.1-6L3.2 9.4l6.1-.8L12 3",
   book: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4m0 13a3 3 0 0 1 3-3h11",
+  music: "M9 18V5l10-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0m10-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  play: "M8 5v14l11-7z",
 };
 export type IconName = keyof typeof paths;
 export function Icon({

@@ -1,16 +1,13 @@
 import {beforeAll,afterAll,afterEach,describe,it,expect,vi} from 'vitest';
 import {Miniflare} from 'miniflare';
-import {readFileSync} from 'node:fs';
+import {applyMigrations} from './helpers/migrations';
 import {generateKeyPair,exportJWK,SignJWT} from 'jose';
 import {startGoogleLogin,finishGoogleLogin,sessionUser} from '../src/platform/google-auth';
 import {hash} from '../src/platform/core';
 let mf:Miniflare,env:any,keys:any,jwk:any;
 beforeAll(async()=>{
  mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-08-06',d1Databases:['DB']});const DB=await mf.getD1Database('DB');
- for(const file of ['0001_schema.sql','0002_platform.sql','0003_session_versions.sql','0004_atomic_allowances.sql','0005_google_identity.sql','0006_free_tier_indexes.sql','0007_action_history_pages.sql']){
-  const sql=readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8').replace(/--[^\n]*/g,''),triggers=[...sql.matchAll(/CREATE TRIGGER[\s\S]*?\nEND;/g)].map(m=>m[0]);
-  await DB.batch([...sql.replace(/CREATE TRIGGER[\s\S]*?\nEND;/g,'').split(';').filter(x=>x.trim()),...triggers].map(q=>DB.prepare(q)));
- }
+ await applyMigrations(DB);
  env={DB,TOKEN_ENCRYPTION_KEY:btoa('01234567890123456789012345678901'),GOOGLE_CLIENT_ID:'test-client-id',GOOGLE_CLIENT_SECRET:'test-not-a-real-google-secret',GOOGLE_LOGIN_REDIRECT:'http://localhost:3000/api/auth/google/callback'};
  keys=await generateKeyPair('RS256');jwk={...await exportJWK(keys.publicKey),kid:'test-google-key',alg:'RS256',use:'sig'};
 },30000);

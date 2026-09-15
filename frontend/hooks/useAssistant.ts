@@ -71,8 +71,8 @@ import {
   shouldIgnoreTranscript,
 } from "@/lib/voiceprint";
 import { normalizeHinglish } from "@/lib/transliterate";
-import { parseVoiceCommand, type VoiceCommand } from "@/lib/commands";
-import { MEDIA_CONTROL_EVENT } from "@/lib/media";
+import { parseVoiceCommand, parseMediaCommand, type VoiceCommand } from "@/lib/commands";
+import { useMediaStore } from "@/store/media";
 import { parseReminderIntent } from "@/lib/reminders";
 
 export interface ChatExtra {
@@ -598,10 +598,11 @@ export function useAssistant() {
       const st = useAssistantStore.getState();
       const ctl = controlsRef.current;
       if (cmd === "stop") {
+        // "stop" ends the voice session and closes any playing media. This is a
+        // direct store call, not a window event: an event nobody listens to is
+        // how the player used to fail silently.
         try {
-          window.dispatchEvent(
-            new CustomEvent(MEDIA_CONTROL_EVENT, { detail: "close" }),
-          );
+          useMediaStore.getState().control("close");
         } catch {}
         if (st.isActive) ctl.stopActive();
         return;
@@ -876,14 +877,60 @@ export function useAssistant() {
         if (store.isActive) store.setCurrentStatus("listening");
         return;
       }
+      // 2d. Music, podcasts and videos: "play kesariya", "gaana band",
+      // "stop song". Handled locally and instantly, never sent to the AI and
+      // never written to memory, so entertainment stays out of the assistant
+      // context (ledger #170) while still being one sentence away.
+      // Bare "stop"/"pause" remain session commands (step 1 and
+      // handleTranscript); music needs "stop song" / "pause karo".
+      const media = parseMediaCommand(transcript);
+      if (media) {
+        const mediaStore = useMediaStore.getState();
+        if (!useAssistantStore.getState().settings.musicEnabled) {
+          const answer =
+            "Music playback is turned off. Enable it in Your space → Music and ask again.";
+          store.addMessage("user", transcript, meta);
+          store.addMessage("assistant", answer);
+          await speak(answer);
+          if (store.isActive) store.setCurrentStatus("listening");
+          return;
+        }
+        store.addMessage("user", transcript, meta);
+        if (media.action === "play") {
+          store.setCurrentStatus("processing");
+          // Fire the search, acknowledge honestly, then let the store report
+          // the real outcome ("Playing: …" or why nothing could stream).
+          const searching = mediaStore.request(media.query, media.kinds);
+          await speak(`Free sources ko ${media.query} dhundne bol raha hun.`);
+          await searching;
+          if (turnGeneration !== sessionGenerationRef.current) return;
+          if (store.isActive) store.setCurrentStatus("listening");
+          return;
+        }
+        mediaStore.control(media.action);
+        const answer =
+          media.action === "pause"
+            ? "Pausing playback."
+            : media.action === "resume"
+              ? "Resuming playback."
+              : media.action === "next"
+                ? "Next result."
+                : "Player closed.";
+        store.addMessage("assistant", answer);
+        await speak(answer);
+        if (turnGeneration !== sessionGenerationRef.current) return;
+        if (store.isActive) store.setCurrentStatus("listening");
+        return;
+      }
       // 2c. Spoken features (email, fitness, workout timer, translator,
       // personas, stories, night notes, research, recall, briefs, scribe,
       // witness, plan) answer here; anything else falls through to the AI.
       store.setCurrentStatus("processing");
-      let feat: FeatureTurn | null = null;
+      let feat: FeatureTurn | null;
       try {
         feat = await handleFeatureTurn(transcript);
       } catch {
+        // A feature that throws must not take the whole turn down with it.
         feat = null;
       }
       if (feat) {

@@ -571,7 +571,23 @@ export interface SpeechPlayback {
   ended: Promise<boolean>;
 }
 
+/**
+ * Music ducking channel. Spoken replies and a song share one speaker, so both
+ * paths announce when speech owns the output. `store/media.ts`/MediaPlayer
+ * listen and pause/resume around it. This is an internal signal, not a public
+ * API: it carries no content, only "speech started/ended".
+ */
+export const SPEECH_DUCK_EVENT = 'onebrain-speech-duck';
+
+export function signalSpeechPlayback(state: 'start' | 'end'): void {
+  try {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+    window.dispatchEvent(new CustomEvent(SPEECH_DUCK_EVENT, { detail: { state } }));
+  } catch {}
+}
+
 function publishMediaSession(text: string) {
+  signalSpeechPlayback('start');
   try {
     if (typeof navigator === 'undefined') return;
     const ms: any = (navigator as any).mediaSession;
@@ -583,6 +599,7 @@ function publishMediaSession(text: string) {
 }
 
 function clearMediaSession() {
+  signalSpeechPlayback('end');
   try {
     const ms: any = (navigator as any).mediaSession;
     if (ms) ms.playbackState = 'none';

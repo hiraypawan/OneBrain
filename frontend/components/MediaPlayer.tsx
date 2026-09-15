@@ -1,185 +1,332 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMediaStore } from '@/store/media';
 import { useAssistantStore } from '@/store/assistant';
-import { useAssistant } from '@/hooks/useAssistant';
-import {
-  MEDIA_PLAY_EVENT,
-  MEDIA_CONTROL_EVENT,
-  pickFirstPlayable,
-  type MediaTrack,
-  type MediaControl,
-} from '@/lib/media';
+import { activeSinkId, SPEECH_DUCK_EVENT } from '@/lib/audio';
+import { mediaSourceLabel, type MediaKind, type MediaTrack } from '@/lib/media';
+import { Icon } from './ui/Icon';
 
-// Sticky mini-player: songs/podcasts via <audio>, videos via nocookie embed.
-// Driven by voice ("play kesariya") through window events so the mic hook
-// (which owns the transcript) never touches DOM playback directly.
+const KIND_LABELS: { id: MediaKind; label: string }[] = [
+  { id: 'song', label: 'Songs' },
+  { id: 'podcast', label: 'Podcasts' },
+  { id: 'video', label: 'Videos' },
+];
+
+/**
+ * Sticky mini-player: songs/podcasts through <audio>, videos through a
+ * nocookie embed. All state lives in `store/media.ts`, so voice ("play
+ * kesariya"), the typed search here and Your space → Music drive one player.
+ *
+ * Two rules this component follows, both learned the hard way:
+ *  1. Never fail quietly. Autoplay blocks, refused streams and dead sources
+ *     all produce a visible notice and, where possible, a spoken one.
+ *  2. No stale closures over functions declared after an early return — that
+ *     silently broke "stop song" (a TDZ ReferenceError inside the listener).
+ */
 export function MediaPlayer() {
-  const [track, setTrack] = useState<MediaTrack | null>(null);
-  const [list, setList] = useState<MediaTrack[]>([]);
-  const [ytUrl, setYtUrl] = useState('');
-  const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [playing, setPlaying] = useState(false);
+  const current = useMediaStore((s) => s.current);
+  const list = useMediaStore((s) => s.list);
+  const status = useMediaStore((s) => s.status);
+  const notice = useMediaStore((s) => s.notice);
+  const query = useMediaStore((s) => s.query);
+  const youtubeSearchUrl = useMediaStore((s) => s.youtubeSearchUrl);
+  const expanded = useMediaStore((s) => s.expanded);
+  const setExpanded = useMediaStore((s) => s.setExpanded);
+  const setPlayerMounted = useMediaStore((s) => s.setPlayerMounted);
+  const request = useMediaStore((s) => s.request);
+  const select = useMediaStore((s) => s.select);
+  const control = useMediaStore((s) => s.control);
+  const reportPlayback = useMediaStore((s) => s.reportPlayback);
+  const refuseCurrent = useMediaStore((s) => s.refuseCurrent);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const { speak } = useAssistant();
-  const speakRef = useRef(speak);
-  speakRef.current = speak;
+  const duckedRef = useRef(false);
+  const [buffering, setBuffering] = useState(false);
+  const [term, setTerm] = useState('');
+  const [kinds, setKinds] = useState<MediaKind[]>(['song']);
 
-  const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
-
+  // Tell the store this player exists. Without it a voice "play …" would be
+  // dispatched into nothing — the exact silent failure this replaces.
   useEffect(() => {
-    const searchTracks = async (query: string, kinds?: string[]) => {
-      // Cloud worker first (runs anywhere, incl. static export), then the
-      // local Next route, which additionally retries j/z spellings.
-      const payload = { query, kinds };
-      if (API_BASE) {
-        try {
-          const r = await fetch(`${API_BASE}/api/media`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          if (r.ok) {
-            const j = await r.json();
-            if (j.tracks?.length) return j;
-          }
-        } catch {}
-      }
-      const r = await fetch('/api/media', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      return r.json();
-    };
+    setPlayerMounted(true);
+    return () => setPlayerMounted(false);
+  }, [setPlayerMounted]);
 
-    const playQuery = async (query: string, kinds?: string[]) => {
-      const st = useAssistantStore.getState();
-      st.setCurrentStatus('processing');
-      setSearching(true);
-      setTrack(null);
-      try {
-        const j = await searchTracks(query, kinds);
-        const tracks: MediaTrack[] = j.tracks || [];
-        setList(tracks);
-        setYtUrl(j.youtubeSearchUrl || '');
-        const first = pickFirstPlayable(tracks);
-        if (!first) {
-          const msg = `Kuch nahi mila "${query}" ke liye. Spelling badal kar try karo.`;
-          st.addMessage('assistant', msg);
-          await speakRef.current(msg);
-          if (useAssistantStore.getState().isActive) st.setCurrentStatus('listening');
-          return;
-        }
-        setTrack(first);
-        st.addMessage('assistant', `Playing: ${first.title}${first.artist ? ` — ${first.artist}` : ''}`);
-        if (useAssistantStore.getState().isActive) st.setCurrentStatus('listening');
-      } catch {
-        const msg = 'Music search fail ho gaya. Dobara try karo.';
-        st.addMessage('assistant', msg);
-        await speakRef.current(msg);
-      } finally {
-        setSearching(false);
+  const publishMetadata = useCallback((track: MediaTrack | null) => {
+    try {
+      const ms: any = typeof navigator === 'undefined' ? undefined : (navigator as any).mediaSession;
+      if (!ms) return;
+      if (!track) {
+        ms.playbackState = 'none';
+        return;
       }
-    };
-
-    const onControl = (e: Event) => {
-      const action = (e as CustomEvent<MediaControl>).detail;
-      if (action === 'pause') audioRef.current?.pause();
-      else if (action === 'resume') audioRef.current?.play().catch(() => {});
-      else if (action === 'close') close();
-    };
-    const onPlay = async (e: Event) => {
-      const detail = (e as CustomEvent<any>).detail || {};
-      const q = typeof detail === 'string' ? detail : detail.query || '';
-      const kinds = Array.isArray(detail?.kinds) ? detail.kinds : undefined;
-      setQuery(q);
-      await playQuery(q, kinds);
-    };
-    window.addEventListener(MEDIA_CONTROL_EVENT, onControl);
-    window.addEventListener(MEDIA_PLAY_EVENT, onPlay);
-    return () => {
-      window.removeEventListener(MEDIA_CONTROL_EVENT, onControl);
-      window.removeEventListener(MEDIA_PLAY_EVENT, onPlay);
-    };
+      const MM: any = typeof window === 'undefined' ? undefined : (window as any).MediaMetadata;
+      if (MM) {
+        ms.metadata = new MM({
+          title: track.title,
+          artist: track.artist || mediaSourceLabel(track.source),
+          album: 'OneBrain player',
+          artwork: track.image ? [{ src: track.image, sizes: '480x480', type: 'image/jpeg' }] : [],
+        });
+      }
+      ms.playbackState = 'playing';
+    } catch {
+      /* Lock-screen metadata is a bonus, never a requirement. */
+    }
   }, []);
 
-  // Route cloud-audio playback to the chosen speaker, when supported.
+  // Start playback explicitly so a blocked autoplay is reported instead of
+  // leaving a player stuck at 0:00 with native controls and no explanation.
   useEffect(() => {
     const el = audioRef.current;
-    if (!el || !track || track.kind === 'video') return;
+    if (!el || !current || current.kind === 'video') return;
+    setBuffering(false);
     try {
-      const sink = useAssistantStore.getState().speakerDeviceId;
-      if (sink && typeof (el as any).setSinkId === 'function') {
-        (el as any).setSinkId(sink).catch(() => {});
-      }
+      el.load();
     } catch {}
-  }, [track]);
+    const sink = activeSinkId(useAssistantStore.getState().speakerDeviceId);
+    if (sink && typeof (el as any).setSinkId === 'function') {
+      try {
+        const pinned = (el as any).setSinkId(sink);
+        if (pinned?.catch) pinned.catch(() => reportPlayback(status === 'playing' ? 'playing' : 'paused', 'Could not pin this song to your chosen speaker; using the system output.'));
+      } catch {}
+    }
+    let cancelled = false;
+    const started = el.play();
+    if (started && typeof started.then === 'function') {
+      started
+        .then(() => {
+          if (!cancelled) publishMetadata(current);
+        })
+        .catch(() => {
+          if (!cancelled) reportPlayback('blocked');
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+    // `status` is intentionally excluded: this effect is about the loaded track.
+  }, [current, publishMetadata, reportPlayback]);
 
-  if (!track && !searching && list.length === 0) return null;
+  // Spoken replies own the speaker: duck music, then restore it.
+  useEffect(() => {
+    const onDuck = (event: Event) => {
+      const state = (event as CustomEvent<{ state: 'start' | 'end' }>).detail?.state;
+      const el = audioRef.current;
+      if (state === 'start') {
+        if (!el || el.paused) return;
+        duckedRef.current = true;
+        try {
+          el.pause();
+        } catch {}
+        return;
+      }
+      if (state === 'end' && duckedRef.current) {
+        duckedRef.current = false;
+        if (!el) return;
+        const resumed = el.play();
+        if (resumed && typeof resumed.then === 'function') {
+          resumed.then(() => publishMetadata(useMediaStore.getState().current)).catch(() => reportPlayback('blocked'));
+        }
+      }
+    };
+    window.addEventListener(SPEECH_DUCK_EVENT, onDuck);
+    return () => window.removeEventListener(SPEECH_DUCK_EVENT, onDuck);
+  }, [publishMetadata, reportPlayback]);
 
-  const pick = (t: MediaTrack) => {
-    if (t.kind !== 'video') audioRef.current?.pause();
-    setTrack(t);
-    setPlaying(true);
+  // Media Session buttons (earbud/lock-screen play, pause, next).
+  useEffect(() => {
+    try {
+      const ms: any = typeof navigator === 'undefined' ? undefined : (navigator as any).mediaSession;
+      if (!ms || typeof ms.setActionHandler !== 'function') return;
+      ms.setActionHandler('play', () => control('resume'));
+      ms.setActionHandler('pause', () => control('pause'));
+      ms.setActionHandler('nexttrack', () => control('next'));
+    } catch {}
+  }, [control]);
+
+  if (status === 'idle' && !current && !list.length) return null;
+
+  const isVideo = current?.kind === 'video';
+  const statusLine =
+    status === 'searching'
+      ? `Searching free sources for “${query}”…`
+      : status === 'blocked'
+        ? 'Playback blocked by your browser'
+        : status === 'error'
+          ? 'Nothing is streaming'
+          : status === 'empty'
+            ? 'No playable result'
+            : status === 'paused'
+              ? 'Paused'
+              : buffering
+                ? 'Buffering…'
+                : current
+                  ? `Playing from ${mediaSourceLabel(current.source)}`
+                  : 'Ready';
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const value = term.trim();
+    if (!value) return;
+    void request(value, kinds.length && kinds.length < 3 ? kinds : undefined);
+    setTerm('');
   };
 
-  const close = () => {
-    audioRef.current?.pause();
-    setTrack(null);
-    setList([]);
-    setYtUrl('');
-    setPlaying(false);
+  const toggleKind = (kind: MediaKind) => {
+    setKinds((prev) => (prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]));
   };
 
   return (
-    <div className="fixed bottom-[76px] md:bottom-4 left-2 right-2 md:left-auto md:right-4 md:w-80 z-20 bg-gray-900 border border-gray-700 rounded-xl p-2 shadow-2xl">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-sm font-bold truncate">
-          {searching ? '🔎 Searching…' : track ? `▶ ${track.title}` : '🎵 Results'}
+    <section
+      className={`media-player${expanded ? ' expanded' : ''}`}
+      aria-label="Music and podcast player"
+      data-testid="media-player"
+    >
+      <header className="media-player-head">
+        <button
+          type="button"
+          className="media-player-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="media-status-dot" data-status={status} aria-hidden="true" />
+          <span className="media-player-title">
+            <strong>{current ? current.title : status === 'searching' ? 'Searching…' : 'Player'}</strong>
+            <small>{statusLine}</small>
+          </span>
+          <Icon name={expanded ? 'close' : 'arrow'} />
+        </button>
+        <div className="media-player-controls">
+          {current && !isVideo && (
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => control(status === 'playing' ? 'pause' : 'resume')}
+              aria-label={status === 'playing' ? 'Pause playback' : 'Start playback'}
+            >
+              {status === 'playing' ? '❚❚' : '▶'}
+            </button>
+          )}
+          {list.length > 1 && (
+            <button type="button" className="icon-button" onClick={() => control('next')} aria-label="Play next result">
+              ⏭
+            </button>
+          )}
+          <button type="button" className="icon-button" onClick={() => control('close')} aria-label="Close player">
+            ✕
+          </button>
         </div>
-        <button onClick={close} className="text-gray-400 px-2">✕</button>
-      </div>
-      {track && track.kind !== 'video' && (
+      </header>
+
+      {notice && (
+        <p className="media-notice" role="status">
+          {notice}
+        </p>
+      )}
+
+      {current && !isVideo && (
         <audio
           ref={audioRef}
-          src={track.url}
-          autoPlay
+          key={current.url}
+          src={current.url}
           controls
-          className="w-full mt-1"
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
+          preload="auto"
+          className="media-audio"
+          onPlay={() => reportPlayback('playing')}
+          onPause={() => {
+            if (!duckedRef.current) reportPlayback('paused');
+          }}
+          onWaiting={() => setBuffering(true)}
+          onPlaying={() => setBuffering(false)}
+          onEnded={() => control('next')}
+          onError={() => {
+            setBuffering(false);
+            refuseCurrent(audioRef.current?.error?.code ?? undefined);
+          }}
         />
       )}
-      {track && track.kind === 'video' && (
+
+      {current && isVideo && (
         <iframe
-          key={track.url}
-          src={track.url}
-          title={track.title}
-          className="w-full h-40 mt-1 rounded"
+          key={current.url}
+          src={current.url}
+          title={current.title}
+          className="media-video"
           allow="autoplay; encrypted-media; fullscreen"
           allowFullScreen
         />
       )}
-      {!track && !searching && list.length === 0 && ytUrl && (
-        <a href={ytUrl} target="_blank" rel="noreferrer" className="block mt-1 text-xs text-blue-400 underline px-1">
-          Free sources are busy - search YouTube for {query || 'this'} instead
-        </a>
-      )}
-      {list.length > 1 && (
-        <div className="mt-1 max-h-28 overflow-auto text-xs space-y-1">
-          {list.map((t, i) => (
-            <button
-              key={`${t.source}-${i}`}
-              onClick={() => pick(t)}
-              className={`block w-full text-left px-2 py-1 rounded truncate ${t.url === track?.url ? 'bg-gray-700' : 'hover:bg-gray-800'}`}
-            >
-              {t.kind === 'song' ? '🎵' : t.kind === 'podcast' ? '🎙️' : '📺'} {t.title}
-              {t.artist ? ` — ${t.artist}` : ''} · {playing && t.url === track?.url ? 'playing' : t.source}
+
+      {expanded && (
+        <div className="media-player-body">
+          <form className="media-search" onSubmit={submit}>
+            <label className="media-search-field">
+              <span>Search songs, podcasts or videos</span>
+              <input
+                value={term}
+                onChange={(event) => setTerm(event.target.value)}
+                placeholder="Try “kesariya”, “hanuman chalisa”, “cricket podcast”"
+                aria-label="Search music or podcasts"
+                maxLength={120}
+              />
+            </label>
+            <div className="media-kind-row" role="group" aria-label="What to search for">
+              {KIND_LABELS.map((kind) => (
+                <button
+                  key={kind.id}
+                  type="button"
+                  aria-pressed={kinds.includes(kind.id)}
+                  onClick={() => toggleKind(kind.id)}
+                >
+                  {kind.label}
+                </button>
+              ))}
+            </div>
+            <button type="submit" className="primary-button" disabled={status === 'searching' || !term.trim()}>
+              {status === 'searching' ? 'Searching…' : 'Play'}
             </button>
-          ))}
+          </form>
+
+          {list.length > 0 && (
+            <ul className="media-results">
+              {list.map((track, index) => (
+                <li key={`${track.source}-${track.url}-${index}`}>
+                  <button
+                    type="button"
+                    onClick={() => select(track)}
+                    aria-current={track.url === current?.url ? 'true' : undefined}
+                  >
+                    <span className="media-result-kind" aria-hidden="true">
+                      {track.kind === 'song' ? '🎵' : track.kind === 'podcast' ? '🎙️' : '📺'}
+                    </span>
+                    <span className="media-result-text">
+                      <strong>{track.title}</strong>
+                      <small>
+                        {track.artist ? `${track.artist} · ` : ''}
+                        {mediaSourceLabel(track.source)}
+                        {track.url === current?.url ? ' · loaded' : ''}
+                      </small>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {(status === 'empty' || status === 'error') && youtubeSearchUrl && (
+            <a className="media-handoff" href={youtubeSearchUrl} target="_blank" rel="noreferrer">
+              Free sources could not stream this — open the YouTube search instead
+              <Icon name="arrow" />
+            </a>
+          )}
+
+          <p className="media-honesty">
+            Playback uses free, keyless community sources. They can be busy, region-blocked or offline, and
+            OneBrain never claims a song is playing when it is not. Nothing is downloaded or stored.
+          </p>
         </div>
       )}
-    </div>
+    </section>
   );
 }

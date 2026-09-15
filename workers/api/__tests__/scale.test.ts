@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import { Miniflare } from 'miniflare';
-import { readFileSync } from 'node:fs';
+import { applyMigrations } from './helpers/migrations';
 import { app } from '../src/index';
 import { hash, rateLimit } from '../src/platform/core';
 import { maintenance } from '../src/platform/maintenance';
@@ -15,11 +15,7 @@ async function request(path:string,method='GET',body?:unknown, override=env) {
 beforeAll(async()=>{
  mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',compatibilityDate:'2026-08-06',d1Databases:['DB']});
  const DB=await mf.getD1Database('DB');
- for(const name of ['0001_schema','0002_platform','0003_session_versions','0004_atomic_allowances','0005_google_identity','0006_free_tier_indexes','0007_action_history_pages']) {
-  const sql=readFileSync(new URL(`../migrations/${name}.sql`,import.meta.url),'utf8').replace(/--[^\n]*/g,'');
-  const triggers=[...sql.matchAll(/CREATE TRIGGER[\s\S]*?\nEND;/g)].map(m=>m[0]);
-  await DB.batch([...sql.replace(/CREATE TRIGGER[\s\S]*?\nEND;/g,'').split(';').filter(s=>s.trim()),...triggers].map(s=>DB.prepare(s)));
- }
+ await applyMigrations(DB);
  env={DB,API_RATE_LIMITER:allow,AUTH_RATE_LIMITER:allow};
  await DB.batch([
   DB.prepare("INSERT INTO users(id,email,created_at) VALUES('scale-user','scale@example.test',1)"),

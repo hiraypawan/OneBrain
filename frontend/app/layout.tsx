@@ -5,6 +5,7 @@ import './product.css';
 import { StoreHydrator } from '@/components/StoreHydrator';
 import { MainNav } from '@/components/MainNav';
 import { InstallPrompt } from '@/components/InstallPrompt';
+import { MediaPlayer } from '@/components/MediaPlayer';
 
 export const metadata: Metadata = {
   title: 'OneBrain — A little less to remember',
@@ -34,6 +35,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <MainNav />
         <InstallPrompt />
         <main className="app-main">{children}</main>
+        {/* Global sticky player: mounted once at the root so a song survives
+            navigation between Today and Your space, and so a voice "play …"
+            always has a listener. */}
+        <MediaPlayer />
         {/* Keyless AI engine (Puter.js): loads after interactive, fails silently offline */}
         <ProviderScript />
         <script

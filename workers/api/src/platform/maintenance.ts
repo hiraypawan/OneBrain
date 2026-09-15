@@ -8,7 +8,13 @@ export async function maintenance(env: PlatformEnv, now = Date.now()) {
   ] as const;
   // At most 250 base rows/hour (6,000/day), plus billed index changes.
   // An expiry backlog drains gradually instead of consuming the daily quota at once.
-  await env.DB.batch(tables.map(([table,key]) => env.DB.prepare(
-    `DELETE FROM ${table} WHERE ${key} IN (SELECT ${key} FROM ${table} WHERE expires_at < ? ORDER BY expires_at LIMIT 50)`
-  ).bind(now)));
+  await env.DB.batch([
+    ...tables.map(([table,key]) => env.DB.prepare(
+      `DELETE FROM ${table} WHERE ${key} IN (SELECT ${key} FROM ${table} WHERE expires_at < ? ORDER BY expires_at LIMIT 50)`
+    ).bind(now)),
+    // Counted quota buckets age out; lifetime ('total') counts are kept so a
+    // story-trial or translator total is never silently reset by a janitor.
+    env.DB.prepare("DELETE FROM entitlement_usage WHERE period LIKE 'session:%' AND updated_at < ?").bind(now-2*86400000),
+    env.DB.prepare("DELETE FROM entitlement_usage WHERE period != 'total' AND period NOT LIKE 'session:%' AND updated_at < ?").bind(now-70*86400000),
+  ]);
 }

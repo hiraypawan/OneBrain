@@ -24,7 +24,20 @@ export function StoreHydrator() {
       setToken(null);
       if (shouldRestoreSession(document.cookie,location.pathname,location.search)) try {
         const me = await platformApi('/me');
-        if (alive && revision === useAssistantStore.getState().authRevision) useAssistantStore.getState().loginBackend(me.user);
+        if (alive && revision === useAssistantStore.getState().authRevision) {
+          useAssistantStore.getState().loginBackend(me.user);
+          // /me already carries the plan (identity + plan, one read), so the
+          // server plan is applied here for free. Counted usage deliberately
+          // does NOT trigger a second request: it arrives with /bootstrap when
+          // Connected work opens, and from /entitlements when the Plan panel is
+          // opened. See the capacity contract in e2e/capacity.spec.ts.
+          if (me.entitlement) {
+            const features = await import('@/store/features');
+            if (alive && revision === useAssistantStore.getState().authRevision) {
+              features.useFeaturesStore.getState().applyServerEntitlement(me.entitlement);
+            }
+          }
+        }
       } catch { /* A late failed request must not undo a newer login. */ }
       if (!alive) return;
       // Weekly storage janitor (skipped when memory is paused).
@@ -41,6 +54,22 @@ export function StoreHydrator() {
     }).catch(() => {});
     return () => { alive = false; };
   }, []);
+
+  // Sign-out hard-clears the server plan, so a shared device never inherits the
+  // previous account's features. Signing in does NOT fetch anything: the plan
+  // rides on the /me and /bootstrap responses this app already makes, and an
+  // extra request per sign-in would break the documented request budget for
+  // opening Connected work (bootstrap + first record page, nothing else).
+  useEffect(
+    () =>
+      useAssistantStore.subscribe((state, previous) => {
+        if (state.isAuthenticated || state.isAuthenticated === previous.isAuthenticated) return;
+        void import('@/store/features')
+          .then((m) => m.useFeaturesStore.getState().clearServerEntitlement())
+          .catch(() => { /* nothing cached to clear */ });
+      }),
+    [],
+  );
 
   useEffect(() => {
     let stopped = false;

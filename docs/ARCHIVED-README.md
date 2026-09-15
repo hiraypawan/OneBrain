@@ -25,6 +25,9 @@ Works in English, Hindi, Hinglish, Marathi — and 10+ more scripts.
   (male/female) or ignored, never silently mixed into your answers
 - 🎵 **Free music, podcasts & videos** — "play kesariya" searches keyless sources,
   no accounts, no keys, with a mini-player
+  *(removed 2026-09-11, reintroduced 2026-09-15 as an opt-in panel; see
+  [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) row 170 — still unverified
+  against live sources)*
 - 🔔 **Reminders** — daily or one-time, spoken confirmation, fire notifications
 - 📰 **Live facts** — Wikipedia layer answers current-affairs questions keylessly
 - 🎧 **Bluetooth coexistence** — pin mic/speaker per device, auto-reconnects,

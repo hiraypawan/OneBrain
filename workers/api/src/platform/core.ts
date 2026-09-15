@@ -8,9 +8,23 @@ export type PlatformEnv = {
   DB: D1Database; JWT_SECRET?: string; TOKEN_ENCRYPTION_KEY?: string;
   OUTBOUND_HOSTS?: string; GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_CONNECT_REDIRECT?: string; GOOGLE_LOGIN_REDIRECT?: string; APP_ORIGIN?: string;
+  /** Comma-separated operator emails allowed to grant plans and mint keys. */
+  ENTITLEMENT_ADMINS?: string;
+  /** '1' honours the old browser-check-digit beta keys. Off by default: they are mintable by anyone reading this repository. */
+  ENTITLEMENTS_ACCEPT_LEGACY_BETA?: string;
 };
 export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
-export type PlatformContext = { Bindings: PlatformEnv; Variables: { actor: { id: string; email: string }; session: string; role: Role } };
+export type PlatformContext = {
+  Bindings: PlatformEnv;
+  Variables: {
+    actor: { id: string; email: string; displayName?: string };
+    session: string;
+    role: Role;
+    /** Server-authoritative plan for this session; 'free' when unverified. */
+    plan: import('./entitlements').PlanId;
+    entitlement: import('./entitlements').Entitlement;
+  };
+};
 export type Ctx = Context<PlatformContext>;
 export const id = () => crypto.randomUUID();
 export const fail = (status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 503, message: string): never => { throw new HTTPException(status, { message }); };

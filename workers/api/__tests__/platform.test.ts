@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import { Miniflare } from 'miniflare';
-import { readFileSync } from 'node:fs';
+import { applyMigrations } from './helpers/migrations';
 import { app } from '../src/index';
 import { approvedUrl, executeConnector, validatePayload } from '../src/platform/connectors';
 import { seal, unseal, hash } from '../src/platform/core';
@@ -13,13 +13,7 @@ async function api(path:string,who:any=owner,method='GET',body?:any){
 beforeAll(async()=>{
   mf=new Miniflare({modules:true,script:'export default { fetch(){ return new Response("ok") } }',compatibilityDate:'2026-08-06',d1Databases:['DB']});
   const DB=await mf.getD1Database('DB');
-  for(const file of ['0001_schema.sql','0002_platform.sql','0003_session_versions.sql','0004_atomic_allowances.sql','0005_google_identity.sql','0006_free_tier_indexes.sql','0007_action_history_pages.sql']){
-    const sql=readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8').replace(/--[^\n]*/g,'');
-    // Separate ordinary statements from complete trigger bodies.
-    const triggers=[...sql.matchAll(/CREATE TRIGGER[\s\S]*?\nEND;/g)].map(m=>m[0]);
-    const ordinary=sql.replace(/CREATE TRIGGER[\s\S]*?\nEND;/g,'').split(';').filter(x=>x.trim());
-    await DB.batch([...ordinary,...triggers].map(q=>DB.prepare(q)));
-  }
+  await applyMigrations(DB);
   env={DB,JWT_SECRET:'test-only-auth-secret-012345678901234567890',TOKEN_ENCRYPTION_KEY:btoa('01234567890123456789012345678901'),OUTBOUND_HOSTS:'hooks.example.com'};
   for(const [i,email] of ['owner@example.test','viewer@example.test','other@example.test'].entries()){
     const result=await fixture(email);

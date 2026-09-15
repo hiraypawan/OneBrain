@@ -41,6 +41,15 @@ Daily quotas reset at midnight UTC. Exceeding D1 daily limits causes failures, n
 10. **Explicit degradation:** `PLATFORM_MODE=normal|read-only|local-only`. The API rejects paused operations before database access with 503/Retry-After; logout remains exempt. Scheduled work and housekeeping stop while paused. The client backs off on quota signals, never silently retries a mutation, and never claims an unsaved change succeeded. These switches save database work, **not already-arriving frontend Worker invocations**; they are operator controls, not automatic global quota enforcement.
 11. **Real Workers-runtime compatibility:** native testing caught unsupported `redirect:'error'`. Service transport, Google/provider requests and utility lookups now use manual redirects and reject unexpected redirection rather than forwarding credentials. Redirected external writes remain uncertain outcomes, not falsely confirmed delivery.
 12. Added unit, local-D1, browser, budget-model and native Cloudflare-runtime regression checks. The native test configuration deliberately breaks the HTTP fallback to prove that private binding requests work.
+13. **Server-side plan and quota ledger (migration 0008), 2026-09-15.** The plan is resolved once per authenticated request from the existing session join, so `/me` still costs a single read; usage travels with `/bootstrap` and `GET /entitlements` instead of adding a query to every call. Only the four persistent features consume server quota (research and scribe per day, email drafts per month, story episodes), each as one atomic upsert; translator minutes stay device-counted because a session is device-local. Exhaustion returns `429` with `Retry-After` naming the bucket that refills, and the client shows the refusal rather than retrying silently. Session buckets are swept after two days and day/month buckets after 70; `total` rows are one per owner and feature and are never swept. Keys are stored hashed, minted offline by the operator, and **no payment, checkout or renewal traffic exists** — entitlement writes are rare by design.
+
+| Plan | Research/day | Scribe/day | Email drafts/month | Story episodes |
+|---|---:|---:|---:|---:|
+| Free | 3 | 5 | 10 | 3 (trial) |
+| Pro | 50 | 50 | 200 | 100 |
+| Family | 50 | 50 | 200 | Unlimited |
+
+These are the code-defined `PLAN_LIMITS` in `workers/api/src/platform/entitlements.ts`; the client mirrors the free column and is pinned to it by `frontend/__tests__/ui-clarity.test.ts`. Limits are not runtime-configurable, and unlimited is never offered as a lifetime purchase (ledger row 163).
 
 ## Reproducible daily budget — assumptions, not a benchmark
 
@@ -51,14 +60,16 @@ node --test scripts/capacity-budget.test.mjs
 node scripts/capacity-budget.mjs path/to/usage-assumptions.json
 ```
 
-Bundled example: **10,000 DAU, 80% guest/local without session checks, 2,000 shared-data users**; two document invocations/person; each shared user averages four API reads and one mutation; 500 logins/day; 200 scheduled jobs/day; small teams/catalogs; private service binding; 20% headroom. It includes modeled index costs, maintenance and 20 MB of other stored data. No other account traffic is assumed. Adjust `identityReadsPerLocalUser` for signed-in local users; chat, provider/utility requests, extra tabs, invitations, exports and other traffic must be added.
+Bundled example: **10,000 DAU, 80% guest/local without session checks, 2,000 shared-data users**; two document invocations/person; each shared user averages four API reads and one mutation; 500 logins/day; 200 scheduled jobs/day; small teams/catalogs; private service binding; 20% headroom. It includes modeled index costs, maintenance, 20 MB of other stored data, and the entitlement ledger (two gated feature uses per shared-data user per day at 2 rows read + 1 row written each, 8 usage-snapshot rows read per shared-data user, and 12 bounded ledger rows stored per shared-data user). No other account traffic is assumed. Adjust `identityReadsPerLocalUser` for signed-in local users; chat, provider/utility requests, extra tabs, invitations, exports and other traffic must be added.
 
 | Resource | Example estimate | Operating budget after 20% headroom |
 |---|---:|---:|
-| Worker requests/day | 31,288 | 80,000 |
-| D1 rows read/day | 2,222,880 | 4,000,000 |
-| D1 rows written/day | 66,400 | 80,000 |
-| Single-database stored bytes | 200,000,000 | 400,000,000 |
+| Worker requests/day | 35,288 | 80,000 |
+| D1 rows read/day | 2,246,880 | 4,000,000 |
+| D1 rows written/day | 70,400 | 80,000 |
+| Single-database stored bytes | 209,600,000 | 400,000,000 |
+
+**Write headroom is thin and worth stating plainly:** the entitlement ledger adds 4,000 written rows/day at two gated uses per shared-data user, taking the estimate to 88% of the operating write budget. Before increasing gated usage, scheduler batches or cleanup volume, re-run the estimator; a modest rise in any of them breaches the free daily write limit.
 
 The estimator **fails** the equivalent all-cloud-active 10,000-user scenario on D1 budgets/storage. Use `invocationsPerApi:2` and `invocationsPerLogin:4` as conservative HTTP-proxy assumptions when not using the binding. Storage is a modeled snapshot, not indefinite retention. Business evidence grows and is deliberately not silently deleted.
 

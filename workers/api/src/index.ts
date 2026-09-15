@@ -6,6 +6,7 @@ import { platform } from './platform';
 import { capacityRetryAfter, noteD1Failure } from './platform/capacity';
 import { maintenance } from './platform/maintenance';
 import { runDue } from './platform/jobs';
+import { searchMedia } from './media';
 import type { PlatformEnv } from './platform/core';
 
 // OneBrain API on Cloudflare Workers + D1. Same routes as backend/src,
@@ -430,133 +431,11 @@ app.get('/api/reminders/due', requireAuth, async (c) => {
 });
 
 // ---------------- media search (keyless: saavn / itunes / invidious) ----------------
-const INVIDIOUS = [
-  'https://inv.nadeko.net',
-  'https://yewtu.be',
-  'https://iv.melmac.space',
-  'https://invidious.nerdvpn.de',
-];
-const MEDIA_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36';
-
-async function timedFetch(url: string, ms: number, init?: RequestInit): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
-
+// Bounded, guarded and shared with the Next route through src/media.ts. A dead
+// source contributes nothing; the response always carries a YouTube hand-off.
 app.post('/api/media', optionalAuth, async (c) => {
-  const { query, kinds } = await c.req.json().catch(() => ({}));
-  const q = String(query || '').slice(0, 120);
-  if (!q) return c.json({ tracks: [] });
-
-  const runSearch = async (term: string) => {
-    const want = new Set<string>(kinds || ['song', 'podcast', 'video']);
-    const tracks: any[] = [];
-
-    if (want.has('song')) {
-      for (const host of ['https://saavn.dev', 'https://saavn.me']) {
-        try {
-          const r = await timedFetch(`${host}/api/search/songs?query=${encodeURIComponent(term)}&limit=5`, 9000, {
-            headers: { 'User-Agent': MEDIA_UA },
-          });
-          if (!r.ok) continue;
-          const j: any = await r.json();
-          for (const s of j?.data?.results || j?.data?.songs || []) {
-            const dls = s?.downloadUrl || [];
-            const best = dls[dls.length - 1]?.url || dls[0]?.url;
-            if (!best) continue;
-            tracks.push({
-              kind: 'song',
-              title: String(s?.name || s?.title || 'Unknown song'),
-              artist: Array.isArray(s?.artists?.primary)
-                ? s.artists.primary.map((a: any) => a?.name).filter(Boolean).join(', ') : '',
-              image: s?.image?.[1]?.url || s?.image?.[0]?.url || '',
-              url: String(best),
-              source: 'saavn',
-            });
-          }
-          if (tracks.length) break;
-        } catch {}
-      }
-    }
-
-    if (want.has('podcast')) {
-      try {
-        const r = await timedFetch(
-          `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=3&term=${encodeURIComponent(term)}`, 9000,
-          { headers: { 'User-Agent': MEDIA_UA } }
-        );
-        if (r.ok) {
-          const j: any = await r.json();
-          for (const col of (j?.results || []).slice(0, 2)) {
-            if (!col?.feedUrl) continue;
-            try {
-              const f = await timedFetch(col.feedUrl, 9000, { headers: { 'User-Agent': MEDIA_UA } });
-              if (!f.ok) continue;
-              const m = /<enclosure[^>]+url=["']([^"']+)["']/i.exec(await f.text());
-              if (m?.[1]) {
-                tracks.push({
-                  kind: 'podcast',
-                  title: String(col?.trackName || col?.collectionName || 'Podcast episode'),
-                  artist: String(col?.artistName || ''),
-                  image: String(col?.artworkUrl600 || col?.artworkUrl100 || ''),
-                  url: m[1],
-                  source: 'itunes',
-                });
-              }
-            } catch {}
-          }
-        }
-      } catch {}
-    }
-
-    if (want.has('video')) {
-      for (const base of INVIDIOUS) {
-        try {
-          const r = await timedFetch(`${base}/api/v1/search?q=${encodeURIComponent(term)}&type=video`, 8000, {
-            headers: { 'User-Agent': MEDIA_UA },
-          });
-          if (!r.ok) continue;
-          const j: any = await r.json();
-          const vids = (Array.isArray(j) ? j : [])
-            .filter((v: any) => v?.type === 'video' && v?.videoId)
-            .slice(0, 5)
-            .map((v: any) => ({
-              kind: 'video',
-              title: String(v.title || 'Video'),
-              artist: String(v.author || ''),
-              image: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-              url: `https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1&rel=0`,
-              source: 'invidious',
-              videoId: v.videoId,
-            }));
-          if (vids.length) {
-            tracks.push(...vids);
-            break;
-          }
-        } catch {}
-      }
-    }
-    return tracks.slice(0, 12);
-  };
-
-  let out = await runSearch(q);
-  // Transliteration misspellings (saudebaji vs saudebazi): one j/z retry.
-  if (!out.length) {
-    const hasJ = q.includes('j');
-    const hasZ = q.includes('z');
-    const variant = hasJ && !hasZ ? q.replace(/j/g, 'z') : !hasJ && hasZ ? q.replace(/z/g, 'j') : q;
-    if (variant !== q) out = await runSearch(variant);
-  }
-  return c.json({
-    tracks: out,
-    query: q,
-    youtubeSearchUrl: `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
-  });
+  const body = await c.req.json().catch(() => ({}));
+  return c.json(await searchMedia(String(body?.query || ''), body?.kinds));
 });
 
 // ---------------- user ----------------

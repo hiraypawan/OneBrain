@@ -15,6 +15,13 @@ import { INITIAL_WITNESS, witnessReducer } from '@/lib/witness';
 import type { MorningDigest, NightNote } from '@/lib/nightmind';
 import type { PlanId, QuotaUse } from '@/lib/plans';
 import { EMPTY_QUOTA } from '@/lib/plans';
+import {
+  quotaFromServer,
+  resolvePlan,
+  type EntitlementCache,
+  type PlanSource,
+  type ServerEntitlement,
+} from '@/lib/entitlements';
 
 export type FeatureCard =
   | { kind: 'email'; slots: EmailSlots; draft: EmailDraft; userName: string }
@@ -99,10 +106,22 @@ interface FeaturesState {
   setWorkout: (w: WorkoutRun | null) => void;
   witness: WitnessState;
   witnessDispatch: (a: WitnessAction) => void;
+  /** Resolved plan: the server's answer when signed in, else this device's. */
   plan: PlanId;
+  planSource: PlanSource;
+  planVerified: boolean;
+  planExpiresAt: number | null;
+  planNotice: string | null;
+  serverEntitlement: ServerEntitlement | null;
+  entitlementCache: EntitlementCache | null;
+  /** Device-only beta unlock. Never grants server features. */
+  devicePlan: PlanId;
   betaKey: string | null;
   usage: QuotaUse;
   unlock: (plan: PlanId, key: string) => void;
+  applyServerEntitlement: (entitlement: ServerEntitlement | null, fetchedAt?: number) => void;
+  clearServerEntitlement: () => void;
+  refreshPlan: () => void;
   trackUse: (patch: Partial<QuotaUse>) => void;
   commitments: Commitment[];
   addCommitment: (c: Omit<Commitment, 'id' | 'createdAt' | 'done'>) => void;
@@ -157,11 +176,60 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
   witness: INITIAL_WITNESS,
   witnessDispatch: (a) => set((s) => ({ witness: witnessReducer(s.witness, a) })),
   plan: 'free',
+  planSource: 'default',
+  planVerified: false,
+  planExpiresAt: null,
+  planNotice: null,
+  serverEntitlement: null,
+  entitlementCache: null,
+  devicePlan: 'free',
   betaKey: null,
   usage: { ...EMPTY_QUOTA },
+  refreshPlan: () => {
+    const state = get();
+    const resolved = resolvePlan({
+      signedIn: !!useAssistantStore.getState().isAuthenticated,
+      server: state.serverEntitlement,
+      cache: state.entitlementCache,
+      devicePlan: state.devicePlan,
+    });
+    // Server usage replaces local counters when it is present; otherwise the
+    // local count stands (offline / signed-out) and is labeled by planSource.
+    const usage = state.serverEntitlement?.usage
+      ? quotaFromServer(state.serverEntitlement)
+      : state.usage;
+    set({
+      plan: resolved.plan,
+      planSource: resolved.source,
+      planVerified: resolved.verified,
+      planExpiresAt: resolved.expiresAt,
+      planNotice: resolved.notice,
+      usage,
+    });
+  },
   unlock: (plan, key) => {
-    set({ plan, betaKey: key });
+    // Device-only: persisted in this browser, clearly labeled, and never sent
+    // anywhere. Account plans come from applyServerEntitlement().
+    set({ devicePlan: plan, betaKey: key });
     db.kv.put({ key: 'plan', value: { plan, key } }).catch(() => {});
+    get().refreshPlan();
+  },
+  applyServerEntitlement: (entitlement, fetchedAt = Date.now()) => {
+    if (!entitlement) {
+      set({ serverEntitlement: null });
+      get().refreshPlan();
+      return;
+    }
+    const cache: EntitlementCache = { entitlement, fetchedAt };
+    set({ serverEntitlement: entitlement, entitlementCache: cache });
+    db.kv.put({ key: 'entitlement', value: cache }).catch(() => {});
+    get().refreshPlan();
+  },
+  clearServerEntitlement: () => {
+    // Sign-out (or a different account) must not inherit the previous plan.
+    set({ serverEntitlement: null, entitlementCache: null, usage: { ...EMPTY_QUOTA } });
+    db.kv.delete('entitlement').catch(() => {});
+    get().refreshPlan();
   },
   trackUse: (patch) => {
     const usage = { ...get().usage, ...patch };
@@ -241,7 +309,7 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
   setSpeaker: (speaker) => set({ speaker }),
   load: async () => {
     try {
-      const [planRow, quotaRow, commitRow, nightRow, notes, logs, stories, drafts, capRow] = await Promise.all([
+      const [planRow, quotaRow, commitRow, nightRow, notes, logs, stories, drafts, capRow, entitlementRow] = await Promise.all([
         db.kv.get('plan'),
         db.kv.get('quota'),
         db.kv.get('commitments'),
@@ -251,11 +319,14 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
         db.stories.orderBy('updatedAt').reverse().toArray().catch(() => []),
         db.emailDrafts.orderBy('createdAt').reverse().toArray().catch(() => []),
         db.kv.get('story:cap'),
+        db.kv.get('entitlement'),
       ]);
+      const cached = entitlementRow?.value as EntitlementCache | undefined;
       set({
         ready: true,
-        plan: (planRow?.value?.plan as PlanId) || 'free',
+        devicePlan: (planRow?.value?.plan as PlanId) || 'free',
         betaKey: planRow?.value?.key || null,
+        entitlementCache: cached && typeof cached.fetchedAt === 'number' && cached.entitlement ? cached : null,
         usage: { ...EMPTY_QUOTA, ...(quotaRow?.value || {}) },
         commitments: Array.isArray(commitRow?.value) ? commitRow.value.slice(-200) : [],
         nightNotes: Array.isArray(nightRow?.value) ? nightRow.value.slice(-300) : [],
@@ -265,8 +336,10 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
         storyCap: typeof capRow?.value === 'number' && capRow.value >= 1 && capRow.value <= 20 ? capRow.value : 3,
         emailDrafts: drafts.slice(0, 100),
       });
+      get().refreshPlan();
     } catch {
       set({ ready: true });
+      get().refreshPlan();
     }
   },
 }));

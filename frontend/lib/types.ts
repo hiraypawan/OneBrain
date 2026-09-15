@@ -23,6 +23,8 @@ export interface Conversation {
 
 export interface UserSettings {
   wakePhrase?: boolean;
+  /** Opt-out for the music/podcast player. On by default, never implied. */
+  musicEnabled?: boolean;
   speechAliases?: Record<string,string>;
   proactive?: import('./proactive').ProactivePreferences;
   silentMode?: boolean;

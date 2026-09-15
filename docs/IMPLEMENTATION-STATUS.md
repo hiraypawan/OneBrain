@@ -1,12 +1,17 @@
 # OneBrain implementation status
 
 > **Google-only authentication update (2026-09-11):** Password/local account login and legacy JWT OAuth are retired. Follow [Google setup](GOOGLE-AUTH-SETUP.md) and [PR gates](PR-RELEASE-GATES.md). Sign-in requires private, environment-specific operator OAuth configuration; the full live Google consent/sign-in flow is not verified. Prior password/authentication descriptions below are historical where they conflict with this update.
-Updated 2026-09-11. **Full 175/175 completion has not been reached.** The additional proactive-conversation requirement is retained as row 176. This ledger separates working code, bounded implementations, live verification and unfinished software; nothing marked incomplete has been removed from scope.
+> **Entitlements and media update (2026-09-15):** Server-side plans and quota ledgers now decide Pro/Family access (no payments, no checkout; keys are operator-minted). Music and podcast playback was revived as an opt-in panel, which **reverses row 170**; that reversal needs maintainer sign-off and its keyless third-party sources were not reachable from the build sandbox, so live playback is unproven. See [free-tier capacity](FREE-TIER-CAPACITY.md) and [platform setup](PLATFORM-SETUP.md).
+
+Updated 2026-09-15 (previous full revision 2026-09-11). **Full 175/175 completion has not been reached.** The additional proactive-conversation requirement is retained as row 176. This ledger separates working code, bounded implementations, live verification and unfinished software; nothing marked incomplete has been removed from scope.
 
 ## Current implemented paths
 
 - **Two-screen UI rework:** Today for first-use capture, questions, voice and saved-item views; Your space for searchable, lazy-loaded tool/settings panels. Old feature URLs redirect to their panel. See [design decisions and verification limits](UI-DESIGN.md). Public Appllama skills informed the rework; MCP access was unavailable.
 
+- **Server-side entitlements:** a plan row plus a per-feature quota ledger in D1 (migration 0008) decide Free/Pro/Family. Quotas are consumed atomically server-side, `/me` stays a single-read identity+plan call, and usage arrives with `/bootstrap` and `GET /entitlements`. Keys are minted by the operator (`scripts/mint-entitlement-keys.mjs`), stored hashed, and shown once. **No payment, checkout, invoice or renewal path exists**, and the client cannot mint its own plan: the former in-bundle `mintBetaKey` was removed from `lib/plans.ts`. When the server cannot be reached the client keeps the last confirmed plan for 24 hours, marks it unverified, and never silently upgrades or downgrades. Translator minutes remain device-counted because sessions are device-local; the server ledger counts research, email, scribe and story.
+- **Music and podcast playback (reintroduced, opt-in):** a single sticky player mounted in the root layout, driven by `store/media.ts`, reachable by voice (“play kesariya”, “gaana band”, “next song”) or from Your space → Music. Search fans out to keyless community sources (JioSaavn search, Apple podcast directory + show RSS, public Invidious instances) with bounded parallel timeouts; failures auto-advance and are announced plainly, and a YouTube search hand-off is offered when nothing streams. This reverses row 170 and is not live-verified.
+- **Interface clarity:** the Today hint line became grouped, tappable “try one of these” phrases that run the real transcript path; jargon labels were replaced (“Pocket mode” → “Screen-off mode”, “Dark screen” → “Screen off”, “Evidence, not just done” → “What you actually did”); Music is a searchable catalog entry; and plan surfaces state who decided the plan (server, device-beta or nothing) with matching local/server badges. Strings asserted by the browser suite are pinned by `frontend/__tests__/ui-clarity.test.ts`.
 - Neural Canvas, local structured/linked capture, financial review, undo/export, responsive accessible controls and opt-in proactive conversation.
 - Discoverable Google sign-in and a unified Account / Voice & conversation / Memory & privacy / Advanced settings interface, including restyled export and diagnostics. Shared quick-setting controls, server-confirmed account states, failure-aware sign-out, transactional local database deletion and explicit microphone-only enrollment.
 - Pocket voice start/pause/resume/stop, optional active-session wake phrase, recognition aliases, Silent Mode and resource/cancellation guards. Real physical-device behavior is not certified.
@@ -19,11 +24,11 @@ Updated 2026-09-11. **Full 175/175 completion has not been reached.** The additi
 
 **Current audit:** [2026-09-11 functionality, data-safety and compatibility report](AUDIT-2026-09-11.md). It records concrete fixes, strengthened browser tests, cross-engine evidence and remaining incomplete work.
 
-- **227 frontend unit tests; 47 Workers tests; one Express integration test; 53 product browser tests and 144 six-profile compatibility checks pass in [CI](https://github.com/hiraypawan/OneBrain/actions/runs/34567432168).** The compatibility matrix covers Chromium, Firefox and WebKit with desktop/phone/tablet profiles, not physical-device certification. Desktop/mobile Operations and vault screenshots were reviewed with no page errors. Browser flows include explicit pause/resume, shared voice records/reminder drafts, persisted financial edits, approval-to-inbox delivery, reviewed linked import, mobile errors and vault isolation.
+- **527 frontend unit tests and 88 Workers tests pass locally (2026-09-15)**, including the new media-store, media-wiring, entitlements (worker + client) and UI-clarity suites; the Next production build, frontend/Workers TypeScript checks and ESLint are clean. Browser and compatibility counts above are from the last CI run and were **not re-executed** in this sandbox (no browser binaries, no network egress); they must be re-run in CI before release. The compatibility matrix covers Chromium, Firefox and WebKit with desktop/phone/tablet profiles, not physical-device certification. Desktop/mobile Operations and vault screenshots were reviewed with no page errors. Browser flows include explicit pause/resume, shared voice records/reminder drafts, persisted financial edits, approval-to-inbox delivery, reviewed linked import, mobile errors and vault isolation.
 - **Next 15.5.25 production build** passes, including the two-screen UI and compatibility redirects into Your space. Frontend, Workers and legacy Express TypeScript checks pass. Express was typechecked, not used as the new shared-platform runtime.
 - Full dependency audits, including development tooling: **0 findings** for frontend, Workers and Express on the audit date. This is not an independent application-security audit.
 - Settings browser coverage includes 320px navigation, persisted preferences, cached-profile rejection, sign-out failures and all-session confirmation, exports/deletion confirmation, SDK document isolation, optional-key safeguards and cancelled/late microphone enrollment. Server identity tests use local fixtures, not real Google consent.
-- Migrations 0001–0005 applied to local D1 only. The local API and browser-independent development scheduler run separately from Next. CI now initializes and starts the real local API for browser tests.
+- Migrations 0001–0008 applied to local D1 only (0008 adds `entitlements`, `entitlement_keys` and `entitlement_usage`). The local API and browser-independent development scheduler run separately from Next. CI now initializes and starts the real local API for browser tests.
 - Source documentation for MET Norway/Frankfurter was checked. Actual source smoke requests returned connection resets/502 in this sandbox; no forecast or exchange rate was invented. Successful live lookups remain unverified.
 - No live third-party authorization, production deployment, remote migration, payment activation, repository visibility change, compliance certification or hardware verification was performed.
 
@@ -197,20 +202,20 @@ Status: **Implemented** = functional within the stated local scope; **Partial** 
 | 154 | Cost instrumentation | Partial — dispatch counters and receipts; monetary cost/account instrumentation absent |
 | 155 | Useful first action before account setup | Implemented — local capture without signup |
 | 156 | Just-in-time permissions | Partial — mic on explicit start; notification permission remains in legacy start flow |
-| 157 | Complete limited core trial | Not implemented — no trial/billing system |
-| 158 | Configurable paid entitlements | Not implemented |
+| 157 | Complete limited core trial | Partial — server-enforced free allowances (research/scribe per day, email drafts per month, 3 story episodes) and a per-session translator trial; no billing or paid trial conversion |
+| 158 | Configurable paid entitlements | Partial — server-authoritative plan rows with per-plan quota limits and operator-minted keys; limits are code-defined (`PLAN_LIMITS`), not operator-configurable at runtime, and nothing is purchasable |
 | 159 | Proposed pricing, not validated conclusion | Documented — no checkout or price validation |
 | 160 | Localized pricing experiments | Not implemented |
-| 161 | Explicit bounded allowances | Implemented fixed transactional object/dispatch caps and local bounds; paid entitlements absent |
-| 162 | Billing/cancellation/invoices | Not implemented |
+| 161 | Explicit bounded allowances | Implemented — fixed transactional object/dispatch caps, local bounds, and atomic per-plan server quota consumption with `Retry-After` on exhaustion |
+| 162 | Billing/cancellation/invoices | Not implemented by policy — no checkout, payment provider, invoice or cancellation flow exists; entitlements are granted by operator-minted keys (see row 163) |
 | 163 | No lifetime unlimited offers | Implemented as product policy — no billing offers exist |
-| 164 | Conversion/renewal reporting | Not implemented |
+| 164 | Conversion/renewal reporting | Not implemented — quota counters and key-redemption audit rows exist, but there is no conversion, renewal or revenue reporting |
 | 165 | Real iOS/Android workflow tests | External verification — browser emulation is not hardware validation |
 | 166 | Real background/call/earbud/network testing | External verification |
-| 167 | Automated logic/reliability tests | Partial — 183 frontend and 45 Workers tests, 29 browser flows; full provider/device matrix outstanding |
+| 167 | Automated logic/reliability tests | Partial — 527 frontend and 88 Workers tests (2026-09-15) plus the existing browser flows; media-source health, provider and device matrices outstanding |
 | 168 | Security/accessibility/performance/migration/restore tests | Partial — concurrency/auth/crypto/import/restore/mobile tests; independent security/accessibility/load audits absent |
 | 169 | Canvas versus list retrieval study | External verification — needs actual users |
-| 170 | Remove entertainment from core | Implemented — removed media player/voice routing from workspace; legacy code/data retained |
+| 170 | Remove entertainment from core | **Reversed 2026-09-15** — playback revived as an opt-in surface outside the core Today flow (`settings.musicEnabled`, Your space → Music); requires maintainer sign-off, and keyless sources were unreachable from the build sandbox so live playback is unverified |
 | 171 | Preserve legacy data during UI migration | Implemented — additive Dexie v4 tables; existing conversation records preserved |
 | 172 | Update setup/privacy/testing documentation | Implemented current setup, boundaries, evidence and full ledger; historical deployment docs remain labeled historical |
 | 173 | Label feature status honestly | Implemented — explicit supported, partial, unverified and unimplemented statuses; no 175/175 claim |

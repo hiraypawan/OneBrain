@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { parseMediaCommand, parseVoiceCommand } from '../lib/commands';
 import {
   mapSaavn, mapItunesPodcast, firstEnclosureUrl, mapInvidious,
-  pickFirstPlayable, youtubeEmbedUrl,
+  pickFirstPlayable, youtubeEmbedUrl, nextPlayableIndex, describeMediaError,
+  mediaSourceLabel, searchMedia, youtubeSearchUrlFor, AUTOPLAY_BLOCKED_NOTICE,
 } from '../lib/media';
 
 describe('parseVoiceCommand', () => {
@@ -100,5 +101,101 @@ describe('media mappers', () => {
   it('picks the first playable track', () => {
     expect(pickFirstPlayable([])).toBeNull();
     expect(pickFirstPlayable([{ url: '' } as any, { url: 'x' } as any])?.url).toBe('x');
+  });
+});
+
+describe('queue and failure copy', () => {
+  it('finds the next playable result, or says there is none', () => {
+    const list = [{ url: 'a' }, { url: '' }, { url: 'b' }] as any[];
+    expect(nextPlayableIndex(list, 0)).toBe(2);
+    expect(nextPlayableIndex(list, 2)).toBe(-1);
+    expect(nextPlayableIndex([], 0)).toBe(-1);
+  });
+
+  it('describes every media error code honestly', () => {
+    expect(describeMediaError(2)).toMatch(/stopped mid-play/i);
+    expect(describeMediaError(3)).toMatch(/could not be decoded/i);
+    expect(describeMediaError(4)).toMatch(/refused the stream/i);
+    expect(describeMediaError(undefined)).toMatch(/did not serve the audio/i);
+    expect(AUTOPLAY_BLOCKED_NOTICE).toMatch(/Tap play once/i);
+  });
+
+  it('names sources in plain language', () => {
+    expect(mediaSourceLabel('saavn')).toMatch(/JioSaavn/);
+    expect(mediaSourceLabel('itunes')).toMatch(/Podcast feed/);
+    expect(mediaSourceLabel('invidious')).toMatch(/Invidious/);
+    expect(mediaSourceLabel('mystery')).toMatch(/Unknown/);
+  });
+});
+
+describe('media command: next', () => {
+  it('recognises queue stepping without stealing session commands', () => {
+    expect(parseMediaCommand('next song')).toEqual({ action: 'next' });
+    expect(parseMediaCommand('agli gaana')).toEqual({ action: 'next' });
+    expect(parseMediaCommand('next episode')).toEqual({ action: 'next' });
+    expect(parseMediaCommand('next')).toEqual({ action: 'next' });
+    expect(parseMediaCommand('what is next on my list')).toBeNull();
+    // Session commands still win: a bare "continue" resumes listening, and
+    // music needs "continue the song" so the two never collide.
+    expect(parseVoiceCommand('continue')).toBe('continue');
+    expect(parseMediaCommand('continue')).toBeNull();
+    expect(parseMediaCommand('continue the song')).toEqual({ action: 'resume' });
+  });
+});
+
+describe('searchMedia transport', () => {
+  const ok = (body: unknown) => async () =>
+    new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  it('prefers the cloud worker and reports which endpoint answered', async () => {
+    const calls: string[] = [];
+    const result = await searchMedia('kesariya', ['song'], {
+      apiBase: 'https://api.example.test/',
+      fetchImpl: (async (url: string) => {
+        calls.push(String(url));
+        return new Response(JSON.stringify({ tracks: [{ kind: 'song', title: 'T', url: 'u', source: 'saavn' }] }), { status: 200 });
+      }) as any,
+    });
+    expect(calls).toEqual(['https://api.example.test/api/media']);
+    expect(result.via).toBe('worker');
+    expect(result.tracks).toHaveLength(1);
+  });
+
+  it('falls back to the local route when the worker answers without tracks', async () => {
+    const calls: string[] = [];
+    const result = await searchMedia('kesariya', undefined, {
+      apiBase: 'https://api.example.test',
+      fetchImpl: (async (url: string) => {
+        calls.push(String(url));
+        if (String(url).startsWith('https://api.example.test')) {
+          return new Response(JSON.stringify({ tracks: [] }), { status: 500 });
+        }
+        return new Response(JSON.stringify({ tracks: [{ kind: 'song', title: 'Local', url: 'u', source: 'saavn' }] }), { status: 200 });
+      }) as any,
+    });
+    expect(calls).toEqual(['https://api.example.test/api/media', '/api/media']);
+    expect(result.via).toBe('local');
+  });
+
+  it('never throws: a dead network yields an honest failure plus a hand-off URL', async () => {
+    const result = await searchMedia('kesariya', undefined, {
+      fetchImpl: (async () => {
+        throw new Error('offline');
+      }) as any,
+    });
+    expect(result.tracks).toEqual([]);
+    expect(result.via).toBe('none');
+    expect(result.failure).toMatch(/could not reach the network/);
+    expect(result.youtubeSearchUrl).toBe(youtubeSearchUrlFor('kesariya'));
+  });
+
+  it('drops tracks without a URL and refuses an empty query', async () => {
+    const result = await searchMedia('  ', undefined, { fetchImpl: ok({ tracks: [{ url: 'x' }] }) as any });
+    expect(result.tracks).toEqual([]);
+    expect(result.failure).toMatch(/Say what to play/);
+    const filtered = await searchMedia('x', undefined, {
+      fetchImpl: ok({ tracks: [{ url: '' }, { url: 'good' }] }) as any,
+    });
+    expect(filtered.tracks.map((t) => t.url)).toEqual(['good']);
   });
 });

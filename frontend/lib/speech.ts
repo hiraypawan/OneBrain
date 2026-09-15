@@ -1,5 +1,7 @@
 // Scrub chat text into speakable sentences: no emojis, no markdown,
 // no URLs - speech engines read every character literally.
+import { signalSpeechPlayback } from './audio';
+
 export function cleanForSpeech(input: string): string {
   let t = input || '';
 
@@ -529,21 +531,28 @@ export async function speakChunksWithBrowserVoice(
       }
     });
 
-  for (const chunk of chunks) {
-    if (cancelled || !current()) return 'cancelled';
-    let outcome = await speakOne(chunk, true);
-    // Retry once without pinning a voice: an installed-but-broken voice pack
-    // must not turn the whole reply silent.
-    if (outcome === 'stalled' && plan.voice) {
-      try {
-        synth.cancel();
-      } catch {}
-      await sleep(30);
+  // Music ducking: the browser voice also owns the speaker, so announce the
+  // whole reply, not just the synthesized-blob path in lib/audio.ts.
+  signalSpeechPlayback('start');
+  try {
+    for (const chunk of chunks) {
       if (cancelled || !current()) return 'cancelled';
-      outcome = await speakOne(chunk, false);
+      let outcome = await speakOne(chunk, true);
+      // Retry once without pinning a voice: an installed-but-broken voice pack
+      // must not turn the whole reply silent.
+      if (outcome === 'stalled' && plan.voice) {
+        try {
+          synth.cancel();
+        } catch {}
+        await sleep(30);
+        if (cancelled || !current()) return 'cancelled';
+        outcome = await speakOne(chunk, false);
+      }
+      if (outcome === 'ok') continue;
+      return outcome;
     }
-    if (outcome === 'ok') continue;
-    return outcome;
+    return 'ok';
+  } finally {
+    signalSpeechPlayback('end');
   }
-  return 'ok';
 }

@@ -548,33 +548,76 @@ function DigestCard({ card, say }: { card: Extract<FeatureCard, { kind: 'digest'
 
 function PlanCard({ card }: { card: Extract<FeatureCard, { kind: 'plan' }> }) {
   const plan = useFeaturesStore((s) => s.plan);
+  const planSource = useFeaturesStore((s) => s.planSource);
   const unlock = useFeaturesStore((s) => s.unlock);
+  const applyServerEntitlement = useFeaturesStore((s) => s.applyServerEntitlement);
   const usage = useFeaturesStore((s) => s.usage);
+  const signedIn = useAssistantStore((s) => s.isAuthenticated);
   const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(card.reason === 'invalid-key' ? 'That key did not validate.' : '');
-  const apply = () => {
-    const p = validateBetaKey(key);
-    if (!p) {
-      setMsg('Invalid key — format OB-PRO-XXXXXX.');
+
+  // Signed in, the server decides: the key is redeemed there and applies on
+  // every device. Signed out, a key only unlocks this browser, and says so.
+  const apply = async () => {
+    const trimmed = key.trim();
+    if (!trimmed) {
+      setMsg('Enter a key, for example OB-PRO-A7K2QM.');
       return;
     }
-    unlock(p, key.trim().toUpperCase());
-    setMsg(`${p === 'family' ? 'Family' : 'Pro'} unlocked!`);
+    setBusy(true);
+    try {
+      if (signedIn) {
+        const { redeemKeyOnServer } = await import('@/lib/entitlements');
+        const result = await redeemKeyOnServer(trimmed);
+        if (!result.ok) {
+          setMsg(result.error);
+          return;
+        }
+        applyServerEntitlement(result.entitlement);
+        setMsg(`${result.entitlement.plan.toUpperCase()} redeemed on your account.`);
+        setKey('');
+        return;
+      }
+      const device = validateBetaKey(trimmed);
+      if (!device) {
+        setMsg('That key is not valid for this browser. Check the characters, or sign in and redeem it there.');
+        return;
+      }
+      unlock(device, trimmed.toUpperCase());
+      setMsg(`${device === 'family' ? 'Family' : 'Pro'} unlocked in this browser only. Sign in to make it account-wide.`);
+      setKey('');
+    } finally {
+      setBusy(false);
+    }
   };
+
   return (
     <div>
       <span className="eyebrow">⭐ PLAN · YOU ARE ON {plan.toUpperCase()}</span>
+      <p className="feat-note">
+        {planSource === 'server'
+          ? 'Decided by your account on the server.'
+          : planSource === 'device-beta'
+            ? 'Unlocked in this browser only — not on your account.'
+            : 'Nothing redeemed yet.'}
+      </p>
       <ul className="feat-list">
         {PLANS.map((p) => <li key={p.id}><strong>{p.name} {p.price}</strong> — {p.blurb}</li>)}
       </ul>
-      <p className="feat-note">Free usage: {usage.researchCount} research today · {usage.emailCount} drafts this month · {usage.storyTrial}/{FREE_LIMITS.storyTrialEpisodes} story trial · {usage.scribeCount} scribes today</p>
+      <p className="feat-note">Usage: {usage.researchCount} research today · {usage.emailCount} drafts this month · {usage.storyTrial}/{FREE_LIMITS.storyTrialEpisodes} story trial · {usage.scribeCount} scribes today</p>
       {plan === 'free' && (
         <div className="feat-row">
-          <label className="feat-label">Beta key<input className="feat-input" value={key} onChange={(e) => setKey(e.target.value)} placeholder="OB-PRO-XXXXXX" /></label>
-          <button className="primary-button" onClick={apply}>Unlock</button>
+          <label className="feat-label">
+            Key
+            <input className="feat-input" value={key} onChange={(e) => setKey(e.target.value)} placeholder="OB-PRO-XXXXXX" aria-label="Entitlement key" autoComplete="off" spellCheck={false} />
+          </label>
+          <button className="primary-button" disabled={busy} onClick={() => void apply()}>
+            {signedIn ? 'Redeem on my account' : 'Unlock this browser'}
+          </button>
         </div>
       )}
-      {msg && <p role="status" className="feat-note">{msg} (Beta unlock — billing connects at launch.)</p>}
+      {msg && <p role="status" className="feat-note">{msg} No payment is collected; keys are issued by the operator.</p>}
       <a className="text-button" href="/control?panel=plan">Open Plan panel ↗</a>
     </div>
   );
@@ -589,12 +632,86 @@ function MessageCard({ card }: { card: Extract<FeatureCard, { kind: 'message' }>
   );
 }
 
-export function FeatureHint() {
-  const user = useAssistantStore((s) => s.user);
-  void user;
+const SAY_GROUPS: { label: string; items: { say: string; hint: string }[] }[] = [
+  {
+    label: 'Save something',
+    items: [
+      { say: 'task: Send the proposal by Friday', hint: 'Becomes a task you review before it is saved' },
+      { say: 'note: Idea for the Diwali campaign', hint: 'Saved on this browser, no AI needed' },
+      { say: '20 pushups kar liye', hint: 'Voice-logged fitness, works in Hinglish' },
+    ],
+  },
+  {
+    label: 'Ask or calculate',
+    items: [
+      { say: 'morning brief', hint: 'Your day, spoken in one summary' },
+      { say: '15% of 60000', hint: 'Calculated locally and spoken back' },
+      { say: 'what did I decide about the flat', hint: 'Searches what you already saved' },
+    ],
+  },
+  {
+    label: 'Play music',
+    items: [
+      { say: 'play kesariya', hint: 'Free sources; a mini-player stays at the bottom' },
+      { say: 'gaana band', hint: 'Pause the song (“stop” still ends listening)' },
+    ],
+  },
+  {
+    label: 'Start a mode',
+    items: [
+      { say: 'leave application likh do', hint: 'Drafts an email you review before sending' },
+      { say: 'translator mode', hint: 'Two-way translation with a free trial window' },
+      { say: 'kahani sunao', hint: 'Story mode for kids, remembers its characters' },
+      { say: 'witness mode on', hint: 'Safety companion that logs what you say' },
+    ],
+  },
+];
+
+/**
+ * "What can I actually do here?" — the answer, grouped and tappable.
+ *
+ * This replaced a single line of quoted phrases: it read as noise, and nothing
+ * in it could be tried without a microphone. Tapping a chip runs the same
+ * transcript path as speaking it, so the visible examples are never decorative.
+ */
+export function FeatureHint({ say }: { say?: (text: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const groups = open ? SAY_GROUPS : SAY_GROUPS.slice(0, 2);
   return (
-    <p className="feat-hint">
-      <Icon name="help" /> Try: “20 pushups kar liye” · “leave application likh do” · “morning brief” · “translator mode” · “kahani sunao” · “witness mode on”
-    </p>
+    <section className="say-card" aria-label="Things you can say or tap">
+      <div className="say-head">
+        <span className="overline">TRY ONE OF THESE</span>
+        <button
+          type="button"
+          className="text-button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? 'Show fewer examples' : 'More examples'}
+        </button>
+      </div>
+      {groups.map((group) => (
+        <div className="say-group" key={group.label}>
+          <h3>{group.label}</h3>
+          <div className="say-chips">
+            {group.items.map((item) =>
+              say ? (
+                <button type="button" key={item.say} title={item.hint} onClick={() => say(item.say)}>
+                  {item.say}
+                </button>
+              ) : (
+                <span key={item.say} title={item.hint}>
+                  {item.say}
+                </span>
+              ),
+            )}
+          </div>
+        </div>
+      ))}
+      <p className="feat-hint">
+        <Icon name="help" /> Tap a phrase to run it, or say it while listening. Everything is reviewed before it is
+        saved, and nothing is uploaded just by trying.
+      </p>
+    </section>
   );
 }
