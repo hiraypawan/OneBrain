@@ -178,11 +178,19 @@ describe('diagnoseTts', () => {
     expect(h.message).toMatch(/no speech engine/);
   });
 
-  it('reports a missing voice pack instead of staying quiet', () => {
+  it('warns about a missing voice pack but does NOT block the attempt', () => {
     const h = diagnoseTts({ voices: [] });
-    expect(h.level).toBe('blocked');
+    expect(h.level).toBe('warn');
     expect(h.code).toBe('no-voices');
+    // Chrome/Android often report no voices and still speak via the OS default.
+    expect(h.blocking).toBe(false);
     expect(h.hint).toMatch(/Text-to-speech/);
+  });
+
+  it('blocks only for silent mode and a missing engine', () => {
+    expect(diagnoseTts({ silentMode: true, voices: [] }).blocking).toBe(true);
+    expect(diagnoseTts({ synthSupported: false, voices: [] }).blocking).toBe(true);
+    expect(diagnoseTts({ voices: enVoice }).blocking).toBe(false);
   });
 
   it('warns when a substitute voice had to be used', () => {

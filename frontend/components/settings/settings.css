@@ -300,6 +300,17 @@
   background: #17140e;
   color: #d8c49c;
   font-size: 13px;
+  /* Device labels can be long and unbroken; never let them widen the page. */
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.settings-content .audio-devices {
+  min-width: 0;
+  max-width: 100%;
+}
+.settings-content .audio-devices select {
+  max-width: 100%;
 }
 .settings-content .device-plan.plan-blocked {
   border-color: #7a3a1d;

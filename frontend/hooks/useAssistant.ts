@@ -264,6 +264,9 @@ export function useAssistant() {
   // across replies and refreshed on voiceschanged (e.g. a voice pack gets
   // installed while the app is open).
   const voicesRef = useRef<any[]>([]);
+  // Guards the one-time getVoices() wait so engines that never publish a voice
+  // list don't pay it on every reply.
+  const voicesTriedRef = useRef(false);
 
   // Keep the cached voice list honest: a voice pack installed mid-session, or
   // an engine that only populates after first use, shows up here.
@@ -418,8 +421,11 @@ export function useAssistant() {
           Math.max(0.5, Number(settings.voiceSpeed) || 1),
         );
         const lang = ttsLangFor(clean, settings.language);
-        // Chrome's first getVoices() answer is empty; wait once, then cache.
-        if (!voicesRef.current.length) {
+        // Chrome's first getVoices() answer is empty; wait ONCE, then cache.
+        // Waiting per reply would add 1.5 s of dead air to every answer on
+        // engines that never publish a voice list.
+        if (!voicesRef.current.length && !voicesTriedRef.current) {
+          voicesTriedRef.current = true;
           voicesRef.current = await waitForVoices(synth, 1500);
         }
         // Never speak into the void: if the requested language has no voice,
@@ -432,18 +438,28 @@ export function useAssistant() {
           choice,
           lang,
         });
-        if (health.level === "blocked") {
-          useAssistantStore.getState().logBgEvent("tts-blocked", health.code);
-          useAssistantStore.getState().setVoiceNotice(
+        // Only bail when speaking is impossible or unwanted. An empty voice
+        // list is a warning, not a stop: Chrome/Android often report no voices
+        // and still speak through the OS default.
+        if (health.blocking) {
+          const st = useAssistantStore.getState();
+          st.logBgEvent("tts-blocked", health.code);
+          st.setVoiceNotice(
             `${health.message}${health.hint ? ` ${health.hint}` : ""}`,
           );
           return;
         }
-        useAssistantStore.getState().setVoiceNotice(
-          health.level === "warn" && health.message
+        if (health.level === "warn") {
+          useAssistantStore.getState().logBgEvent("tts-warn", health.code);
+        }
+        // Nag only about a substituted voice. An empty voice list is logged
+        // and left alone: if the attempt really produces nothing, the stall
+        // and error handlers below say so with a concrete fix.
+        const notice =
+          health.code === "substitute-voice" && health.message
             ? `${health.message}${health.hint ? ` ${health.hint}` : ""}`
-            : null,
-        );
+            : null;
+        useAssistantStore.getState().setVoiceNotice(notice);
         if (choice.match === "related" || choice.match === "any") {
           useAssistantStore
             .getState()

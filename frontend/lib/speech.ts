@@ -265,6 +265,14 @@ export interface TtsHealth {
     | 'unsupported'
     | 'no-voices'
     | 'substitute-voice';
+  /**
+   * True only when speaking is impossible or unwanted, so the caller should
+   * not even try. An EMPTY voice list is deliberately NOT blocking: Chrome and
+   * Android routinely report getVoices() === [] and still speak through the OS
+   * default voice. Those attempts are made, and the stall/error handlers
+   * report it if they genuinely produce nothing.
+   */
+  blocking: boolean;
   /** null when nothing needs telling. */
   message: string | null;
   hint: string | null;
@@ -285,6 +293,7 @@ export function diagnoseTts(input: {
     return {
       level: 'blocked',
       code: 'silent-mode',
+      blocking: true,
       message: 'Silent Mode is on — answers are text only.',
       hint: 'Turn off Silent Mode in the workspace header or Settings → Voice to hear replies.',
     };
@@ -293,17 +302,20 @@ export function diagnoseTts(input: {
     return {
       level: 'blocked',
       code: 'unsupported',
+      blocking: true,
       message: 'This browser has no speech engine, so replies cannot be spoken.',
       hint: 'Chrome, Edge or Safari can speak. Some in-app browsers cannot.',
     };
   }
   const voices = Array.isArray(input.voices) ? input.voices : [];
   if (!voices.length) {
+    // Warn, then try anyway — see `blocking` above.
     return {
-      level: 'blocked',
+      level: 'warn',
       code: 'no-voices',
-      message: 'No speech voices are installed, so nothing can be spoken.',
-      hint: 'Android: Settings → Accessibility → Text-to-speech output → install a voice (Google Speech Services). iPhone: Settings → Accessibility → Spoken Content → Voices → download English (India) or Hindi.',
+      blocking: false,
+      message: 'The browser lists no speech voices; trying the system default.',
+      hint: 'If nothing is spoken, install a voice in your system Text-to-speech settings (Android: Accessibility → Text-to-speech output; iPhone: Accessibility → Spoken Content → Voices).',
     };
   }
   const choice = input.choice;
@@ -312,11 +324,12 @@ export function diagnoseTts(input: {
     return {
       level: 'warn',
       code: 'substitute-voice',
+      blocking: false,
       message: `No ${want} voice installed — speaking with ${choice.name} (${choice.lang || 'unknown'}).`,
       hint: 'Install a voice for that language in your system Text-to-speech settings for a natural accent.',
     };
   }
-  return { level: 'ok', code: 'ready', message: null, hint: null };
+  return { level: 'ok', code: 'ready', blocking: false, message: null, hint: null };
 }
 
 // Break a cleaned reply into utterance-sized pieces. Chrome's speechSynthesis
