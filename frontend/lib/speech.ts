@@ -506,9 +506,18 @@ export async function speakChunksWithBrowserVoice(
           const benign = code === 'interrupted' || code === 'canceled';
           done(benign ? 'cancelled' : 'error', code);
         };
-        // No start event within 5 s means this engine is not going to speak.
+        // Never hang on a speak() that never starts. Only when the engine
+        // POSITIVELY reports an idle queue (not speaking, nothing pending) is
+        // the utterance treated as stalled — engines that merely skip the
+        // start event keep the generous per-chunk ceiling instead, so a reply
+        // that is genuinely playing is never cut off.
         watchdog = setTimeout(() => {
           if (started) return;
+          if (synth.speaking !== false || synth.pending !== false) {
+            started = true;
+            watchdog = setTimeout(() => cancel(), 60_000);
+            return;
+          }
           done('stalled', 'no start event');
         }, 5000);
         try {

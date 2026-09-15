@@ -367,13 +367,17 @@ export function useAssistant() {
         //    through (neckband, earbuds, phone speaker) with nothing to pick,
         //    and can be pinned to a chosen device on Chromium.
         // ------------------------------------------------------------------
-        // The operator can force the browser voice with
-        // NEXT_PUBLIC_ENABLE_CLOUD_SPEECH=0. Neither tier below spends host
-        // keys: the user's own key, then a keyless community voice.
-        const audioChunks =
-          process.env.NEXT_PUBLIC_ENABLE_CLOUD_SPEECH === "0"
-            ? []
-            : splitForSpeech(clean, 900);
+        // The audio service is skipped when the operator forces the browser
+        // voice (NEXT_PUBLIC_ENABLE_CLOUD_SPEECH=0) and in automated/headless
+        // browsers, which have no audio device and must not send reply text to
+        // a provider (Playwright and WebDriver set navigator.webdriver).
+        // Neither tier below spends host keys: the user's own key, then a
+        // keyless community voice.
+        const audioDisabled =
+          process.env.NEXT_PUBLIC_ENABLE_CLOUD_SPEECH === "0" ||
+          (typeof navigator !== "undefined" &&
+            (navigator as { webdriver?: boolean }).webdriver === true);
+        const audioChunks = audioDisabled ? [] : splitForSpeech(clean, 900);
         const spokenBlobs: Blob[] = [];
         const sink = activeSinkId(useAssistantStore.getState().speakerDeviceId);
         let audioRefused = false;
@@ -386,7 +390,7 @@ export function useAssistant() {
               lang,
               apiKey: useAssistantStore.getState().apiKey || undefined,
             },
-            { timeoutMs: 12000 },
+            { timeoutMs: 8000 },
           );
           if (!current() || useAssistantStore.getState().settings.silentMode)
             return;
