@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanForSpeech, splitReply, ttsLangFor } from '../lib/speech';
+import { cleanForSpeech, splitReply, splitForSpeech, ttsLangFor } from '../lib/speech';
 
 describe('cleanForSpeech', () => {
   it('strips markdown but keeps the words', () => {
@@ -50,5 +50,37 @@ describe('ttsLangFor', () => {
 
   it('keeps English in English', () => {
     expect(ttsLangFor('Today is Sunday', 'hinglish')).toBe('en-IN');
+  });
+});
+
+describe('splitForSpeech', () => {
+  it('keeps short replies as a single utterance', () => {
+    expect(splitForSpeech('Namaste! Main sun raha hoon.')).toEqual(['Namaste! Main sun raha hoon.']);
+    expect(splitForSpeech('   ')).toEqual([]);
+  });
+
+  it('splits long replies on sentence boundaries under the limit', () => {
+    const reply = Array.from({ length: 8 }, (_, i) => `Sentence number ${i + 1} is here and it is fairly long.`).join(' ');
+    const chunks = splitForSpeech(reply, 120);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect(c.length).toBeLessThanOrEqual(120);
+      expect(c).toMatch(/\.$/);
+    }
+    expect(chunks.join(' ')).toBe(reply);
+  });
+
+  it('handles the Devanagari danda and never splits inside a word', () => {
+    const reply = 'आज रविवार है। कल सोमवार होगा। ' + 'यह एक लंबा वाक्य है '.repeat(12).trim() + '।';
+    const chunks = splitForSpeech(reply, 60);
+    expect(chunks.every((c) => c.length <= 60)).toBe(true);
+    expect(chunks.join(' ').replace(/\s+/g, ' ')).toBe(reply.replace(/\s+/g, ' '));
+  });
+
+  it('breaks one enormous sentence on clauses, then words', () => {
+    const reply = ('word '.repeat(50) + ', ').repeat(3).trim();
+    const chunks = splitForSpeech(reply, 100);
+    expect(chunks.every((c) => c.length <= 100 && !/^\s|\s$/.test(c))).toBe(true);
+    expect(chunks.join(' ').split(' ').filter(Boolean).length).toBe(reply.split(' ').filter(Boolean).length);
   });
 });
