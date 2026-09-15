@@ -37,12 +37,33 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npx playwright install --with-deps chromium firefox webkit
-      - run: npm run test:e2e
+      - name: Browser suite
+        run: |
+          set -o pipefail
+          npm run test:e2e 2>&1 | tee /tmp/e2e.log
         env:
           CI: 'true'
-      - run: npm run test:compat
+      - name: Compatibility matrix
+        run: |
+          set -o pipefail
+          npm run test:compat 2>&1 | tee /tmp/compat.log
         env:
           CI: 'true'
+      # Failure logs and artifacts live on hosts that are not always reachable
+      # (for example from a sandboxed review agent), so the useful part of the
+      # Playwright report is also published to the job summary.
+      - name: Publish browser failure details
+        if: failure()
+        run: |
+          for log in /tmp/e2e.log /tmp/compat.log; do
+            [ -f "$log" ] || continue
+            {
+              echo "### Playwright report: $(basename "$log")"
+              echo '```'
+              tail -n 220 "$log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -93,7 +114,15 @@ jobs:
         working-directory: workers/api
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
-      - run: npm run test:edge
+      - name: Edge runtime browser suite
+        run: |
+          set -o pipefail
+          npm run test:edge 2>&1 | tee /tmp/edge.log
+      - name: Publish edge failure details
+        if: failure()
+        run: |
+          [ -f /tmp/edge.log ] || exit 0
+          { echo '### Playwright report: edge'; echo '```'; tail -n 220 /tmp/edge.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         working-directory: frontend
         env:
           CI: 'true'
