@@ -423,7 +423,10 @@ export function useAssistant() {
           lastReplyRef.current = { blobs: spokenBlobs, text: clean };
           setHasReplay(true);
         }
-        if (spokenBlobs.length === audioChunks.length) {
+        // Success ONLY when audio was actually attempted and every chunk played.
+        // With the audio tier skipped there is nothing played, so this must fall
+        // through to the browser voice instead of reporting "done" in silence.
+        if (audioChunks.length && spokenBlobs.length === audioChunks.length) {
           useAssistantStore.getState().setVoiceNotice(null);
           return;
         }
@@ -437,21 +440,23 @@ export function useAssistant() {
             );
           return;
         }
-        useAssistantStore
-          .getState()
-          .logBgEvent(
-            audioRefused ? "tts-audio-blocked" : "tts-audio-unavailable",
-            audioRefused ? "play() refused" : "no audio bytes",
-          );
-        if (spokenBlobs.length) {
-          // Partially spoken: the rest is offered by tap rather than replayed
-          // from the start in a different voice.
+        if (audioChunks.length) {
           useAssistantStore
             .getState()
-            .setVoiceNotice(
-              "Part of this answer could not be spoken. Tap “Hear it” to play what was prepared.",
+            .logBgEvent(
+              audioRefused ? "tts-audio-blocked" : "tts-audio-unavailable",
+              audioRefused ? "play() refused" : "no audio bytes",
             );
-          return;
+          if (spokenBlobs.length) {
+            // Partially spoken: the rest is offered by tap rather than replayed
+            // from the start in a different voice.
+            useAssistantStore
+              .getState()
+              .setVoiceNotice(
+                "Part of this answer could not be spoken. Tap “Hear it” to play what was prepared.",
+              );
+            return;
+          }
         }
 
         // ------------------------------------------------------------------
