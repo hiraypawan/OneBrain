@@ -21,6 +21,10 @@ interface AssistantState {
   micNotice: string | null;
   storageNotice: string | null;
   setMicNotice: (m: string | null) => void;
+  // Why the last reply was NOT spoken (silent mode, no voice pack, no output
+  // device). Surfaced instead of failing quietly.
+  voiceNotice: string | null;
+  setVoiceNotice: (m: string | null) => void;
   hydrate: () => Promise<void>;
   voiceBaseline: number | null;
   setVoiceBaseline: (hz: number | null) => void;
@@ -103,6 +107,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   micNotice: null,
   storageNotice: null,
   setMicNotice: (micNotice) => set({ micNotice }),
+  voiceNotice: null,
+  setVoiceNotice: (voiceNotice) => set({ voiceNotice }),
   hydrate: async () => {
     // Cheap prefs first (sync-feeling), then heavy IndexedDB restore.
     set(loadPersisted());
@@ -285,6 +291,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       messages: [], conversations: [], reminders: [], user: null,
       isAuthenticated: false, authRevision: useAssistantStore.getState().authRevision + 1, isActive: false, currentStatus: 'idle',
       currentConversationId: `${Date.now()}`, apiKey: '', voiceBaseline: null, micNotice: null,
+      voiceNotice: null,
       bgLog: [], sessionStart: null,
     });
   },

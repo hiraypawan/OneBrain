@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanForSpeech, splitReply, splitForSpeech, ttsLangFor } from '../lib/speech';
+import { cleanForSpeech, diagnoseTts, pickTtsVoice, splitReply, splitForSpeech, ttsLangFor, waitForVoices } from '../lib/speech';
 
 describe('cleanForSpeech', () => {
   it('strips markdown but keeps the words', () => {
@@ -82,5 +82,131 @@ describe('splitForSpeech', () => {
     const chunks = splitForSpeech(reply, 100);
     expect(chunks.every((c) => c.length <= 100 && !/^\s|\s$/.test(c))).toBe(true);
     expect(chunks.join(' ').split(' ').filter(Boolean).length).toBe(reply.split(' ').filter(Boolean).length);
+  });
+});
+
+// --- Voice availability (why "he doesn't talk" must never be silent) --------
+
+describe('pickTtsVoice', () => {
+  const voices = [
+    { name: 'Google हिन्दी', lang: 'hi-IN' },
+    { name: 'Google English (India)', lang: 'en-IN' },
+    { name: 'Microsoft Ravi', lang: 'hi-Latn-IN' },
+  ];
+
+  it('returns the exact voice when the language is installed', () => {
+    const c = pickTtsVoice(voices, 'hi-IN');
+    expect(c.match).toBe('exact');
+    expect(c.voice?.name).toBe('Google हिन्दी');
+    expect(c.lang).toBe('hi-in');
+  });
+
+  it('accepts a different script/region of the same language', () => {
+    const c = pickTtsVoice([{ name: 'Ravi', lang: 'hi-Latn-IN' }], 'hi-IN');
+    expect(c.match).toBe('language');
+    expect(c.voice?.name).toBe('Ravi');
+  });
+
+  it('falls back to a related script (Marathi -> Hindi) instead of silence', () => {
+    const c = pickTtsVoice(voices, 'mr-IN');
+    expect(c.match).toBe('related');
+    expect(c.voice?.lang).toBe('hi-IN');
+  });
+
+  it('uses any available voice when the language family is absent', () => {
+    const c = pickTtsVoice([{ name: 'Google UK', lang: 'en-GB' }], 'mr-IN');
+    expect(c.match).toBe('any');
+    expect(c.voice?.name).toBe('Google UK');
+  });
+
+  it('prefers Indian English for the generic fallback', () => {
+    const c = pickTtsVoice([{ name: 'US', lang: 'en-US' }, { name: 'IN', lang: 'en-IN' }], 'ta-IN');
+    expect(c.match).toBe('any');
+    expect(c.voice?.name).toBe('IN');
+  });
+
+  it('reports none when the engine has no voices at all', () => {
+    expect(pickTtsVoice([], 'en-IN').match).toBe('none');
+    expect(pickTtsVoice(undefined, 'en-IN').voice).toBeNull();
+  });
+
+  it('treats underscore/case variants as the same tag', () => {
+    expect(pickTtsVoice([{ name: 'ES', lang: 'ES_es' }], 'es-ES').match).toBe('exact');
+  });
+});
+
+describe('waitForVoices', () => {
+  it('resolves immediately when voices are already available', async () => {
+    const synth = { getVoices: () => [{ lang: 'en-IN', name: 'a' }] };
+    await expect(waitForVoices(synth, 100)).resolves.toHaveLength(1);
+  });
+
+  it('resolves with [] when there is no engine instead of throwing', async () => {
+    await expect(waitForVoices(undefined, 50)).resolves.toEqual([]);
+    await expect(waitForVoices({ getVoices: () => { throw new Error('x'); } }, 50)).resolves.toEqual([]);
+  });
+
+  it('waits for voiceschanged when Chrome answers empty first', async () => {
+    let voices: any[] = [];
+    const handlers: Array<() => void> = [];
+    const synth = {
+      getVoices: () => voices,
+      addEventListener: (_e: string, cb: () => void) => handlers.push(cb),
+      removeEventListener: () => {},
+    };
+    const p = waitForVoices(synth, 2000);
+    voices = [{ lang: 'hi-IN', name: 'late' }];
+    handlers.forEach((h) => h());
+    await expect(p).resolves.toEqual([{ lang: 'hi-IN', name: 'late' }]);
+  });
+});
+
+describe('diagnoseTts', () => {
+  const enVoice = [{ lang: 'en-IN', name: 'Google English (India)' }];
+
+  it('names Silent Mode as the reason nothing was spoken', () => {
+    const h = diagnoseTts({ silentMode: true, voices: enVoice });
+    expect(h.level).toBe('blocked');
+    expect(h.code).toBe('silent-mode');
+    expect(h.message).toMatch(/Silent Mode/);
+    expect(h.hint).toMatch(/Turn off/);
+  });
+
+  it('reports a browser with no speech engine', () => {
+    const h = diagnoseTts({ synthSupported: false, voices: enVoice });
+    expect(h.code).toBe('unsupported');
+    expect(h.message).toMatch(/no speech engine/);
+  });
+
+  it('warns about a missing voice pack but does NOT block the attempt', () => {
+    const h = diagnoseTts({ voices: [] });
+    expect(h.level).toBe('warn');
+    expect(h.code).toBe('no-voices');
+    // Chrome/Android often report no voices and still speak via the OS default.
+    expect(h.blocking).toBe(false);
+    expect(h.hint).toMatch(/Text-to-speech/);
+  });
+
+  it('blocks only for silent mode and a missing engine', () => {
+    expect(diagnoseTts({ silentMode: true, voices: [] }).blocking).toBe(true);
+    expect(diagnoseTts({ synthSupported: false, voices: [] }).blocking).toBe(true);
+    expect(diagnoseTts({ voices: enVoice }).blocking).toBe(false);
+  });
+
+  it('warns when a substitute voice had to be used', () => {
+    const h = diagnoseTts({
+      voices: enVoice,
+      choice: pickTtsVoice(enVoice, 'mr-IN'),
+      lang: 'mr-IN',
+    });
+    expect(h.level).toBe('warn');
+    expect(h.code).toBe('substitute-voice');
+    expect(h.message).toMatch(/Google English \(India\)/);
+  });
+
+  it('stays quiet when everything is fine', () => {
+    const h = diagnoseTts({ voices: enVoice, choice: pickTtsVoice(enVoice, 'en-IN'), lang: 'en-IN' });
+    expect(h.level).toBe('ok');
+    expect(h.message).toBeNull();
   });
 });
