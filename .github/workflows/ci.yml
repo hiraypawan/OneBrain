@@ -127,6 +127,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - name: Edge runtime browser suite
+        working-directory: frontend
         run: |
           set -o pipefail
           npm run test:edge 2>&1 | tee /tmp/edge.log
@@ -147,7 +148,6 @@ jobs:
             emit "playwright/edge" "$line"
           done
           emit "report-tail/edge" "$(tail -n 90 /tmp/edge.log)"
-        working-directory: frontend
         env:
           CI: 'true'
       - uses: actions/upload-artifact@v4
