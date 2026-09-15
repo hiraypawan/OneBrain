@@ -5,7 +5,6 @@ on:
   pull_request:
 permissions:
   contents: read
-  pull-requests: write
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -38,26 +37,9 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npx playwright install --with-deps chromium firefox webkit
-      - name: Run browser end-to-end tests
-        run: |
-          set -o pipefail
-          npm run test:e2e 2>&1 | tee /tmp/e2e.log
+      - run: npm run test:e2e
         env:
           CI: 'true'
-      - name: Report e2e failures on the pull request
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          pr="${{ github.event.pull_request.number }}"
-          if [ -z "$pr" ]; then
-            branch="${{ github.head_ref || github.ref_name }}"
-            pr=$(gh pr list --head "$branch" --json number -q '.[0].number' 2>/dev/null || true)
-          fi
-          if [ -n "$pr" ] && [ -f /tmp/e2e.log ]; then
-            { echo '### e2e failure output'; echo '```'; tail -c 40000 /tmp/e2e.log; echo '```'; } > /tmp/e2e-body.md
-            gh pr comment "$pr" --body-file /tmp/e2e-body.md || true
-          fi
       - run: npm run test:compat
         env:
           CI: 'true'
