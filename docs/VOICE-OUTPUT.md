@@ -53,7 +53,8 @@ the browser voice kept only as a fallback.
    the `cancel()`/`speak()` race is no longer possible, `voice` and `lang` are
    always kept consistent, a stall is detected in 5 s and retried once with the
    engine default voice, and Chrome's long-speech pause is resumed.
-6. **Honest reporting and a one-tap retry**: every outcome is logged as a
+6. **Automated browsers are skipped deliberately**: headless/WebDriver sessions have no audio device and must not send reply text to a provider, so they go straight to the browser voice (`navigator.webdriver`). An operator can force the same with `NEXT_PUBLIC_ENABLE_CLOUD_SPEECH=0`.
+7. **Honest reporting and a one-tap retry**: every outcome is logged as a
    `tts-*` background event, and when audio could not play the notice offers
    **Hear it**, which replays the prepared audio from a real tap (always allowed).
    Silent Mode keeps its explicit "text only" notice.
