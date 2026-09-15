@@ -59,4 +59,24 @@ describe('synthesizeSpeech', () => {
     await expect(synthesizeSpeech({ text: '   ' })).resolves.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('uses Puter.js in the browser when available', async () => {
+    const fakeBlob = new Blob([new Uint8Array(2048)], { type: 'audio/mpeg' });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === 'blob:puter-audio') {
+        return { ok: true, blob: async () => fakeBlob };
+      }
+      return { ok: false, status: 500 };
+    }));
+    vi.stubGlobal('window', {
+      puter: {
+        ai: {
+          txt2speech: vi.fn(async () => ({ src: 'blob:puter-audio' })),
+        },
+      },
+    });
+    const out = await synthesizeSpeech({ text: 'Hello from Puter', lang: 'en-IN' });
+    expect(out?.source).toBe('puter');
+    expect(out?.blob.size).toBe(2048);
+  });
 });
