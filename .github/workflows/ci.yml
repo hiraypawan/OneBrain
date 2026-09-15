@@ -49,7 +49,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pr=$(gh pr list --head "$GITHUB_REF_NAME" --json number -q '.[0].number' 2>/dev/null || true)
+          pr="${{ github.event.pull_request.number }}"
+          if [ -z "$pr" ]; then
+            branch="${{ github.head_ref || github.ref_name }}"
+            pr=$(gh pr list --head "$branch" --json number -q '.[0].number' 2>/dev/null || true)
+          fi
           if [ -n "$pr" ] && [ -f /tmp/e2e.log ]; then
             { echo '### e2e failure output'; echo '```'; tail -c 40000 /tmp/e2e.log; echo '```'; } > /tmp/e2e-body.md
             gh pr comment "$pr" --body-file /tmp/e2e-body.md || true
