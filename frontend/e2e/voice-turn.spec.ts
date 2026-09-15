@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { stubSpeechService } from "./audio-stub";
 
 // End-to-end voice turn: speech result -> answer -> spoken reply -> mic back.
 // The recognizer mock behaves like real engines do, which is what the old
@@ -13,6 +14,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function mockVoice(page: Page) {
+  await stubSpeechService(page);
   await page.evaluate(() => {
     const w = window as any;
     const track = {

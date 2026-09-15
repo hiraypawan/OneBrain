@@ -1,11 +1,12 @@
 import {test,expect,type Page} from '@playwright/test';
 import {seedServerSession} from './server-fixture';
+import {stubSpeechService} from './audio-stub';
 async function signUp(page:Page){
  await seedServerSession(page);await page.goto('/operations');
  await page.getByLabel('New workspace',{exact:true}).fill('Browser test studio');await page.getByRole('button',{name:'Create workspace',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Browser test studio',exact:true})).toBeVisible();
 }
-test.beforeEach(async({page})=>{await page.route('https://js.puter.com/**',r=>r.abort());});
+test.beforeEach(async({page})=>{await page.route('https://js.puter.com/**',r=>r.abort());await stubSpeechService(page);});
 test('authenticated fixture, shared record persistence, financial edit and HTTP-only session',async({page,context})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await signUp(page);
  const cookies=await context.cookies('http://127.0.0.1:3000/api/platform/me');expect(cookies.find(c=>c.name==='onebrain-platform-session')?.httpOnly).toBe(true);

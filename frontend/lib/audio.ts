@@ -371,3 +371,292 @@ export function diagnoseMicError(
   }
   return 'passthrough';
 }
+
+// ---------------------------------------------------------------------------
+// Spoken-reply playback engine
+//
+// Spoken answers are played as AUDIO BYTES through one shared <audio> element
+// rather than handed to speechSynthesis. That single change is what makes
+// replies audible and correctly routed on real devices:
+//   * it plays on every platform (iOS Safari, Android Chrome, macOS, Windows);
+//   * it follows the OS output automatically when nothing is pinned — connect
+//     a neckband or earbuds and the sound goes there with no picking;
+//   * it can be pinned with setSinkId where the browser supports it;
+//   * it survives screen lock, shows in the lock screen and responds to
+//     headset buttons through the Media Session API.
+// The element is created once and reused, so a single user gesture unlocks
+// audio for the whole session (iOS refuses later programmatic playback
+// otherwise).
+// ---------------------------------------------------------------------------
+
+let speechEl: HTMLAudioElement | null = null;
+let speechObjectUrl: string | null = null;
+let stopCurrent: (() => void) | null = null;
+
+// 60 ms of digital silence — used only to unlock playback inside a gesture.
+export const SILENT_WAV =
+  'data:audio/wav;base64,UklGRmQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+
+export function speechAudioElement(): HTMLAudioElement | null {
+  try {
+    if (typeof Audio === 'undefined') return null;
+    if (!speechEl) {
+      speechEl = new Audio();
+      speechEl.preload = 'auto';
+      (speechEl as any).playsInline = true;
+      speechEl.setAttribute('playsinline', 'true');
+      // Keep the element out of the accessibility tree; it is a speaker.
+      speechEl.setAttribute('aria-hidden', 'true');
+    }
+    return speechEl;
+  } catch {
+    return null;
+  }
+}
+
+/** Unlock the shared element. Must be called inside a user gesture (iOS). */
+export async function unlockAudioOutput(): Promise<boolean> {
+  const el = speechAudioElement();
+  if (!el) return false;
+  try {
+    if (!el.src) el.src = SILENT_WAV;
+    await el.play();
+    el.pause();
+    try {
+      el.currentTime = 0;
+    } catch {}
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Unlock on the first real user gesture anywhere in the app, then stop
+ * listening. Returns an unsubscribe function.
+ */
+export function primeAudioOutputOnGesture(target: any = typeof document === 'undefined' ? null : document): () => void {
+  if (!target || typeof target.addEventListener !== 'function') return () => {};
+  let done = false;
+  const events = ['pointerdown', 'touchend', 'click', 'keydown'];
+  const run = () => {
+    if (done) return;
+    done = true;
+    void unlockAudioOutput();
+    for (const e of events) {
+      try {
+        target.removeEventListener(e, run, true);
+      } catch {}
+    }
+  };
+  for (const e of events) {
+    try {
+      target.addEventListener(e, run, { capture: true, passive: true });
+    } catch {}
+  }
+  return () => {
+    if (done) return;
+    done = true;
+    for (const e of events) {
+      try {
+        target.removeEventListener(e, run, true);
+      } catch {}
+    }
+  };
+}
+
+export function stopSpeechPlayback(): void {
+  try {
+    stopCurrent?.();
+  } catch {}
+  stopCurrent = null;
+}
+
+// ---------------------------------------------------------------------------
+// Output routing state
+// ---------------------------------------------------------------------------
+
+let lastOutputs: OutputDevice[] = [];
+let resolvedOutputId: string | null = null;
+let resolvedOutputLabel: string | null = null;
+
+export function knownOutputs(): OutputDevice[] {
+  return lastOutputs;
+}
+
+export function resolvedOutput(): { deviceId: string | null; label: string | null } {
+  return { deviceId: resolvedOutputId, label: resolvedOutputLabel };
+}
+
+/**
+ * Which device should carry the spoken reply? A device the user explicitly
+ * pinned wins while it is still connected; otherwise the system default is
+ * used — i.e. whatever the user's phone/PC is currently playing through, which
+ * is exactly where the neckband/earbuds are.
+ */
+export function activeSinkId(pinned?: string | null): string | null {
+  const outputs = lastOutputs;
+  if (pinned && outputs.some((d) => d.deviceId === pinned)) return pinned;
+  return resolvedOutputId;
+}
+
+/** Re-read the output list and re-resolve the automatic target. */
+export async function refreshOutputRouting(
+  pinned?: string | null,
+): Promise<{ deviceId: string | null; label: string | null }> {
+  const outputs = await listOutputDevices();
+  lastOutputs = outputs;
+  const chosen = autoPickOutput(outputs, pinned);
+  resolvedOutputId = chosen;
+  resolvedOutputLabel = outputs.find((d) => d.deviceId === chosen)?.label || null;
+  if (!resolvedOutputLabel) {
+    const def = defaultOutput(outputs);
+    resolvedOutputLabel = def?.label || null;
+  }
+  return resolvedOutput();
+}
+
+/**
+ * Keep routing honest without asking the user anything: refresh now, whenever
+ * a device connects/disconnects, and whenever the tab becomes visible again
+ * (some platforms only publish device labels after a permission grant or a
+ * screen unlock).
+ */
+let routingStarted = false;
+
+export async function startOutputRouting(getPinned: () => string | null): Promise<() => void> {
+  // Several components may call this (workspace + mini player). One watcher is
+  // enough, and the pin is read fresh from the store on every refresh anyway.
+  if (routingStarted) return () => {};
+  routingStarted = true;
+  await refreshOutputRouting(getPinned());
+  const onChange = () => {
+    void refreshOutputRouting(getPinned());
+  };
+  const stopWatch = watchAudioDevices(onChange);
+  let stopVisibility = () => {};
+  try {
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      const onVis = () => onChange();
+      document.addEventListener('visibilitychange', onVis);
+      stopVisibility = () => {
+        try {
+          document.removeEventListener('visibilitychange', onVis);
+        } catch {}
+      };
+    }
+  } catch {}
+  return () => {
+    routingStarted = false;
+    stopWatch();
+    stopVisibility();
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Playing a spoken reply
+// ---------------------------------------------------------------------------
+
+export interface SpeechPlayback {
+  stop: () => void;
+  /** Resolves true only when the reply played to the end. */
+  ended: Promise<boolean>;
+}
+
+function publishMediaSession(text: string) {
+  try {
+    if (typeof navigator === 'undefined') return;
+    const ms: any = (navigator as any).mediaSession;
+    if (!ms) return;
+    const MM: any = typeof window === 'undefined' ? undefined : (window as any).MediaMetadata;
+    if (MM) ms.metadata = new MM({ title: String(text || '').slice(0, 90) || 'Answer', artist: 'OneBrain', album: 'Voice reply' });
+    ms.playbackState = 'playing';
+  } catch {}
+}
+
+function clearMediaSession() {
+  try {
+    const ms: any = (navigator as any).mediaSession;
+    if (ms) ms.playbackState = 'none';
+  } catch {}
+}
+
+/**
+ * Play synthesized reply audio. Resolves null when playback could not start
+ * (autoplay blocked, no element, decode error) so the caller can fall back to
+ * the browser voice and say why.
+ */
+export async function playSpeechBlob(
+  blob: Blob,
+  opts: { sinkId?: string | null; text?: string } = {},
+): Promise<SpeechPlayback | null> {
+  const el = speechAudioElement();
+  if (!el || !blob || blob.size < 1000) return null;
+  stopSpeechPlayback();
+  try {
+    if (speechObjectUrl) URL.revokeObjectURL(speechObjectUrl);
+  } catch {}
+  let url: string;
+  try {
+    url = URL.createObjectURL(blob);
+    speechObjectUrl = url;
+  } catch {
+    return null;
+  }
+  el.src = url;
+  el.currentTime = 0;
+  // Route to the pinned device when the browser allows it. Without setSinkId
+  // (iOS/Safari) the OS decides — which is where the user's Bluetooth audio
+  // already is, so it still lands on the neckband.
+  if (opts.sinkId && typeof (el as any).setSinkId === 'function') {
+    try {
+      const r = (el as any).setSinkId(opts.sinkId);
+      if (r && typeof r.then === 'function') await r.catch(() => {});
+    } catch {}
+  }
+  publishMediaSession(opts.text || '');
+
+  let settle: (ok: boolean) => void = () => {};
+  let settled = false;
+  const ended = new Promise<boolean>((resolve) => {
+    settle = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      el.onended = null;
+      el.onerror = null;
+      el.onpause = null;
+      clearMediaSession();
+      resolve(ok);
+    };
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => {
+    try {
+      el.pause();
+    } catch {}
+    settle(false);
+  };
+  el.onended = () => settle(true);
+  el.onerror = () => settle(false);
+  el.onpause = () => settle(false);
+  // Ceiling in case `ended` never fires: decoding errors on some phones.
+  const ceiling = Number.isFinite(el.duration) && el.duration > 0 ? el.duration * 1000 + 5000 : 60_000;
+  timer = setTimeout(stop, Math.min(Math.max(ceiling, 5000), 180_000));
+  stopCurrent = stop;
+
+  try {
+    await el.play();
+  } catch {
+    settle(false);
+    stopCurrent = null;
+    return null;
+  }
+  return {
+    stop,
+    ended: ended.then((ok) => {
+      if (stopCurrent === stop) stopCurrent = null;
+      return ok;
+    }),
+  };
+}

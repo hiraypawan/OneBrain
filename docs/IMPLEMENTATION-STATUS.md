@@ -89,7 +89,7 @@ Status: **Implemented** = functional within the stated local scope; **Partial** 
 | 46 | Mixed-language extraction | Partial — existing transliteration; no complete mixed-language parser |
 | 47 | Names/dates/amounts/actions/preferences extraction | Partial — explicit prefixes and numeric currency amounts; no inferred entity/date parsing |
 | 48 | Pronunciation/name aliases | Partial — editable recognition-name aliases with Unicode boundaries; pronunciation model absent |
-| 49 | Language-matched TTS | Partial — existing browser voice selection; device coverage unverified |
+| 49 | Language-matched TTS | Improved — replies are real audio through an `<audio>` element (user key → keyless community voice → hardened browser voice), auto-detected output routing and a one-tap replay. See [voice output](VOICE-OUTPUT.md); physical-device coverage still unverified |
 | 50 | Optional bilingual responses | Partial — provider instructions still allow translation; explicit toggle absent |
 | 51 | Read-back consequential fields | Partial — shared destination read-back and exact Operations approval; general multilingual field extraction incomplete |
 | 52 | Local speech and processor disclosures | Partial — disclosures corrected; on-device recognition selection absent |

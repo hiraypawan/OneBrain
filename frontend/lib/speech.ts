@@ -381,3 +381,160 @@ export function splitForSpeech(text: string, maxChars = 180): string[] {
   flush();
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Browser-voice fallback (used only when real reply audio is unavailable)
+//
+// Two engine bugs made this path look like "the app is broken":
+//   1. cancel() immediately followed by speak() drops the utterance on iOS
+//      Safari and macOS Safari — no start event, no error, just silence.
+//   2. Setting u.voice to a voice whose language differs from u.lang (a Hindi
+//      request answered by an English voice, say) also goes silent on some
+//      Android/Chrome builds.
+// Both are handled here, plus a one-shot retry with the engine default voice,
+// so a failure produces a reason instead of nothing.
+// ---------------------------------------------------------------------------
+
+/** Keep `u.voice` and `u.lang` consistent — a mismatch is silent on some engines. */
+export function utteranceVoicePlan<V extends VoiceLike>(
+  choice: VoiceChoice<V> | null | undefined,
+  requestedLang: string,
+): { voice: V | null; lang: string } {
+  const voice = (choice?.voice as V) || null;
+  // Keep the exact tag the engine reported (BCP-47 is case-insensitive, but
+  // some engines match the string they published more eagerly).
+  const requested = String(requestedLang || '').trim() || 'en-IN';
+  const voiceLang = String(choice?.lang || voice?.lang || '').trim();
+  if (voice) return { voice, lang: voiceLang || requested };
+  return { voice: null, lang: requested };
+}
+
+export type BrowserSpeakOutcome = 'ok' | 'unsupported' | 'stalled' | 'error' | 'cancelled';
+
+export interface BrowserSpeakOptions {
+  rate: number;
+  choice?: VoiceChoice | null;
+  lang: string;
+  /** False when a newer reply/session replaced this one. */
+  isCurrent?: () => boolean;
+  onEvent?: (event: BrowserSpeakOutcome | 'start', detail?: string) => void;
+  /** Handed a cancel function so the caller can abort mid-reply. */
+  registerCancel?: (cancel: () => void) => void;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Speak chunks through the browser voice engine, resolving with WHY it
+ * stopped so the UI can tell the user something true.
+ */
+export async function speakChunksWithBrowserVoice(
+  synth: any,
+  chunks: string[],
+  opts: BrowserSpeakOptions,
+): Promise<BrowserSpeakOutcome> {
+  const Utter: any =
+    typeof (globalThis as any).SpeechSynthesisUtterance !== 'undefined'
+      ? (globalThis as any).SpeechSynthesisUtterance
+      : typeof window !== 'undefined'
+        ? (window as any).SpeechSynthesisUtterance
+        : undefined;
+  if (!synth || typeof synth.speak !== 'function' || !Utter) {
+    opts.onEvent?.('unsupported', 'no speechSynthesis');
+    return 'unsupported';
+  }
+
+  const current = opts.isCurrent || (() => true);
+  let cancelled = false;
+  const cancel = () => {
+    cancelled = true;
+    try {
+      synth.cancel();
+    } catch {}
+  };
+  opts.registerCancel?.(cancel);
+
+  const rate = Math.min(2, Math.max(0.1, Number(opts.rate) || 1));
+  const plan = utteranceVoicePlan(opts.choice || null, opts.lang);
+
+  // Clear any stuck/queued speech first, then let the engine settle. Doing
+  // this in the same tick as speak() is what swallows the utterance on Safari.
+  try {
+    synth.cancel();
+  } catch {}
+  await sleep(30);
+  if (cancelled || !current()) return 'cancelled';
+
+  /** One utterance; resolves 'ok' | 'stalled' | 'error' | 'cancelled'. */
+  const speakOne = (text: string, useVoice: boolean): Promise<BrowserSpeakOutcome> =>
+    new Promise<BrowserSpeakOutcome>((resolve) => {
+      let started = false;
+      let finished = false;
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      let u: any;
+      const done = (outcome: BrowserSpeakOutcome, detail?: string) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(watchdog);
+        if (u) {
+          u.onstart = null;
+          u.onend = null;
+          u.onerror = null;
+        }
+        if (outcome !== 'ok') opts.onEvent?.(outcome, detail);
+        resolve(outcome);
+      };
+      try {
+        u = new Utter(text);
+        u.rate = rate;
+        u.lang = plan.lang;
+        if (useVoice && plan.voice) {
+          try {
+            u.voice = plan.voice;
+          } catch {}
+        }
+        u.onstart = () => {
+          started = true;
+          opts.onEvent?.('start', plan.lang);
+          clearTimeout(watchdog);
+          // Generous per-chunk ceiling; real speech always ends sooner.
+          watchdog = setTimeout(() => cancel(), 60_000);
+        };
+        u.onend = () => done('ok');
+        u.onerror = (ev: any) => {
+          const code = String(ev?.error || 'unknown');
+          const benign = code === 'interrupted' || code === 'canceled';
+          done(benign ? 'cancelled' : 'error', code);
+        };
+        // No start event within 5 s means this engine is not going to speak.
+        watchdog = setTimeout(() => {
+          if (started) return;
+          done('stalled', 'no start event');
+        }, 5000);
+        try {
+          if (synth.paused) synth.resume();
+        } catch {}
+        synth.speak(u);
+      } catch (e: any) {
+        done('error', e?.name || 'speak threw');
+      }
+    });
+
+  for (const chunk of chunks) {
+    if (cancelled || !current()) return 'cancelled';
+    let outcome = await speakOne(chunk, true);
+    // Retry once without pinning a voice: an installed-but-broken voice pack
+    // must not turn the whole reply silent.
+    if (outcome === 'stalled' && plan.voice) {
+      try {
+        synth.cancel();
+      } catch {}
+      await sleep(30);
+      if (cancelled || !current()) return 'cancelled';
+      outcome = await speakOne(chunk, false);
+    }
+    if (outcome === 'ok') continue;
+    return outcome;
+  }
+  return 'ok';
+}

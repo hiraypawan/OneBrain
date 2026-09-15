@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
+import { stubSpeechService } from "./audio-stub";
 test.beforeEach(async ({ page }) => {
   await page.route("https://js.puter.com/**", (r) => r.abort());
+  await stubSpeechService(page);
 });
 test("first use explains the product and supports try, review, save and reopen without sign-in", async ({
   page,

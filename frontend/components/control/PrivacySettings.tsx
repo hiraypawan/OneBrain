@@ -56,6 +56,12 @@ export default function Privacy() {
           dictate passwords or other secrets.
         </p>
         <p>
+          Spoken replies are played as audio. Producing that audio can send the
+          answer text to a speech provider — your own AI key when one is saved,
+          otherwise a keyless community voice — and the result is cached on this
+          device so repeats replay offline. Silent Mode keeps answers text only.
+        </p>
+        <p>
           Opening settings does not start listening or upload your local canvas.
           The third-party AI SDK is not loaded on settings or sign-in pages.
         </p>

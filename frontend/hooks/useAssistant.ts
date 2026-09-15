@@ -35,6 +35,7 @@ import {
   pickTtsVoice,
   splitReply,
   splitForSpeech,
+  speakChunksWithBrowserVoice,
   ttsLangFor,
   waitForVoices,
 } from "@/lib/speech";
@@ -42,7 +43,13 @@ import {
   micConstraints,
   diagnoseMicError,
   countAudioInputs,
+  activeSinkId,
+  playSpeechBlob,
+  primeAudioOutputOnGesture,
+  startOutputRouting,
+  stopSpeechPlayback,
 } from "@/lib/audio";
+import { synthesizeSpeech } from "@/lib/tts";
 import { digestMessages } from "@/lib/digest";
 import { buildProfileBlock } from "@/lib/profile";
 import { recallRelevant, formatRecall } from "@/lib/recall";
@@ -267,6 +274,10 @@ export function useAssistant() {
   // Guards the one-time getVoices() wait so engines that never publish a voice
   // list don't pay it on every reply.
   const voicesTriedRef = useRef(false);
+  // Last synthesized reply, kept so a single tap can replay it when a browser
+  // refused programmatic playback (iOS/Safari) or the user missed it.
+  const lastReplyRef = useRef<{ blobs: Blob[]; text: string } | null>(null);
+  const [hasReplay, setHasReplay] = useState(false);
 
   // Keep the cached voice list honest: a voice pack installed mid-session, or
   // an engine that only populates after first use, shows up here.
@@ -288,6 +299,23 @@ export function useAssistant() {
       try {
         synth.removeEventListener?.("voiceschanged", refresh);
       } catch {}
+    };
+  }, []);
+
+  // Automatic output detection: every connected output is listed, the system
+  // default (where the neckband/earbuds already are) becomes the target, and a
+  // device change re-routes without anyone touching a setting.
+  useEffect(() => {
+    let stopRouting: (() => void) | undefined;
+    void startOutputRouting(
+      () => useAssistantStore.getState().speakerDeviceId,
+    ).then((stop) => {
+      stopRouting = stop;
+    });
+    const releaseGesture = primeAudioOutputOnGesture();
+    return () => {
+      stopRouting?.();
+      releaseGesture();
     };
   }, []);
 
@@ -324,123 +352,137 @@ export function useAssistant() {
       try {
         recogRef.current?.stop();
       } catch {}
-      try {
-        // Optional cloud speech is disabled by default: no paid API dependency.
-        const cloudSpeechEnabled =
-          process.env.NEXT_PUBLIC_ENABLE_CLOUD_SPEECH === "1";
-        // Try configured cloud TTS, fallback to browser speechSynthesis
+      cancelSpeechRef.current = () => {
+        stopSpeechPlayback();
         try {
-          if (!cloudSpeechEnabled) throw new Error("Browser speech selected");
-          const r = await fetch("/api/speech/tts", {
-            signal: AbortSignal.timeout(15000),
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: clean,
-              speed: store.settings.voiceSpeed,
-            }),
-          });
+          window.speechSynthesis?.cancel();
+        } catch {}
+      };
+      try {
+        const settings = useAssistantStore.getState().settings;
+        const lang = ttsLangFor(clean, settings.language);
+        // ------------------------------------------------------------------
+        // 1. REAL audio bytes. Played through an <audio> element this works on
+        //    every platform, follows whatever the phone is currently playing
+        //    through (neckband, earbuds, phone speaker) with nothing to pick,
+        //    and can be pinned to a chosen device on Chromium.
+        // ------------------------------------------------------------------
+        // The operator can force the browser voice with
+        // NEXT_PUBLIC_ENABLE_CLOUD_SPEECH=0. Neither tier below spends host
+        // keys: the user's own key, then a keyless community voice.
+        const audioChunks =
+          process.env.NEXT_PUBLIC_ENABLE_CLOUD_SPEECH === "0"
+            ? []
+            : splitForSpeech(clean, 900);
+        const spokenBlobs: Blob[] = [];
+        const sink = activeSinkId(useAssistantStore.getState().speakerDeviceId);
+        let audioRefused = false;
+        let audioStoppedEarly = false;
+        for (const chunk of audioChunks) {
+          if (!current() || useAssistantStore.getState().settings.silentMode) return;
+          const audio = await synthesizeSpeech(
+            {
+              text: chunk,
+              lang,
+              apiKey: useAssistantStore.getState().apiKey || undefined,
+            },
+            { timeoutMs: 12000 },
+          );
           if (!current() || useAssistantStore.getState().settings.silentMode)
             return;
-          if (r.ok) {
-            const blob = await r.blob();
-            if (!current() || useAssistantStore.getState().settings.silentMode)
-              return;
-            if (blob.size > 1000) {
-              const url = URL.createObjectURL(blob);
-              const audio = new Audio(url);
-              audioRef.current = audio;
-              // Route cloud TTS to the chosen speaker (earbuds vs phone).
-              // Browser-voice replies always use the OS default (platform rule).
-              try {
-                const sink = useAssistantStore.getState().speakerDeviceId;
-                if (sink && typeof (audio as any).setSinkId === "function") {
-                  await (audio as any).setSinkId(sink);
-                }
-              } catch {}
-              try {
-                if (
-                  !current() ||
-                  useAssistantStore.getState().settings.silentMode
-                )
-                  return;
-                await new Promise<void>((resolve) => {
-                  const done = () => {
-                    clearTimeout(timer);
-                    audio.onended = null;
-                    audio.onpause = null;
-                    audio.onerror = null;
-                    resolve();
-                  };
-                  const timer = setTimeout(() => {
-                    audio.pause();
-                    done();
-                  }, 60000);
-                  cancelSpeechRef.current = () => {
-                    audio.pause();
-                    done();
-                  };
-                  audio.onended = done;
-                  audio.onpause = done;
-                  audio.onerror = done;
-                  audio.play().catch(done);
-                });
-              } finally {
-                URL.revokeObjectURL(url);
-                if (audioRef.current === audio) audioRef.current = null;
-              }
-              return;
-            }
+          if (!audio) break;
+          const playback = await playSpeechBlob(audio.blob, {
+            sinkId: sink,
+            text: clean,
+          });
+          if (!current() || useAssistantStore.getState().settings.silentMode) {
+            playback?.stop();
+            return;
           }
-        } catch {}
-        if (!current() || useAssistantStore.getState().settings.silentMode)
+          if (!playback) {
+            // The browser refused playback (usually autoplay policy).
+            audioRefused = true;
+            break;
+          }
+          spokenBlobs.push(audio.blob);
+          useAssistantStore
+            .getState()
+            .logBgEvent("tts-audio", `${audio.source}${sink ? " · routed" : ""}`);
+          const finished = await playback.ended;
+          if (!current()) return;
+          if (!finished) {
+            audioStoppedEarly = true;
+            break;
+          }
+        }
+        if (spokenBlobs.length) {
+          lastReplyRef.current = { blobs: spokenBlobs, text: clean };
+          setHasReplay(true);
+        }
+        if (spokenBlobs.length === audioChunks.length) {
+          useAssistantStore.getState().setVoiceNotice(null);
           return;
-        // Fallback: Web Speech API (routes to earbuds automatically).
-        // Voice locale follows the reply's script: Marathi answers in a
-        // Marathi voice, English answers in English, and so on.
-        //
-        // Hardening for real devices: (1) rate is clamped to the 0.1–2 range
-        // engines accept — an out-of-range rate makes Chrome fail silently;
-        // (2) long replies are spoken in sentence-sized chunks because Chrome
-        // desktop stops mid-utterance after ~15 s and Android often ends
-        // without any event; (3) an utterance that produces no start event
-        // within a few seconds is treated as a failed speak() so the mic
-        // comes back instead of hanging in "speaking" for a minute.
+        }
+        if (audioStoppedEarly) {
+          // It started and then stopped: do not speak the whole reply again
+          // from the browser voice — offer a one-tap replay instead.
+          useAssistantStore
+            .getState()
+            .setVoiceNotice(
+              "The spoken answer stopped early. Tap “Hear it” to play it again.",
+            );
+          return;
+        }
+        useAssistantStore
+          .getState()
+          .logBgEvent(
+            audioRefused ? "tts-audio-blocked" : "tts-audio-unavailable",
+            audioRefused ? "play() refused" : "no audio bytes",
+          );
+        if (spokenBlobs.length) {
+          // Partially spoken: the rest is offered by tap rather than replayed
+          // from the start in a different voice.
+          useAssistantStore
+            .getState()
+            .setVoiceNotice(
+              "Part of this answer could not be spoken. Tap “Hear it” to play what was prepared.",
+            );
+          return;
+        }
+
+        // ------------------------------------------------------------------
+        // 2. Browser voice fallback, hardened for the engine bugs that made
+        //    replies silent: the cancel()/speak() race and mismatched
+        //    voice+lang pairs.
+        // ------------------------------------------------------------------
         const synth = window.speechSynthesis;
         if (!synth || typeof SpeechSynthesisUtterance === "undefined") {
           const st = useAssistantStore.getState();
           st.logBgEvent("tts-unsupported", "no speechSynthesis");
           st.setVoiceNotice(
-            "This browser has no speech engine, so answers stay text only. Chrome, Edge or Safari can speak.",
+            "This browser cannot speak replies, and the audio service did not answer. Tap “Hear it” to try again.",
           );
           return;
         }
-        const settings = useAssistantStore.getState().settings;
         const rate = Math.min(
           2,
           Math.max(0.5, Number(settings.voiceSpeed) || 1),
         );
-        const lang = ttsLangFor(clean, settings.language);
         // Chrome's first getVoices() answer is empty; wait ONCE, then cache.
-        // Waiting per reply would add 1.5 s of dead air to every answer on
-        // engines that never publish a voice list.
         if (!voicesRef.current.length && !voicesTriedRef.current) {
           voicesTriedRef.current = true;
           voicesRef.current = await waitForVoices(synth, 1500);
         }
         // Never speak into the void: if the requested language has no voice,
-        // fall back to one that does, and tell the user what happened.
+        // fall back to one that does, and say what happened.
         const choice = pickTtsVoice(voicesRef.current, lang);
         const health = diagnoseTts({
-          silentMode: settings.silentMode,
+          silentMode: false,
           synthSupported: true,
           voices: voicesRef.current,
           choice,
           lang,
         });
-        // Only bail when speaking is impossible or unwanted. An empty voice
-        // list is a warning, not a stop: Chrome/Android often report no voices
-        // and still speak through the OS default.
         if (health.blocking) {
           const st = useAssistantStore.getState();
           st.logBgEvent("tts-blocked", health.code);
@@ -452,141 +494,99 @@ export function useAssistant() {
         if (health.level === "warn") {
           useAssistantStore.getState().logBgEvent("tts-warn", health.code);
         }
-        // Nag only about a substituted voice. An empty voice list is logged
-        // and left alone: if the attempt really produces nothing, the stall
-        // and error handlers below say so with a concrete fix.
-        const notice =
+        const substituteNotice =
           health.code === "substitute-voice" && health.message
             ? `${health.message}${health.hint ? ` ${health.hint}` : ""}`
             : null;
-        useAssistantStore.getState().setVoiceNotice(notice);
         if (choice.match === "related" || choice.match === "any") {
           useAssistantStore
             .getState()
             .logBgEvent("tts-voice-substitute", `${lang} -> ${choice.lang}`);
         }
         const chunks = splitForSpeech(clean);
-        for (const chunk of chunks) {
-          if (!current() || useAssistantStore.getState().settings.silentMode)
-            break;
-          const ok = await new Promise<boolean>((resolve) => {
-            let watchdog: ReturnType<typeof setTimeout> | undefined;
-            let started = false;
-            let u: SpeechSynthesisUtterance | undefined;
-            const done = (result: boolean) => {
-              clearTimeout(watchdog);
-              if (u) {
-                u.onstart = null;
-                u.onend = null;
-                u.onerror = null;
-              }
-              resolve(result);
-            };
-            cancelSpeechRef.current = () => {
-              try {
-                synth.cancel();
-              } finally {
-                done(false);
-              }
-            };
-            try {
-              u = new SpeechSynthesisUtterance(chunk);
-              u.rate = rate;
-              u.lang = lang;
-              // Pin the concrete voice we verified exists. Setting only u.lang
-              // lets the engine pick nothing at all when no voice matches,
-              // which is silence with no error.
-              if (choice.voice) {
-                try {
-                  (u as any).voice = choice.voice;
-                } catch {}
-              }
-              u.onstart = () => {
-                started = true;
-                clearTimeout(watchdog);
-                // Generous ceiling per chunk; real speech ends far sooner.
-                watchdog = setTimeout(() => {
-                  if (current()) cancelSpeechRef.current();
-                  else done(false);
-                }, 60000);
-              };
-              u.onend = () => done(true);
-              u.onerror = (ev: any) => {
-                // 'interrupted'/'canceled' come from a cancel(); anything else
-                // means the engine failed and we should not keep queueing.
-                const code = String(ev?.error || "unknown");
-                const benign = code === "interrupted" || code === "canceled";
-                if (!benign) {
-                  const st = useAssistantStore.getState();
-                  st.logBgEvent("tts-error", code);
-                  st.setVoiceNotice(
-                    code === "not-allowed"
-                      ? "The browser blocked speech playback. Tap the page once, then ask again."
-                      : `Speech playback failed (${code}). Check your device volume and output device.`,
-                  );
-                }
-                done(benign);
-              };
-              // Never hang on a speak() that never starts: no voices, muted
-              // engine, or a stuck queue. Only when the engine positively
-              // reports an idle queue (not speaking, nothing pending) is the
-              // utterance treated as stalled; engines that merely skip
-              // onstart keep the per-chunk ceiling below.
-              const idle = () =>
-                synth.speaking === false && synth.pending === false;
-              watchdog = setTimeout(() => {
-                if (started) return;
-                if (!idle()) {
-                  started = true;
-                  watchdog = setTimeout(() => {
-                    if (current()) cancelSpeechRef.current();
-                    else done(false);
-                  }, 60000);
-                  return;
-                }
-                useAssistantStore
-                  .getState()
-                  .logBgEvent("tts-stall", "no start event");
-                {
-                  const st = useAssistantStore.getState();
-                  st.setVoiceNotice(
-                    `Speech was queued but never started (${choice.lang || lang} · ${choice.name || "no voice"}). Check the device volume and that a speech voice is installed.`,
-                  );
-                }
-                try {
-                  synth.cancel();
-                } catch {}
-                done(false);
-              }, 5000);
-              // A stuck/paused queue silently swallows speak() in Chrome.
-              try {
-                if (synth.paused) synth.resume();
-              } catch {}
-              synth.cancel();
-              synth.speak(u);
-            } catch {
-              done(false);
-            }
-          });
-          if (!ok) break;
+        const outcome = await speakChunksWithBrowserVoice(synth, chunks, {
+          rate,
+          choice,
+          lang,
+          isCurrent: current,
+          registerCancel: (cancel) => {
+            cancelSpeechRef.current = cancel;
+          },
+          onEvent: (event, detail) => {
+            if (event !== "error" && event !== "stalled") return;
+            useAssistantStore
+              .getState()
+              .logBgEvent(event === "stalled" ? "tts-stall" : "tts-error", detail || event);
+          },
+        });
+        if (!current()) return;
+        const st = useAssistantStore.getState();
+        if (outcome === "ok") {
+          st.setVoiceNotice(substituteNotice);
+        } else if (outcome === "stalled") {
+          st.setVoiceNotice(
+            `Speech was queued but never started (${choice.lang || lang} · ${choice.name || "no voice"}). Check the device volume and that a speech voice is installed, or tap “Hear it”.`,
+          );
+        } else if (outcome === "error") {
+          st.setVoiceNotice(
+            "Speech playback failed. Check the device volume and output device, or tap “Hear it”.",
+          );
+        } else if (outcome === "unsupported") {
+          st.setVoiceNotice(
+            "This browser has no speech engine. Tap “Hear it” to retry through the audio service.",
+          );
         }
       } finally {
         if (current()) {
-        cancelSpeechRef.current = () => {};
-        speakingRef.current = false;
-        lastActivityRef.current = Date.now();
-        const st = useAssistantStore.getState();
-        st.logBgEvent("tts-end");
-        st.setCurrentStatus(st.isActive ? "listening" : "idle");
-        if (st.isActive) {
-          expectingRef.current = true;
-          resumeListening();
-        }
+          cancelSpeechRef.current = () => {};
+          speakingRef.current = false;
+          lastActivityRef.current = Date.now();
+          const st = useAssistantStore.getState();
+          st.logBgEvent("tts-end");
+          st.setCurrentStatus(st.isActive ? "listening" : "idle");
+          if (st.isActive) {
+            expectingRef.current = true;
+            resumeListening();
+          }
         }
       }
     },
     [store, resumeListening],
   );
+
+  /**
+   * Replay the last spoken answer from cached audio. Called from a real tap,
+   * so a browser that blocked programmatic playback (iOS/Safari) will play it.
+   */
+  const replayLastReply = useCallback(async () => {
+    const last = lastReplyRef.current;
+    if (!last || !last.blobs.length) return false;
+    cancelSpeechRef.current();
+    const sink = activeSinkId(useAssistantStore.getState().speakerDeviceId);
+    useAssistantStore.getState().logBgEvent("tts-replay", last.text.slice(0, 40));
+    let ok = true;
+    for (const blob of last.blobs) {
+      const playback = await playSpeechBlob(blob, { sinkId: sink, text: last.text });
+      if (!playback) {
+        ok = false;
+        break;
+      }
+      cancelSpeechRef.current = () => playback.stop();
+      ok = await playback.ended;
+      cancelSpeechRef.current = () => {};
+      if (!ok) break;
+    }
+    if (!ok) {
+      useAssistantStore
+        .getState()
+        .setVoiceNotice(
+          "This device would not play the audio. Check the volume and any Bluetooth connection, then try again.",
+        );
+      return false;
+    }
+    useAssistantStore.getState().setVoiceNotice(null);
+    return true;
+  }, []);
 
   // Median pitch of the last few seconds of mic audio -> who just spoke?
   // Tags the message (male/female voice) and flags voices far from the
@@ -1612,6 +1612,7 @@ export function useAssistant() {
     setCapturePreview(null);
     pendingSharedRef.current=null;setSharedPreview(null);
     store.setIsActive(false);
+    stopSpeechPlayback();
     try {
       audioRef.current?.pause();
     } catch {}
@@ -1739,6 +1740,7 @@ export function useAssistant() {
   useEffect(() => {
     if (store.settings.silentMode) {
       cancelSpeechRef.current();
+      stopSpeechPlayback();
       try {
         window.speechSynthesis?.cancel();
         audioRef.current?.pause();
@@ -1782,6 +1784,8 @@ export function useAssistant() {
     startActive,
     stopActive,
     speak,
+    replayLastReply,
+    hasReplay,
     handleTranscript,
     enrollVoice,
     recover,
