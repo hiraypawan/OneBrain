@@ -31,9 +31,12 @@ import { buildSystem, fallback as offlineFallback } from "@/lib/gemini";
 import { looksFactual, fetchWikipedia } from "@/lib/knowledge";
 import {
   cleanForSpeech,
+  diagnoseTts,
+  pickTtsVoice,
   splitReply,
   splitForSpeech,
   ttsLangFor,
+  waitForVoices,
 } from "@/lib/speech";
 import {
   micConstraints,
@@ -257,6 +260,33 @@ export function useAssistant() {
   const pitchWinRef = useRef<Array<{ t: number; hz: number }>>([]);
   const pitchTimerRef = useRef<any>(null);
   const speakerNoticeOnRef = useRef(false);
+  // Installed TTS voices. Chrome fills this asynchronously, so it is cached
+  // across replies and refreshed on voiceschanged (e.g. a voice pack gets
+  // installed while the app is open).
+  const voicesRef = useRef<any[]>([]);
+
+  // Keep the cached voice list honest: a voice pack installed mid-session, or
+  // an engine that only populates after first use, shows up here.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const synth: any = window.speechSynthesis;
+    if (!synth || typeof synth.addEventListener !== "function") return;
+    const refresh = () => {
+      try {
+        const v = synth.getVoices?.();
+        if (Array.isArray(v) && v.length) voicesRef.current = v;
+      } catch {}
+    };
+    try {
+      synth.addEventListener("voiceschanged", refresh);
+    } catch {}
+    refresh();
+    return () => {
+      try {
+        synth.removeEventListener?.("voiceschanged", refresh);
+      } catch {}
+    };
+  }, []);
 
   const speak = useCallback(
     async (text: string) => {
@@ -268,6 +298,12 @@ export function useAssistant() {
         speechRequest === speechRequestRef.current;
       if (useAssistantStore.getState().settings.silentMode) {
         const st = useAssistantStore.getState();
+        // Silent Mode is a user choice, but it must never *look* like a bug:
+        // say out loud (on screen) why nothing was spoken.
+        st.logBgEvent("tts-silent", "silent mode on");
+        st.setVoiceNotice(
+          "Silent Mode is on — this answer stayed text only. Turn it off to hear replies spoken.",
+        );
         st.setCurrentStatus(st.isActive ? "listening" : "idle");
         expectingRef.current = st.isActive;
         if (st.isActive) resumeListening();
@@ -368,13 +404,51 @@ export function useAssistant() {
         // within a few seconds is treated as a failed speak() so the mic
         // comes back instead of hanging in "speaking" for a minute.
         const synth = window.speechSynthesis;
-        if (!synth || typeof SpeechSynthesisUtterance === "undefined") return;
+        if (!synth || typeof SpeechSynthesisUtterance === "undefined") {
+          const st = useAssistantStore.getState();
+          st.logBgEvent("tts-unsupported", "no speechSynthesis");
+          st.setVoiceNotice(
+            "This browser has no speech engine, so answers stay text only. Chrome, Edge or Safari can speak.",
+          );
+          return;
+        }
         const settings = useAssistantStore.getState().settings;
         const rate = Math.min(
           2,
           Math.max(0.5, Number(settings.voiceSpeed) || 1),
         );
         const lang = ttsLangFor(clean, settings.language);
+        // Chrome's first getVoices() answer is empty; wait once, then cache.
+        if (!voicesRef.current.length) {
+          voicesRef.current = await waitForVoices(synth, 1500);
+        }
+        // Never speak into the void: if the requested language has no voice,
+        // fall back to one that does, and tell the user what happened.
+        const choice = pickTtsVoice(voicesRef.current, lang);
+        const health = diagnoseTts({
+          silentMode: settings.silentMode,
+          synthSupported: true,
+          voices: voicesRef.current,
+          choice,
+          lang,
+        });
+        if (health.level === "blocked") {
+          useAssistantStore.getState().logBgEvent("tts-blocked", health.code);
+          useAssistantStore.getState().setVoiceNotice(
+            `${health.message}${health.hint ? ` ${health.hint}` : ""}`,
+          );
+          return;
+        }
+        useAssistantStore.getState().setVoiceNotice(
+          health.level === "warn" && health.message
+            ? `${health.message}${health.hint ? ` ${health.hint}` : ""}`
+            : null,
+        );
+        if (choice.match === "related" || choice.match === "any") {
+          useAssistantStore
+            .getState()
+            .logBgEvent("tts-voice-substitute", `${lang} -> ${choice.lang}`);
+        }
         const chunks = splitForSpeech(clean);
         for (const chunk of chunks) {
           if (!current() || useAssistantStore.getState().settings.silentMode)
@@ -403,6 +477,14 @@ export function useAssistant() {
               u = new SpeechSynthesisUtterance(chunk);
               u.rate = rate;
               u.lang = lang;
+              // Pin the concrete voice we verified exists. Setting only u.lang
+              // lets the engine pick nothing at all when no voice matches,
+              // which is silence with no error.
+              if (choice.voice) {
+                try {
+                  (u as any).voice = choice.voice;
+                } catch {}
+              }
               u.onstart = () => {
                 started = true;
                 clearTimeout(watchdog);
@@ -418,8 +500,15 @@ export function useAssistant() {
                 // means the engine failed and we should not keep queueing.
                 const code = String(ev?.error || "unknown");
                 const benign = code === "interrupted" || code === "canceled";
-                if (!benign)
-                  useAssistantStore.getState().logBgEvent("tts-error", code);
+                if (!benign) {
+                  const st = useAssistantStore.getState();
+                  st.logBgEvent("tts-error", code);
+                  st.setVoiceNotice(
+                    code === "not-allowed"
+                      ? "The browser blocked speech playback. Tap the page once, then ask again."
+                      : `Speech playback failed (${code}). Check your device volume and output device.`,
+                  );
+                }
                 done(benign);
               };
               // Never hang on a speak() that never starts: no voices, muted
@@ -442,6 +531,12 @@ export function useAssistant() {
                 useAssistantStore
                   .getState()
                   .logBgEvent("tts-stall", "no start event");
+                {
+                  const st = useAssistantStore.getState();
+                  st.setVoiceNotice(
+                    `Speech was queued but never started (${choice.lang || lang} · ${choice.name || "no voice"}). Check the device volume and that a speech voice is installed.`,
+                  );
+                }
                 try {
                   synth.cancel();
                 } catch {}
@@ -1678,5 +1773,7 @@ export function useAssistant() {
     currentStatus: store.currentStatus,
     messages: store.messages,
     micNotice: store.micNotice,
+    voiceNotice: store.voiceNotice,
+    clearVoiceNotice: () => useAssistantStore.getState().setVoiceNotice(null),
   };
 }

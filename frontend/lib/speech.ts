@@ -102,6 +102,223 @@ function stripEmoji(s: string): string {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Voice availability
+//
+// Two silent failures used to make OneBrain "text only" with no explanation:
+//   1. Chrome/Safari return an EMPTY voice list on the first getVoices() call
+//      and fill it in asynchronously (voiceschanged). Speaking immediately
+//      picks no voice and — depending on engine — says nothing.
+//   2. u.lang pointing at a language with no installed voice (mr-IN on a
+//      stock Android, say) queues an utterance that never starts. No error,
+//      no sound.
+// Both are now detected, degraded to an audible alternative, and reported.
+// ---------------------------------------------------------------------------
+
+export type VoiceMatch = 'exact' | 'language' | 'related' | 'any' | 'none';
+
+export interface VoiceLike {
+  name?: string;
+  lang?: string;
+  default?: boolean;
+}
+
+export interface VoiceChoice<V extends VoiceLike = VoiceLike> {
+  voice: V | null;
+  match: VoiceMatch;
+  /** Language that will actually be spoken; differs from the request when we fell back. */
+  lang: string | null;
+  /** Human label for the voice we settled on, for the UI. */
+  name: string | null;
+}
+
+/** BCP-47 tags arrive as `mr-IN`, `mr_IN`, `MR-in`; compare them safely. */
+export function normLang(tag: string | undefined | null): string {
+  return String(tag || '').trim().toLowerCase().replace(/_/g, '-');
+}
+
+/** `hi-Latn-IN` -> `hi`. Script/region stripped for a coarse comparison. */
+export function baseLang(tag: string | undefined | null): string {
+  return normLang(tag).split('-')[0] || '';
+}
+
+// Marathi text is readable by a Hindi voice (same Devanagari script), so when
+// mr-IN is missing we prefer hi-IN over falling all the way back to English —
+// audible and close, instead of silent or unreadable.
+const RELATED_LANGS: Record<string, string[]> = {
+  mr: ['hi'],
+  hi: ['mr'],
+  pa: ['hi'],
+  gu: ['hi'],
+};
+
+/**
+ * Pick the best installed voice for `lang`, never returning "nothing" when
+ * *some* voice exists: silence is worse than a slightly wrong accent.
+ */
+export function pickTtsVoice<V extends VoiceLike>(
+  voices: V[] | null | undefined,
+  lang: string,
+): VoiceChoice<V> {
+  const list = Array.isArray(voices) ? voices.filter(Boolean) : [];
+  const want = normLang(lang);
+  const wantBase = baseLang(want);
+  const none: VoiceChoice<V> = { voice: null, match: 'none', lang: null, name: null };
+  if (!list.length) return none;
+
+  const found = (voice: V, match: VoiceMatch): VoiceChoice<V> => ({
+    voice,
+    match,
+    lang: normLang(voice?.lang) || want || null,
+    name: String(voice?.name || 'System voice'),
+  });
+
+  // 1. Exact tag: `mr-IN` when `mr-IN` is installed.
+  const exact = list.find((v) => normLang(v?.lang) === want);
+  if (exact) return found(exact, 'exact');
+
+  // 2. Same language, other script/region: `hi-Latn-IN` for `hi-IN`.
+  const sameLang =
+    list.find((v) => baseLang(v?.lang) === wantBase && normLang(v?.lang).startsWith(wantBase + '-')) ||
+    list.find((v) => baseLang(v?.lang) === wantBase);
+  if (sameLang) return found(sameLang, 'language');
+
+  // 3. Related script family (Marathi -> Hindi).
+  for (const rel of RELATED_LANGS[wantBase] || []) {
+    const hit =
+      list.find((v) => normLang(v?.lang) === `${rel}-in`) ||
+      list.find((v) => baseLang(v?.lang) === rel);
+    if (hit) return found(hit, 'related');
+  }
+
+  // 4. Any voice at all — prefer an Indian English one so names/pronunciation
+  //    stay close, then the engine default, then whatever is first.
+  const any =
+    list.find((v) => normLang(v?.lang) === 'en-in') ||
+    list.find((v) => baseLang(v?.lang) === 'en') ||
+    list.find((v) => v?.default === true) ||
+    list[0];
+  return found(any, 'any');
+}
+
+function safeVoices(synth: any): any[] {
+  try {
+    const v = synth?.getVoices?.();
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve the engine's voice list, waiting out Chrome's empty first answer.
+ * Always resolves (never rejects) so a stuck engine cannot hang a reply.
+ */
+export function waitForVoices(synth: any, timeoutMs = 1500): Promise<any[]> {
+  const early = safeVoices(synth);
+  if (early.length) return Promise.resolve(early);
+  return new Promise((resolve) => {
+    if (!synth || typeof synth.addEventListener !== 'function') {
+      resolve([]);
+      return;
+    }
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        synth.removeEventListener?.('voiceschanged', onChange);
+      } catch {}
+      resolve(safeVoices(synth));
+    };
+    const onChange = () => {
+      if (safeVoices(synth).length) finish();
+    };
+    const timer = setTimeout(finish, Math.max(0, timeoutMs));
+    try {
+      synth.addEventListener('voiceschanged', onChange);
+    } catch {
+      finish();
+      return;
+    }
+    // Some engines populate without ever firing the event; poll briefly.
+    const started = Date.now();
+    const poll = setInterval(() => {
+      if (safeVoices(synth).length || Date.now() - started > timeoutMs) {
+        clearInterval(poll);
+        finish();
+      }
+    }, 60);
+    // Do not leak the interval past the timeout if finish() already ran.
+    setTimeout(() => clearInterval(poll), timeoutMs + 50);
+  });
+}
+
+export type TtsLevel = 'ok' | 'warn' | 'blocked';
+
+export interface TtsHealth {
+  level: TtsLevel;
+  code:
+    | 'ready'
+    | 'silent-mode'
+    | 'unsupported'
+    | 'no-voices'
+    | 'substitute-voice';
+  /** null when nothing needs telling. */
+  message: string | null;
+  hint: string | null;
+}
+
+/**
+ * Turn the raw state of the speech engine into something a person can act on.
+ * Called before every reply so "he doesn't talk" always has a visible reason.
+ */
+export function diagnoseTts(input: {
+  silentMode?: boolean;
+  synthSupported?: boolean;
+  voices: VoiceLike[] | null | undefined;
+  choice?: VoiceChoice | null;
+  lang?: string;
+}): TtsHealth {
+  if (input.silentMode) {
+    return {
+      level: 'blocked',
+      code: 'silent-mode',
+      message: 'Silent Mode is on — answers are text only.',
+      hint: 'Turn off Silent Mode in the workspace header or Settings → Voice to hear replies.',
+    };
+  }
+  if (input.synthSupported === false) {
+    return {
+      level: 'blocked',
+      code: 'unsupported',
+      message: 'This browser has no speech engine, so replies cannot be spoken.',
+      hint: 'Chrome, Edge or Safari can speak. Some in-app browsers cannot.',
+    };
+  }
+  const voices = Array.isArray(input.voices) ? input.voices : [];
+  if (!voices.length) {
+    return {
+      level: 'blocked',
+      code: 'no-voices',
+      message: 'No speech voices are installed, so nothing can be spoken.',
+      hint: 'Android: Settings → Accessibility → Text-to-speech output → install a voice (Google Speech Services). iPhone: Settings → Accessibility → Spoken Content → Voices → download English (India) or Hindi.',
+    };
+  }
+  const choice = input.choice;
+  if (choice && (choice.match === 'any' || choice.match === 'related')) {
+    const want = input.lang ? input.lang.toUpperCase() : 'that language';
+    return {
+      level: 'warn',
+      code: 'substitute-voice',
+      message: `No ${want} voice installed — speaking with ${choice.name} (${choice.lang || 'unknown'}).`,
+      hint: 'Install a voice for that language in your system Text-to-speech settings for a natural accent.',
+    };
+  }
+  return { level: 'ok', code: 'ready', message: null, hint: null };
+}
+
 // Break a cleaned reply into utterance-sized pieces. Chrome's speechSynthesis
 // goes quiet mid-sentence on long utterances (~15 s on desktop; Android may
 // end without firing any event), so each chunk stays comfortably short and

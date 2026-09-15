@@ -560,6 +560,16 @@ button:disabled {
   color: #e0bc81;
   font-size: 13px;
 }
+/* Why nothing was spoken: silent mode, missing voice pack, wrong output. */
+.voice-notice {
+  border-color: #7a4a1d;
+  background: #241607;
+  color: #f0c68a;
+}
+.silent-mode-on {
+  color: #f0c68a;
+  border-bottom: 1px dashed #7a4a1d;
+}
 .privacy-strip {
   padding: 12px 0;
   color: #c5ab80;

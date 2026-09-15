@@ -5,6 +5,7 @@ import {
   VoicePreferences,
 } from "@/components/settings/Preferences";
 import { useAssistantStore } from "@/store/assistant";
+import { AudioDevices } from "@/components/control/AudioDevices";
 export default function VoiceSettings() {
   const { settings, updateSettings } = useAssistantStore();
   return (
@@ -47,14 +48,15 @@ export default function VoiceSettings() {
       <div className="settings-card">
         <ConversationPreferences />
       </div>
+      <AudioDevices />
       <section className="settings-card">
-        <h2>Device troubleshooting</h2>
+        <h2>Still not hearing anything?</h2>
         <p>
-          Speaker filtering and optional provider configuration live in
-          Advanced. They are not required for Google sign-in.
+          Check Silent Mode above, run both tests, then open diagnostics for the
+          speech event log (tts-start, tts-error, tts-stall).
         </p>
-        <a className="settings-action" href="/control?panel=advanced">
-          Open Advanced ↗
+        <a className="settings-action" href="/control?panel=debug">
+          Open diagnostics ↗
         </a>
       </section>
     </SettingsShell>

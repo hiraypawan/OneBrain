@@ -292,6 +292,30 @@
 .settings-content .settings-footnote {
   font-size: 12px;
 }
+/* Where the voice will actually come out — the answer to "I can't hear him". */
+.settings-content .device-plan {
+  padding: 11px 14px;
+  border: 1px solid #3d3524;
+  border-radius: 8px;
+  background: #17140e;
+  color: #d8c49c;
+  font-size: 13px;
+}
+.settings-content .device-plan.plan-blocked {
+  border-color: #7a3a1d;
+  background: #241207;
+  color: #f0b98a;
+}
+.settings-content .device-plan.plan-mismatch,
+.settings-content .device-plan.plan-unavailable,
+.settings-content .device-plan.plan-none {
+  border-color: #6a5320;
+  background: #211a0b;
+  color: #eccb90;
+}
+.settings-content .audio-devices .settings-actions {
+  margin: 4px 0 12px;
+}
 @media (max-width: 767px) {
   .settings-center {
     padding-top: 16px;

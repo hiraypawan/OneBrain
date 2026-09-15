@@ -528,16 +528,26 @@ export function NeuralWorkspace() {
                 </button>
               )}
               <button
-                className="text-button"
+                className={
+                  state.settings.silentMode
+                    ? "text-button silent-mode-on"
+                    : "text-button"
+                }
                 aria-pressed={!!state.settings.silentMode}
-                onClick={() =>
+                title={
+                  state.settings.silentMode
+                    ? "Silent Mode is ON — answers are text only. Tap to hear them."
+                    : "Spoken replies are on. Tap to mute them."
+                }
+                onClick={() => {
+                  if (state.settings.silentMode) window.speechSynthesis?.cancel();
                   state.updateSettings({
                     silentMode: !state.settings.silentMode,
-                  })
-                }
+                  });
+                }}
               >
                 {state.settings.silentMode
-                  ? "◌ Silent mode on"
+                  ? "◌ Silent mode on — tap to hear replies"
                   : "◌ Spoken replies on"}
               </button>
               {assistant.isActive && (
@@ -689,6 +699,17 @@ export function NeuralWorkspace() {
                 <option key={k}>{k}</option>
               ))}
             </select>
+          </div>
+        )}
+        {assistant.voiceNotice && (
+          <div className="workspace-notice voice-notice" role="status">
+            <span>{assistant.voiceNotice}</span>
+            <button
+              className="text-button"
+              onClick={() => assistant.clearVoiceNotice()}
+            >
+              Dismiss
+            </button>
           </div>
         )}
         {(notice || workspace.error || state.storageNotice || assistant.micNotice) && (
