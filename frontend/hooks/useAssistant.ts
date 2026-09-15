@@ -406,6 +406,10 @@ export function useAssistant() {
           if (!playback) {
             // The browser refused playback (usually autoplay policy).
             audioRefused = true;
+            if (!spokenBlobs.length) {
+              lastReplyRef.current = { blobs: [audio.blob], text: clean };
+              setHasReplay(true);
+            }
             break;
           }
           spokenBlobs.push(audio.blob);
@@ -428,6 +432,17 @@ export function useAssistant() {
         // through to the browser voice instead of reporting "done" in silence.
         if (audioChunks.length && spokenBlobs.length === audioChunks.length) {
           useAssistantStore.getState().setVoiceNotice(null);
+          return;
+        }
+        if (audioRefused) {
+          useAssistantStore
+            .getState()
+            .logBgEvent("tts-audio-blocked", "play() refused");
+          useAssistantStore
+            .getState()
+            .setVoiceNotice(
+              "Audio playback was blocked by your browser. Tap “Hear it” to listen to the answer.",
+            );
           return;
         }
         if (audioStoppedEarly) {

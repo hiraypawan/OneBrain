@@ -417,18 +417,26 @@ export function speechAudioElement(): HTMLAudioElement | null {
 /** Unlock the shared element. Must be called inside a user gesture (iOS). */
 export async function unlockAudioOutput(): Promise<boolean> {
   const el = speechAudioElement();
-  if (!el) return false;
-  try {
-    if (!el.src) el.src = SILENT_WAV;
-    await el.play();
-    el.pause();
+  let ok = false;
+  if (el) {
     try {
-      el.currentTime = 0;
+      if (!el.src) el.src = SILENT_WAV;
+      await el.play();
+      el.pause();
+      try {
+        el.currentTime = 0;
+      } catch {}
+      ok = true;
     } catch {}
-    return true;
-  } catch {
-    return false;
   }
+  if (typeof window !== 'undefined' && typeof window.speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined') {
+    try {
+      const u = new SpeechSynthesisUtterance('');
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    } catch {}
+  }
+  return ok;
 }
 
 /**
@@ -591,7 +599,7 @@ export async function playSpeechBlob(
   opts: { sinkId?: string | null; text?: string } = {},
 ): Promise<SpeechPlayback | null> {
   const el = speechAudioElement();
-  if (!el || !blob || blob.size < 1000) return null;
+  if (!el || !blob || blob.size < 500) return null;
   stopSpeechPlayback();
   try {
     if (speechObjectUrl) URL.revokeObjectURL(speechObjectUrl);

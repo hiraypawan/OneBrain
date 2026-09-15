@@ -15,6 +15,7 @@ import {
   VoicePreferences,
 } from "@/components/settings/Preferences";
 import { ContextMap, SYMBOLS } from "./ContextMap";
+import { unlockAudioOutput } from "@/lib/audio";
 import { useAssistant } from "@/hooks/useAssistant";
 import { useBackgroundKeepalive } from "@/hooks/useBackgroundKeepalive";
 import { useAssistantStore } from "@/store/assistant";
@@ -204,6 +205,7 @@ export function NeuralWorkspace() {
   }
   async function start() {
     if (starting) return;
+    void unlockAudioOutput();
     const request = ++startAttemptRef.current;
     setStarting(true);
     setNotice("");
@@ -223,6 +225,7 @@ export function NeuralWorkspace() {
   function compose() {
     if (!input.trim()) return;
     if (captureKind === "ask") {
+      void unlockAudioOutput();
       void assistant.handleTranscript(input);
       setInput("");
       return;
@@ -547,8 +550,8 @@ export function NeuralWorkspace() {
                 }}
               >
                 {state.settings.silentMode
-                  ? "◌ Silent mode on — tap to hear replies"
-                  : "◌ Spoken replies on"}
+                  ? "◌ Silent mode is on — tap to unmute"
+                  : "◌ Voice replies active — tap to mute"}
               </button>
               {assistant.isActive && (
                 <button className="text-button" onClick={() => setPocket(true)}>

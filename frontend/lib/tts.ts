@@ -8,7 +8,7 @@
 // audio bytes play everywhere and obey the OS output selection — neckband,
 // earbuds, desk speaker, phone speaker — with no choosing required.
 
-export type SpeechSource = 'user-key' | 'community';
+export type SpeechSource = 'user-key' | 'community' | 'puter';
 
 export interface SpeechAudio {
   blob: Blob;
@@ -53,7 +53,7 @@ export async function readCachedSpeech(key: string): Promise<Blob | null> {
     const hit = await (await store).match(cacheUrl(key));
     if (!hit) return null;
     const blob = await hit.blob();
-    return blob.size > 1000 ? blob : null;
+    return blob.size > 500 ? blob : null;
   } catch {
     return null;
   }
@@ -84,17 +84,59 @@ export function dropCachedSpeech(): Promise<void> {
 function audioBlobFrom(r: Response, body: Blob): SpeechAudio | null {
   const type = String(r.headers.get('Content-Type') || body.type || '').toLowerCase();
   if (!type.startsWith('audio/')) return null;
-  if (body.size < 1000) return null;
+  if (body.size < 500) return null;
   const source: SpeechSource = r.headers.get('X-OneBrain-Tts') === 'user-key' ? 'user-key' : 'community';
   return { blob: body.type ? body : new Blob([body], { type }), source };
 }
 
 /**
- * Ask the server for spoken audio for `text`.
+ * Keyless client speech via Puter.js (loaded in browser).
+ * Free, zero setup, and requires no API keys or login.
+ */
+export async function synthesizeWithPuter(
+  text: string,
+  lang?: string,
+  timeoutMs = 10_000,
+): Promise<SpeechAudio | null> {
+  if (typeof window === 'undefined') return null;
+  const puter = (window as any).puter;
+  if (!puter?.ai?.txt2speech) return null;
+  try {
+    const task = (async (): Promise<Blob | null> => {
+      const opts: Record<string, string> = {};
+      if (lang) opts.language = lang;
+      const res = await puter.ai.txt2speech(text, Object.keys(opts).length ? opts : undefined);
+      if (!res) return null;
+      const src = typeof res === 'string' ? res : res.src;
+      if (!src) return null;
+      const r = await fetch(src);
+      if (!r.ok) return null;
+      const blob = await r.blob();
+      return blob.size >= 500 ? blob : null;
+    })();
+
+    const blob = await Promise.race([
+      task,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+    if (!blob) return null;
+    return { blob, source: 'puter' };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask for spoken audio for `text`.
+ *
+ * Ordered:
+ * 1. Cache hit (instant, 0 network).
+ * 2. Caller's own API key (if provided) via `/api/speech/tts`.
+ * 3. Free client Puter.js TTS (`puter.ai.txt2speech`).
+ * 4. Server `/api/speech/tts` keyless community voice.
  *
  * Returns null — never throws — whenever audio is unavailable, so callers can
- * fall back to the browser voice. A cached blob is reused so repeated replies
- * (greetings, confirmations) are instant and cost nothing.
+ * fall back to the browser voice.
  */
 export async function synthesizeSpeech(
   req: SpeechRequest,
@@ -108,11 +150,39 @@ export async function synthesizeSpeech(
   const cached = await readCachedSpeech(key);
   if (cached) return { blob: cached, source: 'community' };
 
+  // 1. Caller's own key: user's quota, custom models
+  if (req.apiKey) {
+    try {
+      const r = await fetch('/api/speech/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
+        body: JSON.stringify({ text, lang, userKey: req.apiKey }),
+      });
+      if (r.ok) {
+        const body = await r.blob();
+        const audio = audioBlobFrom(r, body);
+        if (audio) {
+          void cacheSpeech(key, audio.blob);
+          return audio;
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Free, keyless client Puter.js TTS
+  const puterAudio = await synthesizeWithPuter(text, lang, opts.timeoutMs ?? 10_000);
+  if (puterAudio) {
+    void cacheSpeech(key, puterAudio.blob);
+    return puterAudio;
+  }
+
+  // 3. Server fallback route (community audio)
   try {
     const r = await fetch('/api/speech/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 8_000),
       body: JSON.stringify({ text, lang, userKey: req.apiKey || undefined }),
     });
     if (!r.ok) return null;
