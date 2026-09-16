@@ -26,7 +26,8 @@ import {
 } from "@/lib/workspace/model";
 import { db } from "@/lib/db";
 import { useAssistantStore } from "@/store/assistant";
-import { askBrain } from "@/lib/brain";
+import { askBrain, askBrainDetailed } from "@/lib/brain";
+import { formatLogsForContext } from "@/lib/fitness";
 import {
   handleFeatureTurn,
   observeTranscript,
@@ -89,10 +90,15 @@ async function fetchChat(
 ) {
   // Brain chain lives in @/lib/brain so feature modes share it (identical
   // behavior for normal chat: Wikipedia -> Puter -> API route -> offline).
-  return askBrain(message, history, userKey, {
+  // The provider is recorded so the UI can say honestly who answered.
+  const detailed = await askBrainDetailed(message, history, userKey, {
     ...extra,
     priority: useFeaturesStore.getState().plan !== "free",
   });
+  try {
+    useAssistantStore.getState().setLastProvider(detailed.provider);
+  } catch {}
+  return detailed.text;
 }
 
 export function useAssistant() {
@@ -987,11 +993,21 @@ export function useAssistant() {
           ),
         );
       } catch {}
-      if (st.settings.memoryEnabled)
+      if (st.settings.memoryEnabled) {
         recall += workspaceContextBlock(
           useWorkspaceStore.getState().items,
           transcript,
         );
+        // Device fitness/food/expense/sleep log: previously invisible to the
+        // AI, so "what did I spend yesterday" could never work. Now the most
+        // recent entries travel with every turn (see formatLogsForContext).
+        try {
+          const logsCtx = formatLogsForContext(
+            useFeaturesStore.getState().fitnessLogs,
+          );
+          if (logsCtx) recall += (recall ? "\n" : "") + logsCtx;
+        } catch {}
+      }
       const tail = full
         .slice(-12)
         .map((m) => ({ role: m.role, content: m.content }));
@@ -1442,6 +1458,10 @@ export function useAssistant() {
             if (!current() || recogRef.current !== recog) return;
             expectingRef.current = false;
             restartAfterEndRef.current = false;
+            // A final landed: the live caption has done its job.
+            try {
+              useAssistantStore.getState().setLiveTranscript(null);
+            } catch {}
             try {
               recog.stop();
             } catch {}
@@ -1474,10 +1494,16 @@ export function useAssistant() {
           const results = e?.results;
           if (!results?.length) return;
           const from = Math.max(0, Number(e.resultIndex) || 0);
+          // Newest interim wording in this batch, for the live caption.
+          // Finals clear it (onAccept); interims keep the user informed.
+          let interim: string | null = null;
           for (let i = from; i < results.length; i++) {
             const res = results[i];
             const alt = res?.[0];
             if (!alt) continue;
+            if (!res.isFinal && alt.transcript && String(alt.transcript).trim()) {
+              interim = String(alt.transcript).trim();
+            }
             const outcome = collector.push({
               isFinal: !!res.isFinal,
               transcript: alt.transcript || "",
@@ -1493,6 +1519,13 @@ export function useAssistant() {
             // A turn was accepted: the recognizer is stopping, later
             // entries in this batch belong to the next turn.
             if (outcome === "accept" || expectingRef.current === false) break;
+          }
+          // Still listening (no final accepted): show what is being heard.
+          // On accept, onAccept already cleared the caption above.
+          if (expectingRef.current && interim) {
+            try {
+              useAssistantStore.getState().setLiveTranscript(interim);
+            } catch {}
           }
         };
         recog.onerror = (e: any) => {
@@ -1680,6 +1713,9 @@ export function useAssistant() {
     }
     collectorRef.current?.reset();
     collectorRef.current = null;
+    try {
+      useAssistantStore.getState().setLiveTranscript(null);
+    } catch {}
     stopPitchTracking();
     void dismissActiveNotification();
     try {

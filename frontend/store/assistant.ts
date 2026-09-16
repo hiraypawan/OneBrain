@@ -25,6 +25,14 @@ interface AssistantState {
   // device). Surfaced instead of failing quietly.
   voiceNotice: string | null;
   setVoiceNotice: (m: string | null) => void;
+  // Live interim speech text while the mic is open (what the recognizer
+  // thinks it hears RIGHT NOW). Session-only, never persisted.
+  liveTranscript: string | null;
+  setLiveTranscript: (t: string | null) => void;
+  // Which provider answered the last chat turn (gemini, pollinations,
+  // puter, wikipedia, offline...). Shown honestly next to the answer.
+  lastProvider: string | null;
+  setLastProvider: (p: string | null) => void;
   hydrate: () => Promise<void>;
   voiceBaseline: number | null;
   setVoiceBaseline: (hz: number | null) => void;
@@ -109,6 +117,10 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   setMicNotice: (micNotice) => set({ micNotice }),
   voiceNotice: null,
   setVoiceNotice: (voiceNotice) => set({ voiceNotice }),
+  liveTranscript: null,
+  setLiveTranscript: (liveTranscript) => set({ liveTranscript }),
+  lastProvider: null,
+  setLastProvider: (lastProvider) => set({ lastProvider }),
   hydrate: async () => {
     // Cheap prefs first (sync-feeling), then heavy IndexedDB restore.
     set(loadPersisted());
@@ -291,7 +303,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       messages: [], conversations: [], reminders: [], user: null,
       isAuthenticated: false, authRevision: useAssistantStore.getState().authRevision + 1, isActive: false, currentStatus: 'idle',
       currentConversationId: `${Date.now()}`, apiKey: '', voiceBaseline: null, micNotice: null,
-      voiceNotice: null,
+      voiceNotice: null, liveTranscript: null, lastProvider: null,
       bgLog: [], sessionStart: null,
     });
   },

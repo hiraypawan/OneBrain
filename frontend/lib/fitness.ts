@@ -359,6 +359,33 @@ export function spokenConfirm(l: Omit<FitnessLog, 'id' | 'createdAt' | 'source'>
   return `Logged — ${l.label}.`;
 }
 
+/** Compact device-log block for AI context: recent fitness/food/expense/sleep
+ *  entries the model would otherwise never see (they live outside chat).
+ *  Newest first, capped so small models never overflow. Pure + tested. */
+export function formatLogsForContext(logs: FitnessLog[], limit = 12): string {
+  const recent = [...(logs || [])]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, Math.max(0, limit));
+  if (!recent.length) return '';
+  const lines = recent.map((l) => {
+    const d = new Date(l.createdAt);
+    const day = `${d.getDate()}/${d.getMonth() + 1}`;
+    const extra =
+      l.kind === 'expense'
+        ? ` ₹${l.amount ?? l.qty ?? ''}`
+        : l.kind === 'food' && l.calories
+          ? ` ~${l.calories}kcal`
+          : l.qty != null && l.unit
+            ? ` ${l.qty}${l.unit}`
+            : '';
+    return `- ${day} · ${l.kind}: ${l.label}${extra}`;
+  });
+  return (
+    'Recently logged on this device (fitness/food/expense/sleep log):\n' +
+    lines.join('\n')
+  );
+}
+
 /** "change last log to 60" / "last wala 60 kar do" repair command. */
 export function detectLogRepair(text: string): number | null {
   const t = String(text || '').toLowerCase();

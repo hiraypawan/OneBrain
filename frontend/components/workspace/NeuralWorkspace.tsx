@@ -130,6 +130,16 @@ function Overlay({
   );
 }
 
+const PROVIDER_LABELS: Record<string, string> = {
+  gemini: "Gemini",
+  pollinations: "Community AI",
+  puter: "Puter AI",
+  wikipedia: "Wikipedia",
+  offline: "Offline mode",
+  "key-error": "Key issue",
+  server: "Server",
+};
+
 export function NeuralWorkspace() {
   const assistant = useAssistant();
   useBackgroundKeepalive(assistant.recover);
@@ -288,7 +298,9 @@ export function NeuralWorkspace() {
           does not lock your device.
         </p>
         <div className="pocket-caption" aria-live="polite">
-          {latest?.content}
+          {state.liveTranscript
+            ? `Hearing: ${state.liveTranscript}…`
+            : latest?.content}
         </div>
         <button
           className="primary-button"
@@ -468,6 +480,17 @@ export function NeuralWorkspace() {
               Working on your question…
             </p>
           )}
+          {state.liveTranscript && assistant.isActive && (
+            <p
+              className="live-caption"
+              role="status"
+              aria-live="polite"
+              data-testid="live-caption"
+            >
+              <span className="live-dot" aria-hidden="true" />
+              Hearing: {state.liveTranscript}…
+            </p>
+          )}
           <WorkoutRunner />
           <WitnessRunner />
           <FeatureCards say={say} />
@@ -483,6 +506,16 @@ export function NeuralWorkspace() {
                 <h2>OneBrain</h2>
               </div>
               <p>{latest.content}</p>
+              {state.lastProvider && (
+                <p
+                  className={`provider-badge${state.lastProvider === "offline" ? " is-offline" : ""}`}
+                  data-testid="provider-badge"
+                >
+                  {state.lastProvider === "offline"
+                    ? "Offline answer \u2014 add a free Gemini key in Settings \u2192 Advanced for smarter replies."
+                    : `Answered by ${PROVIDER_LABELS[state.lastProvider] || state.lastProvider}`}
+                </p>
+              )}
               <small>
                 AI answers can be wrong. Check important information.
               </small>
