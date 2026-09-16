@@ -157,13 +157,18 @@ test("the To-Do list merges what was saved where, without a fourth store", async
   const row = page.locator(".todo-row").filter({ hasText: "Renew the passport" });
   await expect(row).toBeVisible();
   await expect(row).toContainText("saved here");
+  const views = page.getByRole("group", { name: "To-Do views" });
   await row.getByLabel("Complete Renew the passport").click();
+  // Finishing it takes it out of “All open” — the row is moved, not duplicated.
+  await expect(page.locator(".todo-row").filter({ hasText: "Renew the passport" })).toHaveCount(0);
+  // …and it is waiting in Done, where the count on the tab already said it would be.
+  await views.getByRole("button", { name: /^Done/ }).click();
   await expect(page.locator(".todo-row.is-done")).toContainText("Renew the passport");
 
-  // Completion wrote back to the canvas record: it survives a reload, and Today
-  // still shows the same row. There is no second copy to fall out of sync.
+  // Completion wrote back to the canvas record, not to a copy: it survives a
+  // reload, and Today still shows the same row.
   await page.reload();
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("group", { name: "To-Do views" }).getByRole("button", { name: /^Done/ }).click();
   await expect(page.locator(".todo-row.is-done")).toContainText("Renew the passport");
   await page.goto("/");
   await expect(page.locator(".record-row")).toContainText("Renew the passport");
