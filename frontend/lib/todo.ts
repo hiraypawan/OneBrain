@@ -290,8 +290,16 @@ export interface TodoGroup {
 /** Section headings for the list, empty groups dropped. */
 export function groupTodo(list: TodoItem[], now = Date.now()): TodoGroup[] {
   const buckets: Record<TodoGroup['id'], TodoItem[]> = { overdue: [], today: [], soon: [], later: [] };
+  // Finished items are not dropped: the Done view asks for exactly them, and
+  // before this they disappeared between the two views — out of “All open”
+  // because they were done, and absent from “Done” because grouping only knew
+  // how to bucket due dates.
+  const finished: TodoItem[] = [];
   for (const i of list) {
-    if (i.done) continue;
+    if (i.done) {
+      finished.push(i);
+      continue;
+    }
     const state = dueStateOf(i.due, now);
     if (state === 'overdue') buckets.overdue.push(i);
     else if (state === 'today' || (!!i.time && !i.due)) buckets.today.push(i);
@@ -304,9 +312,11 @@ export function groupTodo(list: TodoItem[], now = Date.now()): TodoGroup[] {
     soon: 'Next few days',
     later: 'Later',
   };
-  return (['overdue', 'today', 'soon', 'later'] as TodoGroup['id'][])
+  const groups = (['overdue', 'today', 'soon', 'later'] as TodoGroup['id'][])
     .map((id) => ({ id, label: labels[id], items: buckets[id] }))
     .filter((g) => g.items.length);
+  if (finished.length) groups.push({ id: 'later', label: 'Finished', items: finished });
+  return groups;
 }
 
 /** Priority is stored on the canvas item itself, in a machine-readable line of

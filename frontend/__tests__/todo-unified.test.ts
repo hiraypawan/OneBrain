@@ -128,6 +128,19 @@ describe('the unified list', () => {
     expect(groups[3].items.map((i) => i.title)).toEqual(['Read the annual report']);
   });
 
+  it('gives finished items a home in the Done view', () => {
+    // Regression: groupTodo skipped done rows entirely, so completing a task
+    // took it out of “All open” and the Done view still listed nothing — the row
+    // was invisible everywhere. Your space caught this in a real browser.
+    const done = groupTodo(filterTodo(list, 'done', NOON), NOON);
+    expect(done.map((g) => g.label)).toEqual(['Finished']);
+    expect(done[0].items.map((i) => i.title)).toEqual(['Pick up laundry', 'Renew passport']);
+    // …and open views stay purely open.
+    expect(
+      groupTodo(filterTodo(list, 'all', NOON), NOON).flatMap((g) => g.items).some((i) => i.done),
+    ).toBe(false);
+  });
+
   it('links every row back to the place that owns it', () => {
     expect(list.find((i) => i.origin === 'device')?.href).toBe('/?item=a');
     expect(list.find((i) => i.origin === 'reminder')?.href).toBe('/control?panel=reminders');
