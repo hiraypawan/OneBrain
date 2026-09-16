@@ -26,6 +26,17 @@ for (const panel of panels) test(`panel ${panel || 'directory'}: responsive, acc
   if (panel === 'memory-search') await expect(page.getByLabel('Words to find')).toBeVisible();
   await expect(page.getByText('Opening encrypted storage…')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  // Settle the app’s own motion before measuring colour. `.control-panel` enters
+  // with a 180ms `panel-enter` opacity ramp, and axe reads *computed* colour: a
+  // snapshot mid-flight measures #eabb76 at ~half opacity over #090908 (3.5:1)
+  // and reports a contrast failure no reader ever sees. The app already promises
+  // “no animation under reduced motion”, so this measures the state it ships.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    for (const a of document.getAnimations?.() ?? []) {
+      try { a.finish(); } catch { a.cancel(); } // infinite loops (voice dots) can’t finish
+    }
+  });
   const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   await info.attach('accessibility-results', { body: JSON.stringify(scan.violations, null, 2), contentType: 'application/json' });
   // Violation ids alone sent a reviewer hunting for the trace, and traces and
