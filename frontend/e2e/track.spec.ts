@@ -125,8 +125,11 @@ test("a Track answer deep-links into the window it just described, and the log l
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: /as CSV$/ }).click();
   const file = await download;
+  // The name carries the days it holds, so a download stays identifiable without
+  // opening it — even for the month window this answer was about.
+  const month = today().slice(0, 7);
   expect(file.suggestedFilename()).toMatch(
-    /^onebrain-expenses-\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.csv$/,
+    new RegExp(`^onebrain-expenses-${month}[^/]*\\.csv$`),
   );
   const path = await file.path();
   const text = await import("node:fs/promises").then((fs) => fs.readFile(path, "utf8"));

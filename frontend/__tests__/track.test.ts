@@ -315,6 +315,13 @@ describe('bars, CSV and deep links', () => {
     expect(lines[1]).toContain('Food & drink');
     expect(lines).toHaveLength(3);
     expect(csvName('expenses', rangeFor('week', ANCHOR, anchorDate))).toMatch(/^onebrain-expenses-2026-09-14_2026-09-16\.csv$/);
+    // The name is the window: a whole month reads as its month, a single day as
+    // its date. Both are stable, sortable and free of path characters.
+    expect(csvName('expenses', rangeFor('month', ANCHOR, anchorDate))).toBe(
+      'onebrain-expenses-2026-09-01_2026-09-16.csv',
+    );
+    // A single day names that day — not “today”, which would be a lie tomorrow.
+    expect(csvName('food', rangeFor('day', ANCHOR, anchorDate))).toBe('onebrain-food-2026-09-16.csv');
   });
   it('builds a deep link a voice answer can hand to the browser', () => {
     expect(trackHref({ lens: 'expenses', range: 'week', day: ANCHOR })).toBe('/track?lens=expenses&range=week&day=2026-09-16');

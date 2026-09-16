@@ -765,8 +765,16 @@ export function fitnessCsv(logs: FitnessLog[]): string {
   return rows.join('\n');
 }
 
+/**
+ * Export names come from the window’s own day keys, never from a relative label:
+ * `onebrain-expenses-2026-09-01_2026-09-16.csv`. A file sitting in a Downloads
+ * folder still has to say which days it covers, so “today” would be a name that
+ * goes stale the moment it is saved.
+ */
 export function csvName(prefix: string, range: TrackRange): string {
-  return `onebrain-${prefix}-${range.short.replace(/\.\./g, '_')}.csv`;
+  const first = range.days[0] || range.anchor;
+  const last = range.days[range.days.length - 1] || first;
+  return `onebrain-${prefix}-${first === last ? first : `${first}_${last}`}.csv`;
 }
 
 // ------------------------------------------------------------ deep links ----

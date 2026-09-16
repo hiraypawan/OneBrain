@@ -33,6 +33,7 @@ const ORIGIN_CHIP: Record<string, string> = {
 export function Tasks() {
   const items = useWorkspaceStore((s) => s.items);
   const ready = useWorkspaceStore((s) => s.ready);
+  const userId = useAssistantStore((s) => s.user?.id);
   const update = useWorkspaceStore((s) => s.update);
   const capture = useWorkspaceStore((s) => s.capture);
   const removeItem = useWorkspaceStore((s) => s.remove);
@@ -42,6 +43,14 @@ export function Tasks() {
 
   // “All open” first: a task with no due date still has to appear when you open
   // the list you just saved it into. “Today” is one tap away for the dated view.
+  // Your space is its own document (that is what keeps Today's provider script off
+  // this screen), so nothing has loaded the canvas store here yet. The To-Do reads
+  // from that store, so it loads it — otherwise the list is empty by accident and
+  // ticking a row would fail with “Workspace is still loading”.
+  useEffect(() => {
+    void useWorkspaceStore.getState().load(userId || 'device');
+  }, [userId]);
+
   const [view, setView] = useState<TodoView>('all');
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
