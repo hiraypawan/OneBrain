@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from 'next';
 import { ProviderScript } from '@/components/ProviderScript';
 import './globals.css';
 import './product.css';
+import './shell.css';
 import { StoreHydrator } from '@/components/StoreHydrator';
+import { ThemeSync } from '@/components/ThemeSync';
 import { MainNav } from '@/components/MainNav';
 import { InstallPrompt } from '@/components/InstallPrompt';
 import { MediaPlayer } from '@/components/MediaPlayer';
@@ -32,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-black text-white min-h-screen">
         <StoreHydrator />
+        <ThemeSync />
         <MainNav />
         <InstallPrompt />
         <main className="app-main">{children}</main>

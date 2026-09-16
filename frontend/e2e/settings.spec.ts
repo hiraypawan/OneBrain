@@ -242,7 +242,7 @@ test("settings navigation starts a fresh document and leaves a loaded provider b
     (window as any).__oldDocument = true;
     (window as any).puter = { testOnly: true };
   });
-  await page.getByRole("link", { name: "Your space", exact: true }).click();
+  await page.getByRole("link", { name: "Space", exact: true }).click();
   await expect(page).toHaveURL(/control$/);
   expect(
     await page.evaluate(() => ({

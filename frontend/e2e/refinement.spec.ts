@@ -233,7 +233,7 @@ test("cancelled permission responses release late microphone streams without sta
   ).toBe(true);
 });
 test("navigating to Your space while permission is pending replaces the document",async({page})=>{
- await mockAudio(page,{deferred:true});await page.getByTestId('active-button').click();await page.getByRole('link',{name:'Your space',exact:true}).click();await expect(page).toHaveURL(/control$/);expect(await page.evaluate(()=>typeof (window as any).__resolveMic)).toBe('undefined');await expect(page.getByRole('heading',{name:/Your space/})).toBeVisible();
+ await mockAudio(page,{deferred:true});await page.getByTestId('active-button').click();await page.getByRole('link',{name:'Space',exact:true}).click();await expect(page).toHaveURL(/control$/);expect(await page.evaluate(()=>typeof (window as any).__resolveMic)).toBe('undefined');await expect(page.getByRole('heading',{name:/Your space/})).toBeVisible();
 });
 test("unsupported speech never requests a mic; recognition startup failures release it", async ({
   page,

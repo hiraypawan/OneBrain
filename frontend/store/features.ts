@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { useAssistantStore } from './assistant';
 import type { EmailSlots, EmailDraft, EmailTone } from '@/lib/email';
 import type { FitnessLog } from '@/lib/fitness';
+import type { TrackLens, TrackRangeKind } from '@/lib/track';
 import type { WorkoutPreset, CueSchedule } from '@/lib/workout';
 import type { ResearchBrief } from '@/lib/research';
 import type { RangeSummary, DateRange } from '@/lib/timetravel';
@@ -42,7 +43,58 @@ export type FeatureCard =
   | { kind: 'scribe'; minutes: Minutes; tasks: string[] }
   | { kind: 'digest'; digest: MorningDigest }
   | { kind: 'plan'; reason: string }
-  | { kind: 'message'; title: string; body: string };
+  | { kind: 'message'; title: string; body: string }
+  /** The unified To-Do list, counted out loud, with a link to the panel. */
+  | {
+      kind: 'todo';
+      title: string;
+      body: string;
+      counts: { open: number; dueToday: number; overdue: number; done: number };
+    }
+  /** A deterministic answer about logged life, with a deep link into Track. */
+  | {
+      kind: 'track';
+      title: string;
+      body: string;
+      lens: TrackLens;
+      range: TrackRangeKind;
+      day: string;
+      spoken?: string;
+    };
+
+/** Track-tab goals (kcal/day, glasses of water, hours of sleep, monthly spend
+ *  limit). Stored on this device; a limit of 0 means "not set", which the UI
+ *  must say out loud rather than treat as "budget exhausted". */
+export interface TrackGoals {
+  kcalGoal: number;
+  waterGoal: number;
+  sleepGoal: number;
+  budget: number;
+  budgetCurrency: string;
+}
+
+export const DEFAULT_TRACK_GOALS: TrackGoals = {
+  kcalGoal: 2200,
+  waterGoal: 8,
+  sleepGoal: 7,
+  budget: 0,
+  budgetCurrency: 'INR',
+};
+
+export function normalizeTrackGoals(raw: unknown): TrackGoals {
+  const g = (raw || {}) as Partial<TrackGoals>;
+  const num = (v: unknown, min: number, max: number, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max ? Math.round(v) : fallback;
+  return {
+    kcalGoal: num(g.kcalGoal, 800, 6000, DEFAULT_TRACK_GOALS.kcalGoal),
+    waterGoal: num(g.waterGoal, 1, 20, DEFAULT_TRACK_GOALS.waterGoal),
+    sleepGoal: num(g.sleepGoal, 4, 12, DEFAULT_TRACK_GOALS.sleepGoal),
+    budget: num(g.budget, 0, 100000000, DEFAULT_TRACK_GOALS.budget),
+    budgetCurrency: ['INR', 'USD', 'EUR'].includes(String(g.budgetCurrency))
+      ? String(g.budgetCurrency)
+      : DEFAULT_TRACK_GOALS.budgetCurrency,
+  };
+}
 
 export interface EmailSession {
   slots: EmailSlots;
@@ -130,6 +182,13 @@ interface FeaturesState {
   logFitness: (l: Omit<FitnessLog, 'id' | 'createdAt' | 'source'>, source?: FitnessLog['source']) => FitnessLog;
   removeFitnessLog: (id: string) => void;
   repairLastLog: (value: number) => FitnessLog | null;
+  /** Track-tab goals. Local preferences only — they never change what is logged. */
+  trackGoals: TrackGoals;
+  setTrackGoal: (patch: Partial<TrackGoals>) => void;
+  /** A "did you mean…?" candidate waiting for a yes/no, plus the exact
+   *  transcript it would have run. Cleared on answer, timeout or new session. */
+  pendingIntent: { text: string; phrase: string; askedAt: number } | null;
+  setPendingIntent: (p: FeaturesState['pendingIntent']) => void;
   nightNotes: NightNote[];
   addNightNote: (text: string, tags: NightNote['tags']) => NightNote;
   stories: StoryThread[];
@@ -257,6 +316,14 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
     set((s) => ({ fitnessLogs: s.fitnessLogs.filter((l) => l.id !== id) }));
     db.fitnessLogs.delete(id).catch(() => {});
   },
+  trackGoals: { ...DEFAULT_TRACK_GOALS },
+  setTrackGoal: (patch) => {
+    const next = normalizeTrackGoals({ ...get().trackGoals, ...patch });
+    set({ trackGoals: next });
+    db.kv.put({ key: 'track:goals', value: next }).catch(() => {});
+  },
+  pendingIntent: null,
+  setPendingIntent: (pendingIntent) => set({ pendingIntent }),
   repairLastLog: (value) => {
     const logs = get().fitnessLogs;
     const last = [...logs].reverse().find((l) => l.kind === 'workout' || l.kind === 'expense' || l.kind === 'water' || l.kind === 'food');
@@ -309,7 +376,7 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
   setSpeaker: (speaker) => set({ speaker }),
   load: async () => {
     try {
-      const [planRow, quotaRow, commitRow, nightRow, notes, logs, stories, drafts, capRow, entitlementRow] = await Promise.all([
+      const [planRow, quotaRow, commitRow, nightRow, notes, logs, stories, drafts, capRow, entitlementRow, goalsRow] = await Promise.all([
         db.kv.get('plan'),
         db.kv.get('quota'),
         db.kv.get('commitments'),
@@ -320,6 +387,7 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
         db.emailDrafts.orderBy('createdAt').reverse().toArray().catch(() => []),
         db.kv.get('story:cap'),
         db.kv.get('entitlement'),
+        db.kv.get('track:goals'),
       ]);
       const cached = entitlementRow?.value as EntitlementCache | undefined;
       set({
@@ -332,6 +400,7 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
         nightNotes: Array.isArray(nightRow?.value) ? nightRow.value.slice(-300) : [],
         personaNotes: Object.fromEntries(notes),
         fitnessLogs: (logs as FitnessLog[]).slice(-2000),
+        trackGoals: normalizeTrackGoals(goalsRow?.value),
         stories: (stories as StoryThread[]).slice(0, 50),
         storyCap: typeof capRow?.value === 'number' && capRow.value >= 1 && capRow.value <= 20 ? capRow.value : 3,
         emailDrafts: drafts.slice(0, 100),

@@ -1,8 +1,57 @@
 "use client";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { AccountLink } from "./AccountLink";
-import { Icon } from "./ui/Icon";
-export function AppHeader({ active }: { active: "today" | "space" }) {
+import { Icon, type IconName } from "./ui/Icon";
+
+export type TabId = "today" | "voice" | "track" | "space" | "you";
+
+export const TABS: {
+  id: TabId;
+  href: string;
+  label: string;
+  icon: IconName;
+  /** Which URL prefixes belong to this tab (redirects + sub-pages included,
+   *  so the highlight never lies about where you are). */
+  prefixes: string[];
+}[] = [
+  { id: "today", href: "/", label: "Today", icon: "sun", prefixes: ["/", "/active"] },
+  { id: "voice", href: "/voice", label: "Voice", icon: "mic", prefixes: ["/voice"] },
+  {
+    id: "track",
+    href: "/track",
+    label: "Track",
+    icon: "fitness",
+    prefixes: ["/track"],
+  },
+  {
+    id: "space",
+    href: "/control",
+    label: "Space",
+    icon: "space",
+    prefixes: ["/control", "/reminders", "/memory", "/conversations", "/utilities", "/vault", "/operations", "/night"],
+  },
+  {
+    id: "you",
+    href: "/you",
+    label: "You",
+    icon: "user",
+    prefixes: ["/you", "/settings", "/auth"],
+  },
+];
+
+export function tabForPath(pathname: string | null): TabId {
+  if (!pathname) return "today";
+  if (pathname === "/") return "today";
+  const hit = TABS.find((tab) =>
+    tab.prefixes.some((p) => p !== "/" && (pathname === p || pathname.startsWith(`${p}/`))),
+  );
+  return hit?.id || "space";
+}
+
+export function AppHeader() {
+  const pathname = usePathname();
+  const active = tabForPath(pathname);
   return (
     <header className="app-header">
       <Link prefetch={false} href="/" className="app-brand" aria-label="OneBrain home">
@@ -21,17 +70,17 @@ export function AppHeader({ active }: { active: "today" | "space" }) {
         </span>
       </Link>
       <nav aria-label="Main navigation">
-        <a href="/" aria-current={active === "today" ? "page" : undefined}>
-          <Icon name="sun" />
-          Today
-        </a>
-        <a
-          href="/control"
-          aria-current={active === "space" ? "page" : undefined}
-        >
-          <Icon name="space" />
-          Your space
-        </a>
+        {TABS.map((tab) => (
+          <Link
+            prefetch={false}
+            key={tab.id}
+            href={tab.href}
+            aria-current={active === tab.id ? "page" : undefined}
+          >
+            <Icon name={tab.icon} />
+            {tab.label}
+          </Link>
+        ))}
       </nav>
       <AccountLink />
     </header>

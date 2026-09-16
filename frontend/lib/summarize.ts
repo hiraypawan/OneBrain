@@ -42,3 +42,42 @@ export function splitForCompaction<T extends { content: string }>(
   }
   return { summarize: [], keep };
 }
+
+/**
+ * Rolling-summary policy. The old rule was "every 20 user messages", which
+ * meant the first 19 turns of a long session carried the whole transcript into
+ * every call and the 21st arrived all at once. Instead: refresh on a short
+ * turn window or when the un-summarized tail gets heavy, at most once every
+ * 30 seconds, so the model always has a current compressed view.
+ */
+export interface SummaryState {
+  /** How many user turns had been seen when the summary was written. */
+  mark: number;
+  at: number | null;
+}
+
+export interface SummaryStep {
+  summary: string;
+  state: SummaryState;
+}
+
+export const SUMMARY_WINDOW_TURNS = 6;
+export const SUMMARY_TAIL_CHARS = 2400;
+export const SUMMARY_MIN_INTERVAL_MS = 30000;
+
+export function rollingSummaryStep(
+  messages: Summarizable[],
+  prev: string,
+  state: SummaryState,
+  now = Date.now(),
+): SummaryStep | null {
+  const userCount = messages.filter((m) => m.role === 'user').length;
+  const sinceMark = messages.slice(state.mark > 0 ? state.mark : 0);
+  const turnDelta = userCount - (state.mark || 0);
+  const tailChars = sinceMark.reduce((n, m) => n + m.content.length, 0);
+  if (turnDelta < SUMMARY_WINDOW_TURNS && tailChars < SUMMARY_TAIL_CHARS) return null;
+  if (state.at && now - state.at < SUMMARY_MIN_INTERVAL_MS) return null;
+  const fold = messages.slice(0, Math.max(0, messages.length - SUMMARY_WINDOW_TURNS * 2));
+  if (!fold.length) return null;
+  return { summary: extractiveSummary(fold, prev), state: { mark: messages.length, at: now } };
+}

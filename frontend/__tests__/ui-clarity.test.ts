@@ -14,7 +14,10 @@ const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
  */
 const PROTECTED_STRINGS: { file: string; text: string }[] = [
   { file: 'components/AppHeader.tsx', text: 'Today' },
-  { file: 'components/AppHeader.tsx', text: 'Your space' },
+  // 2026-09-16: the shell grew to five tabs, so the nav label is "Space" —
+  // the page it opens still says "Your space" in its own heading.
+  { file: 'components/AppHeader.tsx', text: 'Space' },
+  { file: 'components/control/ControlCenter.tsx', text: 'Your space' },
   { file: 'components/workspace/NeuralWorkspace.tsx', text: 'Open settings' },
   { file: 'components/control/ControlCenter.tsx', text: 'Find a tool or setting' },
   { file: 'components/workspace/NeuralWorkspace.tsx', text: 'Context map' },
@@ -36,7 +39,7 @@ describe('navigation clarity', () => {
   it('lists Music as a first-class panel, not a hidden setting', () => {
     const music = CATALOG.find((entry) => entry.id === 'music');
     expect(music).toBeDefined();
-    expect(music?.group).toBe('Do more');
+    expect(music?.group).toBe('Utilities');
     expect(music?.keywords).toContain('gaana');
     // Searchable in English and Hindi transliteration, like every other entry.
     expect(music?.keywords).toMatch(/song|music/);

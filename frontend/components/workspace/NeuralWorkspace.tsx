@@ -319,7 +319,7 @@ export function NeuralWorkspace() {
 
   return (
     <div className="brain-workspace">
-      <AppHeader active="today" />
+      <AppHeader />
       <div className="home-stage">
         <div className="thought-stage">
           <section className="workspace-intro">

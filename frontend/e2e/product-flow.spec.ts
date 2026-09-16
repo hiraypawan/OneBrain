@@ -54,13 +54,13 @@ test("first use explains the product and supports try, review, save and reopen w
   expect(await page.evaluate(() => (window as any).__micCalls)).toBe(0);
 });
 for (const width of [320, 390, 768, 1440])
-  test(`only two main destinations, responsive at ${width}px`, async ({
+  test(`five main destinations, responsive at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Main navigation" });
-    await expect(nav.getByRole("link")).toHaveCount(2);
+    await expect(nav.getByRole("link")).toHaveCount(5);
     await expect(
       nav.getByRole("link", { name: "Today", exact: true }),
     ).toHaveAttribute("aria-current", "page");
@@ -69,11 +69,14 @@ for (const width of [320, 390, 768, 1440])
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await nav.getByRole("link", { name: "Your space", exact: true }).click();
+    await nav.getByRole("link", { name: "Space", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: /Your space/ }),
     ).toBeVisible();
-    await expect(nav.getByRole("link")).toHaveCount(2);
+    await expect(nav.getByRole("link")).toHaveCount(5);
+    await expect(
+      nav.getByRole("link", { name: "Space", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

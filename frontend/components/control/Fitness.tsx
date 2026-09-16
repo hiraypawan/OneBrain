@@ -5,6 +5,7 @@ import {
   dayTotals, dayKey, computeStreaks, recoveryLine, formatLogLine,
   type FitnessKind, type FitnessLog,
 } from '@/lib/fitness';
+import { fitnessCsv, trackHref } from '@/lib/track';
 
 const KIND_LABEL: Record<FitnessKind, string> = {
   workout: 'Workout', food: 'Food', expense: 'Expense', sleep: 'Sleep',
@@ -41,14 +42,11 @@ export function Fitness() {
     return [...map.entries()].slice(0, 30);
   }, [logs]);
 
+  // One CSV builder for the whole log (lib/track) — the Track tab's filtered
+  // export and this one are the same file format, so a spreadsheet never has to
+  // learn two dialects.
   const exportCsv = () => {
-    const rows = ['day,time,kind,label,qty,unit,calories,amount,currency'];
-    for (const l of logs) {
-      const d = new Date(l.createdAt);
-      const esc = (s: unknown) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-      rows.push([dayKey(l.createdAt), d.toLocaleTimeString('en-IN'), l.kind, esc(l.label), l.qty ?? '', l.unit ?? '', l.calories ?? '', l.amount ?? '', l.currency ?? ''].join(','));
-    }
-    const url = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
+    const url = URL.createObjectURL(new Blob([fitnessCsv(logs)], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = `onebrain-fitness-${today}.csv`;
@@ -85,6 +83,18 @@ export function Fitness() {
         <p>🔥 {streaks.logDays}-day log streak · 💪 {streaks.workoutDays}-day workout streak</p>
         <p><strong>{recovery}</strong></p>
         <p><small>General guidance from your logs — not medical advice. Calorie figures are rough home-style estimates.</small></p>
+      </section>
+      <section className="settings-section">
+        <h3>Seen on Track</h3>
+        <p>
+          These logs are the same rows the Track tab charts by day, week and
+          month. This panel is the raw timeline and the manual add form.
+        </p>
+        <div className="sheet-actions">
+          <a className="text-button" href={trackHref({ lens: 'expenses', range: 'month' })}>
+            Open Track → Expenses
+          </a>
+        </div>
       </section>
       <section className="settings-section">
         <h3>Log by voice</h3>
