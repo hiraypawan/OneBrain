@@ -67,6 +67,26 @@ describe('the five-tab shell', () => {
     expect(read('app/product.css')).not.toMatch(/\.gooey|\.gravity-letters/i);
   });
 
+  it('gives the theme preference a control a user can actually reach', () => {
+    // A wired-up consumer with no switch is still an orphaned preference, so the
+    // guard is the whole path: control -> persisted setting -> document attribute.
+    const advanced = read('components/control/AdvancedSettings.tsx');
+    expect(advanced).toContain('aria-label="Theme on this browser"');
+    expect(advanced).toContain('updateSettings({ theme: "light" })');
+    // The label admits what it is instead of pretending to be a second design.
+    expect(advanced).toContain('Light (beta)');
+    expect(advanced).toContain('not a second\n          design');
+    expect(read('app/layout.tsx')).toContain('ThemeSync');
+    expect(read('components/ThemeSync.tsx')).toContain('data-ob-theme');
+    const you = read('components/you/YouTab.tsx');
+    expect(you).toContain('light (beta)');
+    expect(you).toContain('href="/control?panel=advanced"');
+    // …and typing “theme” into the space search finds the panel that owns it.
+    expect(read('components/control/catalog.ts')).toMatch(
+      /id: "advanced"[\s\S]{0,400}theme appearance light dark display/,
+    );
+  });
+
   it('keeps the tab bar inside 320px without a second stylesheet per tab', () => {
     const css = read('app/shell.css');
     expect(css).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.app-header nav a\s*\{[\s\S]*?flex: 1 1 0/);

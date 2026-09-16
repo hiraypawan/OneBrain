@@ -166,7 +166,7 @@ export const CATALOG: ToolEntry[] = [
     description: "Optional AI key, who may speak to OneBrain, and diagnostics.",
     group: "Make it yours",
     icon: "tool",
-    keywords: "settings gemini key debug enrollment voiceprint",
+    keywords: "settings gemini key debug enrollment voiceprint theme appearance light dark display",
   },
 ];
 export const EXTRA_PANELS: Record<

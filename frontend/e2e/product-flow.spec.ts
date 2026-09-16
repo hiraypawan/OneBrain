@@ -232,3 +232,22 @@ test("notification permission is requested only after an explicit action", async
     await page.evaluate(() => (window as any).__notificationRequests),
   ).toBe(1);
 });
+
+test("the theme preference is a reachable control, not an orphaned setting", async ({
+  page,
+}) => {
+  await page.goto("/control?panel=advanced");
+  const light = page.getByRole("radio", { name: "Light (beta)" });
+  await expect(light).toBeVisible();
+  await light.click();
+  await expect(page.locator("html")).toHaveAttribute("data-ob-theme", "light");
+  // It is saved, not just applied: the You tab reports it and a reload keeps it.
+  await page.goto("/you");
+  await expect(page.getByText("light (beta)")).toBeVisible();
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-ob-theme", "light");
+  // Back to the reviewed palette for the rest of the suite.
+  await page.goto("/control?panel=advanced");
+  await page.getByRole("radio", { name: "Dark", exact: true }).click();
+  await expect(page.locator("html")).not.toHaveAttribute("data-ob-theme");
+});

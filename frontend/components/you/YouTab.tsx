@@ -128,7 +128,12 @@ export function YouTab() {
             </div>
             <div>
               <dt>Appearance</dt>
-              <dd>{settings.theme === 'light' ? 'light' : 'dark'}</dd>
+              <dd>
+                {settings.theme === 'light' ? 'light (beta)' : 'dark'}{' '}
+                <Link prefetch={false} href="/control?panel=advanced">
+                  change
+                </Link>
+              </dd>
             </div>
           </dl>
           <Link prefetch={false} href="/voice">
