@@ -94,7 +94,17 @@ describe('the five-tab shell', () => {
     expect(advanced).toContain('updateSettings({ theme: "light" })');
     // The label admits what it is instead of pretending to be a second design.
     expect(advanced).toContain('Light (beta)');
-    expect(advanced).toContain('not a second\n          design');
+    const prose = (t: string) => t.replace(/\s+/g, ' ');
+    expect(prose(advanced)).toContain('not a second design');
+    // The swap is limited to the surfaces reviewed with it: tokens may not be
+    // redefined on the root element, because product.css paints Today and Your
+    // space with hard-coded dark values and the pair would be unreadable. (The
+    // compatibility matrix proved it: axe color-contrast failures on WebKit.)
+    const css = read('app/shell.css');
+    expect(css).not.toMatch(/html\[data-ob-theme='light'\]\s*\{[^}]*--ob-text/);
+    expect(css).toMatch(
+      /html\[data-ob-theme='light'\] \.track-wrap,[\s\S]{0,400}background: var\(--ob-bg\)/,
+    );
     expect(read('app/layout.tsx')).toContain('ThemeSync');
     expect(read('components/ThemeSync.tsx')).toContain('data-ob-theme');
     const you = read('components/you/YouTab.tsx');

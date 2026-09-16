@@ -28,7 +28,18 @@ for (const panel of panels) test(`panel ${panel || 'directory'}: responsive, acc
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   await info.attach('accessibility-results', { body: JSON.stringify(scan.violations, null, 2), contentType: 'application/json' });
-  expect(scan.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) }))).toEqual([]);
+  // Violation ids alone sent a reviewer hunting for the trace, and traces and
+  // screenshots are not reachable from every environment. The reason axe actually
+  // gave (including the colours it compared) goes into the failure itself.
+  const detail = scan.violations.map(v => {
+    // axe-core 4 puts the measured reason on each node’s checks, not on the
+    // violation, so the contrast numbers have to be collected from there.
+    const reasons = v.nodes
+      .flatMap(n => [...n.any, ...n.all, ...n.none].map(c => c.message).filter(Boolean))
+      .map(t => t.replace(/\s+/g, ' ').trim());
+    return [v.id, v.help, ...reasons.map(r => `• ${r}`)].filter(Boolean).join(' — ');
+  });
+  expect(detail, detail.join('\n')).toEqual([]);
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => (window as any).__auditMicCalls)).toBe(0);
 });

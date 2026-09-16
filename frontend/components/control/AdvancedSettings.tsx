@@ -64,8 +64,10 @@ export default function Advanced() {
         <h2>Theme</h2>
         <p>
           Dark is the palette this app was designed and reviewed in. Light is an
-          early token swap — the same layout on a lighter palette, not a second
-          design; a few panels keep their dark-tuned surfaces.
+          early token swap for the tab bar and the Track, Voice and You tabs —
+          not a second design. Today and Your space keep their dark palette
+          until they are reviewed with it, so a light panel never ends up with
+          text chosen for the other one.
         </p>
         <div
           className="settings-actions"

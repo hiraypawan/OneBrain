@@ -1161,11 +1161,27 @@
 }
 
 /* --------------------------------------------------- light (beta) palette ----
-   The `theme` preference already existed with nothing reading it, so it is now
-   a token swap instead of a second design. Dark stays the default and the only
-   fully reviewed palette; light is labelled beta in You → Voice because the
-   Today surface still carries hand-tuned dark colors from before this change. */
-html[data-ob-theme='light'] {
+   The `theme` preference already existed with nothing reading it, so it is now a
+   token swap instead of a second design — and the swap is deliberately limited to
+   the surfaces reviewed with it. Tokens are declared on each subtree root, never
+   on the root element: product.css paints Today and most of Your space with
+   hard-coded dark values, so a root-level text swap strands light-mode text on a
+   dark panel (the compatibility matrix caught exactly that as a WebKit
+   color-contrast failure). Dark stays the default and the only fully reviewed
+   palette; light restyles the tab bar, Track, Voice and You, and the controls
+   inside them. Everything else keeps its dark tuning until it is reviewed. */
+html[data-ob-theme='light'] .app-header,
+html[data-ob-theme='light'] .track-wrap,
+html[data-ob-theme='light'] .you-wrap,
+html[data-ob-theme='light'] .voice-screen,
+html[data-ob-theme='light'] .space-shortcut,
+html[data-ob-theme='light'] .space-results,
+html[data-ob-theme='light'] .control-panel input:not([type='checkbox']):not([type='range']),
+html[data-ob-theme='light'] .control-panel select,
+html[data-ob-theme='light'] .reminder-form input,
+html[data-ob-theme='light'] .todo-add input,
+html[data-ob-theme='light'] .todo-tools input,
+html[data-ob-theme='light'] .todo-tools select {
   --ob-bg: #f6f3ec;
   --ob-surface: #fffdf8;
   --ob-raised: #f1ece1;
@@ -1173,24 +1189,26 @@ html[data-ob-theme='light'] {
   --ob-text: #211f1a;
   --ob-muted: #6b655a;
   --ob-accent: #9a6a1f;
+  color: var(--ob-text);
   color-scheme: light;
 }
-html[data-ob-theme='light'] body {
-  background: #f6f3ec;
+/* The painted background travels with the tokens, or the pair is unreadable. */
+html[data-ob-theme='light'] .track-wrap,
+html[data-ob-theme='light'] .you-wrap,
+html[data-ob-theme='light'] .voice-screen {
+  background: var(--ob-bg);
 }
-html[data-ob-theme='light'] .brain-workspace {
-  color: var(--ob-text);
-}
-html[data-ob-theme='light'] .app-header {
+html[data-ob-theme='light'] .app-header,
+html[data-ob-theme='light'] .app-header nav {
   background: #fffdf8;
 }
 html[data-ob-theme='light'] .app-header nav {
-  background: #fffdf8;
   border-top-color: var(--ob-line);
 }
 html[data-ob-theme='light'] .app-header nav a[aria-current='page'],
 html[data-ob-theme='light'] .track-stat,
-html[data-ob-theme='light'] .voice-chips button {
+html[data-ob-theme='light'] .voice-chips button,
+html[data-ob-theme='light'] .track-day-head {
   background: var(--ob-raised);
 }
 html[data-ob-theme='light'] .control-panel input:not([type='checkbox']):not([type='range']),
@@ -1217,7 +1235,10 @@ html[data-ob-theme='light'] .voice-answer,
 html[data-ob-theme='light'] .voice-control,
 html[data-ob-theme='light'] .space-results,
 html[data-ob-theme='light'] .you-card,
-html[data-ob-theme='light'] .space-shortcut {
+html[data-ob-theme='light'] .space-shortcut,
+html[data-ob-theme='light'] .track-item,
+html[data-ob-theme='light'] .track-categories li {
+  border-color: var(--ob-line);
   background: var(--ob-surface);
 }
 html[data-ob-theme='light'] .voice-primary,
