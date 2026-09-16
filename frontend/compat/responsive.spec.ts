@@ -77,13 +77,16 @@ test('memory-off reminders have an explicit blocked state', async ({ page }) => 
   await expect(page.getByRole('link', { name: 'Enable saved memory', exact: true })).toBeVisible();
 });
 
-test('keyboard focus, Escape and Back retain a usable two-screen flow', async ({ page }) => {
+test('keyboard focus, Escape and Back retain a usable tab flow', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Capture a thought', { exact: true }).fill('Keyboard access test');
   await page.getByRole('button', { name: 'Review capture', exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Your space', exact: true }).click();
+  const tabs = page.getByRole('navigation', { name: 'Main navigation' });
+  await expect(tabs.getByRole('link')).toHaveCount(5);
+  await tabs.getByRole('link', { name: 'Space', exact: true }).click();
+  await expect(tabs.getByRole('link', { name: 'Space', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.getByLabel('Find a tool or setting').fill('vault');
   await page.locator('.control-entry').click();
   await expect(page).toHaveURL(/panel=vault/);

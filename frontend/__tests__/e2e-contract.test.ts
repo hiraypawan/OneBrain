@@ -18,8 +18,15 @@ import { parseMediaCommand } from '@/lib/commands';
 const root = resolve(__dirname, '..');
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
 
-const specFiles = readdirSync(resolve(root, 'e2e')).filter((f) => f.endsWith('.spec.ts'));
-const specs = specFiles.map((f) => ({ file: f, text: read(`e2e/${f}`) }));
+// Both browser suites assert on shipped copy, so both are scanned: the compat
+// suite is what failed in CI over the “Your space” → “Space” tab rename.
+const specDirs = ['e2e', 'compat'] as const;
+const specFiles = specDirs.flatMap((dir) =>
+  readdirSync(resolve(root, dir))
+    .filter((f) => f.endsWith('.spec.ts'))
+    .map((f) => ({ dir, file: f })),
+);
+const specs = specFiles.map(({ dir, file }) => ({ file, text: read(`${dir}/${file}`) }));
 
 /** All source that can render user-visible copy. */
 const SOURCE_DIRS = ['components', 'app', 'lib', 'store', 'hooks'];
@@ -90,6 +97,13 @@ const EXTERNAL_TEXT: Record<string, string> = {
   'Save 3 items': 'composed: "Save " + count + " items"',
   'Save 19 items': 'composed: "Save " + count + " items"',
   'Saved one shared task': 'composed confirmation for a fixture task',
+  // Written into IndexedDB by the compatibility suite, then read back.
+  'Orchid project archived context': 'fixture input (older conversation message)',
+  'Latest unique question': 'fixture input (conversation message)',
+  // Rendered by the app, but composed with a stored preference or a live count.
+  'Voice speed · 1.0×': 'composed: "Voice speed · " + settings.voiceSpeed + "×"',
+  '2 messages': 'composed: count + " messages" on a conversation row',
+  '1 messages': 'composed: count + " messages" on a conversation row',
   // Returned by a mocked API response, then displayed verbatim.
   'The source could not be checked. No rate was invented.': 'mocked /api/utilities error body',
   // Thrown by the mocked recognizer and echoed by the app's error notice.
@@ -100,7 +114,7 @@ describe('browser-suite copy contract', () => {
   const literals = assertedLiterals();
 
   it('finds a meaningful number of assertions to protect', () => {
-    expect(specFiles.length).toBeGreaterThanOrEqual(8);
+    expect(specFiles.length).toBeGreaterThanOrEqual(9); // eight e2e specs + compat
     expect(literals.length).toBeGreaterThan(100);
   });
 
@@ -110,7 +124,7 @@ describe('browser-suite copy contract', () => {
     );
     expect(
       unexplained.map(({ file, text }) => `${file}: "${text}"`),
-      'These strings are asserted by e2e/*.spec.ts but no longer exist in the UI source. ' +
+      'These strings are asserted by the browser suites (e2e/ + compat/) but no longer exist in the UI source. ' +
         'Restore the copy, or add the new wording to the spec and to EXTERNAL_TEXT with a reason.',
     ).toEqual([]);
   });

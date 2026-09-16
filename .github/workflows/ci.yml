@@ -71,14 +71,20 @@ jobs:
               tail -n 220 "$log"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            grep -E "^ +[0-9]+\) " "$log" | head -n 12 | while read -r line; do
-              emit "playwright/$(basename "$log")" "$line"
-            done
-            # Titles alone do not say why a test failed, and traces/artifacts are
-            # served from hosts a review agent often cannot reach — so ship the
-            # locator + expected/received bodies as one wider annotation.
-            emit "playwright-blocks/$(basename "$log")" "$(grep -A 26 -E '^ +[0-9]+\) ' "$log" | head -n 320)" 30000
-            emit "report-tail/$(basename "$log")" "$(tail -n 90 "$log")"
+            # A check run holds at most 50 annotations, and titles alone do not
+            # say why a test failed. Traces and artifacts live on hosts a review
+            # agent often cannot reach, so the bodies themselves (locator,
+            # expected vs received, the code frame) go up as one annotation per
+            # log; the per-test titles are only used when no body was found.
+            blocks=$(grep -A 30 -E "^ +[0-9]+\) " "$log" | head -n 340)
+            if [ -n "$blocks" ]; then
+              emit "playwright-failures/$(basename "$log")" "$blocks" 40000
+            else
+              grep -E "^ +[0-9]+\) " "$log" | head -n 12 | while read -r line; do
+                emit "playwright/$(basename "$log")" "$line"
+              done
+            fi
+            emit "report-tail/$(basename "$log")" "$(tail -n 60 "$log")"
           done
       - uses: actions/upload-artifact@v4
         if: failure()
