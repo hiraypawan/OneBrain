@@ -83,7 +83,9 @@ test("the lens and window live in the URL, so Back works and links can be shared
   await page.getByRole("button", { name: "Day", exact: true }).click();
   await expect(page).toHaveURL(/range=day/);
   await page.goBack();
-  await expect(page).toHaveURL(/lens=food/);
+  await expect(page).toHaveURL(/\/$/); // Back leaves Track …
+  await page.goForward();
+  await expect(page).toHaveURL(/lens=food/); // … and Forward returns to the same window.
   // A garbage URL must not blank the page: it falls back to the default view.
   await page.goto("/track?lens=constructor&range=9999");
   await expect(
@@ -95,20 +97,31 @@ test("the lens and window live in the URL, so Back works and links can be shared
   );
 });
 
-test("a Track answer on Today deep-links into the tab, and the log can leave as CSV", async ({
+test("a Track answer deep-links into the window it just described, and the log leaves as CSV", async ({
   page,
 }) => {
-  await logExpense(page, "kharcha 100 chai");
+  // Seeded through the Track form itself: this test is about the door the answer
+  // opens, not about the log path (which has its own test above).
+  await page.goto("/track?lens=expenses&range=month");
+  await page.getByLabel("Amount").fill("100");
+  await page.getByLabel("What for").fill("chai at the corner stall");
+  await page.getByRole("button", { name: "Log expense" }).click();
+  await expect(page.locator(".track-item").first()).toContainText("₹100");
+
+  await page.goto("/");
   await ask(page, "what expenses did I do this month");
   const link = page.getByRole("link", { name: "View in Track →" });
-  await expect(link).toBeVisible();
+  // One answer, one card, one door.
+  await expect(link).toHaveCount(1);
+  const href = await link.getAttribute("href");
+  expect(href).toMatch(/\/track\?lens=expenses&range=month/);
   await link.click();
-  // The answer's own window, not the default one.
-  await expect(page).toHaveURL(/\/track\?lens=expenses&range=month/);
   await expect(
     page.getByRole("button", { name: "Expenses", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".track-stat").filter({ hasText: "Spent" })).toContainText("₹100");
 
+  // The export carries exactly the window on screen: header, then the row.
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: /as CSV$/ }).click();
   const file = await download;

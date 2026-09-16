@@ -76,6 +76,7 @@ const EXTERNAL_TEXT: Record<string, string> = {
   'Renew the passport': 'fixture input (task body typed into Ask OneBrain)',
   'Complete Renew the passport': 'composed: "Complete " + task title',
   '₹250': 'composed: "₹" + the amount this run logged through the Track form',
+  '₹100': 'composed: "₹" + the amount this run logged through the Track form',
   'Review the proposal': 'fixture input (reminder body)',
   'Review the shared proposal': 'fixture input (server reminder body)',
   'cached-only@example.test': 'fixture input (account email)',

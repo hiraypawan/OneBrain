@@ -67,6 +67,25 @@ describe('the five-tab shell', () => {
     expect(read('app/product.css')).not.toMatch(/\.gooey|\.gravity-letters/i);
   });
 
+  it('never lets a retired or unknown panel key fall through to Object.prototype', () => {
+    const control = read('components/control/ControlCenter.tsx');
+    // `?panel=constructor` is the classic way a lookup like PANELS[panel]
+    // returns something that was never registered.
+    expect(control).toContain('Object.hasOwn(PANELS, panel)');
+    expect(control).toContain('Object.hasOwn(PANEL_REDIRECTS, panel)');
+    expect(control).toContain('Object.hasOwn(EXTRA_PANELS, panel)');
+    // A catalog entry that moved out of the maze (Track is a tab) redirects
+    // instead of showing “not found” next to a tile that is right there.
+    expect(control).toContain('if (panel && !Panel && (moved || away))');
+  });
+
+  it('opens the To-Do list on what is actually open', () => {
+    const tasks = read('components/control/Tasks.tsx');
+    // A saved task with no due date must not be filtered out of the default view.
+    expect(tasks).toContain("useState<TodoView>('all')");
+    expect(TODO_VIEWS[2].id).toBe('all');
+  });
+
   it('gives the theme preference a control a user can actually reach', () => {
     // A wired-up consumer with no switch is still an orphaned preference, so the
     // guard is the whole path: control -> persisted setting -> document attribute.

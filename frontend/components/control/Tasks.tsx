@@ -40,7 +40,9 @@ export function Tasks() {
   const updateReminder = useAssistantStore((s) => s.updateReminder);
   const dismissReminder = useAssistantStore((s) => s.dismissReminder);
 
-  const [view, setView] = useState<TodoView>('today');
+  // “All open” first: a task with no due date still has to appear when you open
+  // the list you just saved it into. “Today” is one tap away for the dated view.
+  const [view, setView] = useState<TodoView>('all');
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
   const [server, setServer] = useState<{

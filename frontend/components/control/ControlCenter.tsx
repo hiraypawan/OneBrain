@@ -50,6 +50,9 @@ const PANELS: Record<string, React.ComponentType> = {
  * bookmarks and the answers OneBrain speaks — still lands somewhere real, so
  * retiring a panel never leaves a dead end behind.
  */
+const CATALOG_BY_ID: Record<string, ToolEntry> = Object.fromEntries(
+  CATALOG.map((e) => [e.id, e]),
+);
 const PANEL_REDIRECTS: Record<string, { href: string; label: string }> = {
   track: { href: "/track", label: "Track" },
   todo: { href: "/control?panel=tasks", label: "To-Do" },
@@ -131,7 +134,11 @@ export function ControlCenter() {
   const storageNotice = useAssistantStore((s) => s.storageNotice);
   const params = useSearchParams();
   const panel = params.get("panel") || "";
-  const moved = PANEL_REDIRECTS[panel];
+  // Own-property checks only: `?panel=constructor` must not find Object's
+  // constructor and treat it as a redirect target.
+  const moved = panel && Object.hasOwn(PANEL_REDIRECTS, panel) ? PANEL_REDIRECTS[panel] : undefined;
+  /** A catalog entry whose home is no longer a panel here (Track is a tab). */
+  const away = panel && Object.hasOwn(CATALOG_BY_ID, panel) ? CATALOG_BY_ID[panel]?.href : undefined;
   const entry =
     CATALOG.find((e) => e.id === panel) ||
     (Object.hasOwn(EXTRA_PANELS, panel) ? EXTRA_PANELS[panel] : undefined),
@@ -167,11 +174,11 @@ export function ControlCenter() {
 
   // A panel URL renders its panel; a retired URL redirects; anything else is
   // reported instead of silently showing the hub.
-  if (panel && !entry && moved) {
+  if (panel && !Panel && (moved || away)) {
     return (
       <ControlContext.Provider value={true}>
         <div className="control-center">
-          <MovedPanel href={moved.href} label={moved.label} />
+          <MovedPanel href={moved?.href || away!} label={moved?.label || entry?.title || "that section"} />
         </div>
       </ControlContext.Provider>
     );
