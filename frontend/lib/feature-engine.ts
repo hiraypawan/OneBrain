@@ -17,7 +17,7 @@ import {
 } from './email';
 import {
   parseFitnessLog, resolveAmbiguous, dayTotals, dayKey, computeStreaks,
-  recoveryLine, spokenConfirm, detectLogRepair, type FitnessLog,
+  recoveryLine, spokenConfirm, detectLogRepair, formatLogLine, type FitnessLog,
 } from './fitness';
 import {
   detectWorkoutIntent, presetById, customPreset, buildCues, PRESETS,
@@ -327,6 +327,13 @@ export async function handleFeatureTurn(transcript: string): Promise<FeatureTurn
   }
   if (/(aaj ka )?(fitness|workout|kharcha|health) (summary|hisab|total|report)|fitness summary|meri progress/.test(text.toLowerCase())) {
     return fitnessSummary();
+  }
+  // 4b. Logged-data questions ("what expenses did I do yesterday", "kal
+  // kitna kharcha", "how much did I spend this week"): answered
+  // deterministically from the device fitness log — never guessed by AI.
+  // Must run BEFORE parseFitnessLog so a question is never mis-logged.
+  if (detectFitnessRangeQuery(text)) {
+    return fitnessRangeTurn(text);
   }
   const fit = parseFitnessLog(text);
   if (fit.status === 'ok') {
@@ -687,6 +694,85 @@ async function saveFitnessLog(
     messages: [{ text: `${confirm} (${totalsLine}. ${streakLine}.)`, meta: 'Fitness timeline · tap to edit in Your space → Fitness' }],
     speak: `${confirm} ${streaks.logDays >= 3 ? `Day ${streaks.logDays} of your streak!` : ''}`,
     card: { kind: 'fitness', log: saved, totalsLine, streakLine },
+  };
+}
+
+const FITNESS_RANGE_WORDS =
+  /(expense|expenses|kharch|kharcha|kharche|spend|spent|spending|payment|food|khana|meal|diet|calorie|workout|exercise|kasrat|sleep|neend|water|paani|weight|vazan|health|fitness)/i;
+const FITNESS_RANGE_DATES =
+  /(yesterday|today|kal\b|aaj|parso|day before yesterday|this week|last week|hafte|hafta|this month|last month|mahina)/i;
+const FITNESS_RANGE_QUESTIONS =
+  /(what|how much|kitna|kitne|kya|kab|when|show|batao|dikhao|total|hisab|hisaab|summary|report|yaad|savings|bache)/i;
+
+/** Is this a QUESTION about logged fitness/food/expense data (vs a new log)?
+ *  Needs a fitness word plus either a date word ("yesterday expenses") or a
+ *  question word ("how much did I spend"). Plain logs ("kharcha 200 chai",
+ *  "I spent 200 on chai") have neither and fall through to the logger. */
+export function detectFitnessRangeQuery(text: string): boolean {
+  const t = String(text || '').toLowerCase();
+  if (!FITNESS_RANGE_WORDS.test(t)) return false;
+  if (FITNESS_RANGE_DATES.test(t)) return true;
+  return FITNESS_RANGE_QUESTIONS.test(t);
+}
+
+/** Deterministic answer from the device log for a date range. No AI, no
+ *  guessing, works fully offline. Empty ranges say so honestly and teach
+ *  the exact logging phrase. */
+async function fitnessRangeTurn(text: string): Promise<FeatureTurn> {
+  const f = useFeaturesStore.getState();
+  const now = new Date();
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const range = parseDateRef(text, now, true) || {
+    start: dayStart.getTime(),
+    end: dayStart.getTime() + 86400000,
+    label: 'today',
+    key: dayKey(dayStart.getTime()),
+  };
+  const inRange = f.fitnessLogs.filter(
+    (l) => l.createdAt >= range.start && l.createdAt < range.end,
+  );
+  const expenses = inRange.filter((l) => l.kind === 'expense');
+  const food = inRange.filter((l) => l.kind === 'food');
+  const workouts = inRange.filter((l) => l.kind === 'workout');
+  const spend = expenses.reduce((s, l) => s + (l.amount ?? l.qty ?? 0), 0);
+  const kcal = food.reduce((s, l) => s + (l.calories ?? 0), 0);
+
+  const wantsSpend = /(expense|kharch|kharche|spend|spent|spending|payment)/i.test(text);
+  const wantsFood = /(food|khana|meal|diet|calorie)/i.test(text) && !wantsSpend;
+
+  if (!inRange.length) {
+    const msg = `No ${wantsSpend ? 'expenses' : wantsFood ? 'food' : 'fitness entries'} logged ${range.label === 'today' ? 'today' : `for ${range.label}`} yet. Say “kharcha 200 chai” to log spending, or “2 roti khayi” for food.`;
+    return {
+      messages: [{ text: msg, meta: `Log check · ${range.label} · full timeline in Your space → Fitness` }],
+      speak: msg,
+      card: { kind: 'message', title: `Nothing logged · ${range.label}`, body: msg },
+    };
+  }
+
+  const lines: string[] = [];
+  if (expenses.length) {
+    lines.push(`💸 Spending: ₹${spend} across ${expenses.length} item${expenses.length === 1 ? '' : 's'}`);
+    for (const l of expenses.slice(0, 10)) lines.push(`• ${formatLogLine(l)}`);
+    if (expenses.length > 10) lines.push(`• …and ${expenses.length - 10} more (see Fitness panel)`);
+  }
+  if (food.length) {
+    lines.push(`🍛 Food: ${food.length} item${food.length === 1 ? '' : 's'}${kcal ? `, ≈${kcal} kcal` : ''}`);
+    for (const l of food.slice(0, 8)) lines.push(`• ${formatLogLine(l)}`);
+  }
+  if (workouts.length && !wantsSpend && !wantsFood) {
+    lines.push(`💪 Workouts: ${workouts.length} (${workouts.map((w) => w.label).join('; ')})`);
+  }
+  const when = range.label === 'today' ? 'Aaj' : `${range.label} mein`;
+  const speak = wantsSpend || (!wantsFood && expenses.length)
+    ? `${when} ₹${spend} kharcha, ${expenses.length} cheezon par.${food.length ? ` Khana: ${food.length} items.` : ''}`
+    : wantsFood
+      ? `${when} ${food.length} cheezein khayi${kcal ? `, lagbhag ${kcal} calories` : ''}.`
+      : `${when}: ${workouts.length} workouts, ${food.length} food items, ₹${spend} kharcha.`;
+  const body = `${lines.join('\n')}`;
+  return {
+    messages: [{ text: body, meta: `Log check · ${range.label} · full timeline in Your space → Fitness` }],
+    speak,
+    card: { kind: 'message', title: `Logged · ${range.label}`, body },
   };
 }
 

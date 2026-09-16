@@ -66,10 +66,11 @@ export const CATALOG: ToolEntry[] = [
   {
     id: "fitness",
     title: "Fitness",
-    description: "Voice-logged workouts, food, sleep and streaks.",
+    description: "Voice-logged workouts, food, expenses, sleep and streaks.",
     group: "Do more",
     icon: "fitness",
-    keywords: "workout gym food calories sleep streak hiit exercise",
+    keywords:
+      "workout gym food calories sleep streak hiit exercise expense expenses kharch kharcha spend spending budget paisa",
   },
   {
     id: "stories",
