@@ -71,15 +71,13 @@ export function AppHeader() {
       </Link>
       <nav aria-label="Main navigation">
         {TABS.map((tab) => (
-          <Link
-            prefetch={false}
-            key={tab.id}
-            href={tab.href}
-            aria-current={active === tab.id ? "page" : undefined}
-          >
+          // A plain <a>, not <Link>: leaving Today must swap the document so the
+          // third-party provider script loaded on Today is left behind (and a
+          // pending microphone permission prompt is released). e2e pins this.
+          <a key={tab.id} href={tab.href} aria-current={active === tab.id ? "page" : undefined}>
             <Icon name={tab.icon} />
             {tab.label}
-          </Link>
+          </a>
         ))}
       </nav>
       <AccountLink />

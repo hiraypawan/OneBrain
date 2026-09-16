@@ -59,8 +59,8 @@ jobs:
           # artifacts, which are served from hosts a sandboxed reviewer cannot
           # reach. Emit the failing test titles and the report tail as ::error::.
           emit() {
-            title="$1"; shift
-            msg=$(printf '%s' "$1" | head -c 6000 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/%0A$//')
+            title="$1"; body="$2"; cap="${3:-6000}"
+            msg=$(printf '%s' "$body" | head -c "$cap" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/%0A$//')
             echo "::error title=${title}::${msg}"
           }
           for log in /tmp/e2e.log /tmp/compat.log; do
@@ -74,6 +74,10 @@ jobs:
             grep -E "^ +[0-9]+\) " "$log" | head -n 12 | while read -r line; do
               emit "playwright/$(basename "$log")" "$line"
             done
+            # Titles alone do not say why a test failed, and traces/artifacts are
+            # served from hosts a review agent often cannot reach — so ship the
+            # locator + expected/received bodies as one wider annotation.
+            emit "playwright-blocks/$(basename "$log")" "$(grep -A 26 -E '^ +[0-9]+\) ' "$log" | head -n 320)" 30000
             emit "report-tail/$(basename "$log")" "$(tail -n 90 "$log")"
           done
       - uses: actions/upload-artifact@v4
