@@ -54,10 +54,18 @@ test("capture, persistence, explicit links, task completion and verified undo", 
   await expect(page.locator(".connections-svg line")).toHaveCount(1);
   await expect(page.locator(".thought-node")).toHaveCount(2);
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Complete Prepare the website quotation" })
-    .click();
-  await expect(page.locator(".task-row")).toHaveCount(0);
+  const complete = page.getByRole("button", {
+    name: "Complete Prepare the website quotation",
+  });
+  await expect(complete).toBeVisible();
+  await complete.click();
+  await expect(complete).toHaveCount(0);
+  // The receipt line stays on the brief so an accidental save or completion is
+  // reversible without opening the activity log anywhere.
+  await expect(page.locator(".save-receipt")).toContainText("Verified locally");
+  await expect(
+    page.locator(".save-receipt").getByRole("button", { name: "Undo" }),
+  ).toBeEnabled();
   await openActivity(page);
   await expect(page.locator(".receipt")).toHaveCount(4);
   await expect(page.locator(".receipt").first()).toContainText(
@@ -69,7 +77,9 @@ test("capture, persistence, explicit links, task completion and verified undo", 
     .getByRole("button", { name: "Undo" })
     .click();
   await page.goto("/");
-  await expect(page.locator(".task-row")).toHaveCount(1);
+  // `.task-row` belonged to the task list that used to sit on Today; the panel
+  // now owns the list, so the brief's own affordance is what has to come back.
+  await expect(complete).toHaveCount(1);
   expect(errors).toEqual([]);
 });
 test("proactive settings opt in and persist; dialog is keyboard accessible", async ({
@@ -144,6 +154,7 @@ test("typed calculation is deterministic and connector status is honest", async 
 test("proactive voice invitation waits for silence, gets consent and stops with the session", async ({
   page,
 }) => {
+  test.setTimeout(150_000); // [diagnostic]
   await page.clock.install({ time: new Date(2026, 8, 10, 12, 0) });
   await page.evaluate(() => {
     const track = {

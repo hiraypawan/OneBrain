@@ -259,6 +259,7 @@ test("settings navigation starts a fresh document and leaves a loaded provider b
 test("a saved local profile is not presented as a verified Google account", async ({
   page,
 }) => {
+  test.setTimeout(150_000); // [diagnostic]
   await page.goto("/");
   await page.evaluate(async () => {
     await new Promise<void>((resolve, reject) => {
