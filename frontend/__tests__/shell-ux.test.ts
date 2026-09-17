@@ -62,9 +62,9 @@ describe('the five-tab shell', () => {
     ]) {
       expect(existsSync(join(root, gone)), gone).toBe(false);
     }
-    expect(read('app/shell.css')).not.toMatch(/gooey|gravity/i);
+    const product = read('app/product.css');
+    expect(product).not.toMatch(/gooey|gravity/i);
     expect(read('app/globals.css')).not.toMatch(/\.gooey|\.gravity/i);
-    expect(read('app/product.css')).not.toMatch(/\.gooey|\.gravity-letters/i);
   });
 
   it('never lets a retired or unknown panel key fall through to Object.prototype', () => {
@@ -100,7 +100,10 @@ describe('the five-tab shell', () => {
     // redefined on the root element, because product.css paints Today and Your
     // space with hard-coded dark values and the pair would be unreadable. (The
     // compatibility matrix proved it: axe color-contrast failures on WebKit.)
-    const css = read('app/shell.css');
+    // One authored product stylesheet since 2026-09-17 (app/shell.css was folded
+    // into it) — the light palette still lives on islands, not on the root.
+    const css = read('app/product.css');
+    expect(existsSync(join(root, 'app/shell.css'))).toBe(false);
     expect(css).not.toMatch(/html\[data-ob-theme='light'\]\s*\{[^}]*--ob-text/);
     expect(css).toMatch(
       /html\[data-ob-theme='light'\] \.track-wrap,[\s\S]{0,400}background: var\(--ob-bg\)/,
@@ -117,12 +120,21 @@ describe('the five-tab shell', () => {
   });
 
   it('keeps the tab bar inside 320px without a second stylesheet per tab', () => {
-    const css = read('app/shell.css');
+    const css = read('app/product.css');
     expect(css).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.app-header nav a\s*\{[\s\S]*?flex: 1 1 0/);
     expect(css).toContain('safe-area-inset-bottom');
-    // One consolidated file, imported once, instead of a pile of per-panel CSS.
-    expect(read('app/layout.tsx')).toContain("import './shell.css'");
+    // Exactly two authored stylesheets: the base layer and the product layer.
+    // The shell surfaces used to be a third file whose position in the import
+    // list decided which cascade won; that is the kind of thing that reads as a
+    // design system and isn't one.
+    const layout = read('app/layout.tsx');
+    expect(layout).toContain("import './globals.css'");
+    expect(layout).toContain("import './product.css'");
+    expect(layout).not.toMatch(/shell\.css|track\/track\.css|operations\/operations\.css/);
     expect(existsSync(join(root, 'app/track/track.css'))).toBe(false);
+    // globals.css is now the base layer only: tokens, tailwind, element rules.
+    expect(read('app/globals.css')).not.toMatch(/^\.[a-z][\w-]*\.record-row/m);
+    expect(read('app/globals.css').split('\n').length).toBeLessThan(160);
   });
 });
 

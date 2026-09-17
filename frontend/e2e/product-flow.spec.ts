@@ -21,9 +21,10 @@ test("first use explains the product and supports try, review, save and reopen w
   await expect(
     page.getByRole("list", { name: "How OneBrain works" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("tab", { name: "List", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
+  // Today is a brief, not a workspace: no view tabs, no canvas, no search box.
+  // The record browser lives in Your space → Notes & activity now.
+  await expect(page.getByRole("tab")).toHaveCount(0);
+  await expect(page.getByLabel("Search your memory")).toHaveCount(0);
   await page.getByRole("button", { name: "Try a note", exact: true }).click();
   await expect(page.locator(".record-row")).toHaveCount(0);
   await page
@@ -48,6 +49,7 @@ test("first use explains the product and supports try, review, save and reopen w
   await expect(
     page.getByRole("dialog", { name: "The full context" }),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete item" })).toBeVisible();
   await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
     "Maya prefers a call before lunch",
   );

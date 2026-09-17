@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next';
 import { ProviderScript } from '@/components/ProviderScript';
 import './globals.css';
 import './product.css';
-import './shell.css';
 import { StoreHydrator } from '@/components/StoreHydrator';
 import { ThemeSync } from '@/components/ThemeSync';
 import { MainNav } from '@/components/MainNav';

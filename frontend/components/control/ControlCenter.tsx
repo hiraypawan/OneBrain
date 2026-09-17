@@ -35,6 +35,7 @@ const PANELS: Record<string, React.ComponentType> = {
   reminders: dynamic(() => import("./Reminders"), { loading }),
   fitness: dynamic(() => import("./Fitness").then((m) => m.Fitness), { loading }),
   memory: dynamic(() => import("./Memory"), { loading }),
+  notes: dynamic(() => import("./Notes").then((m) => m.Notes), { loading }),
   "memory-search": dynamic(() => import("./MemorySearch"), { loading }),
   timeline: dynamic(() => import("./Timeline"), { loading }),
   conversations: dynamic(() => import("./Conversations"), { loading }),

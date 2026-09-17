@@ -1,2 +1,2 @@
-import { NeuralWorkspace } from '@/components/workspace/NeuralWorkspace';
-export default function Home() { return <NeuralWorkspace />; }
+import { TodayView } from '@/components/today/TodayView';
+export default function Home() { return <TodayView />; }

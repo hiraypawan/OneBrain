@@ -63,6 +63,16 @@ export const CATALOG: ToolEntry[] = [
       "expenses spending budget kharcha kharcha-paisa food calories diet sleep weight water workouts streak report history diary",
   },
   {
+    id: "notes",
+    title: "Notes & activity",
+    description:
+      "Everything you saved: search it, see the context map, undo a change.",
+    group: "Your record",
+    icon: "note",
+    keywords:
+      "notes note ideas decisions people projects task list canvas map undo activity receipts history memory session only verified local",
+  },
+  {
     id: "fitness",
     title: "Fitness log",
     description:

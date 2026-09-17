@@ -13,7 +13,9 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-const panels = ['', 'account', 'voice', 'privacy', 'advanced', 'data-export', 'debug', 'shared', 'tools', 'vault', 'reminders', 'memory', 'memory-search', 'timeline', 'conversations'];
+// 'notes' and 'tasks' joined the list on 2026-09-17 when Today’s record browser
+// (search, canvas, receipts) and the unified To-Do became real panels here.
+const panels = ['', 'account', 'voice', 'privacy', 'advanced', 'data-export', 'debug', 'shared', 'tools', 'vault', 'reminders', 'tasks', 'notes', 'memory', 'memory-search', 'timeline', 'conversations'];
 for (const panel of panels) test(`panel ${panel || 'directory'}: responsive, accessible, no automatic microphone`, async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -24,6 +26,7 @@ for (const panel of panels) test(`panel ${panel || 'directory'}: responsive, acc
   if (panel === 'vault') await expect(page.getByLabel('Master password')).toBeVisible();
   if (panel === 'shared' || panel === 'account') await expect(page.getByRole('button', { name: 'Continue with Google', exact: true })).toBeVisible();
   if (panel === 'memory-search') await expect(page.getByLabel('Words to find')).toBeVisible();
+  if (panel === 'notes') await expect(page.getByLabel('Search your memory')).toBeVisible();
   await expect(page.getByText('Opening encrypted storage…')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   // Settle the app’s own motion before measuring colour. `.control-panel` enters
@@ -65,6 +68,8 @@ test('long mixed-language capture survives review, reload, and editing', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await page.getByRole('button', { name: 'Save 1 item', exact: true }).click();
   await expect(page.locator('.record-row')).toHaveCount(1);
+  // A brief, not a workspace: Today must not grow view tabs back onto the page.
+  await expect(page.getByRole('tab')).toHaveCount(0);
   await page.reload();
   await page.locator('.record-row').click();
   await expect(page.getByRole('dialog', { name: 'The full context' })).toBeVisible();

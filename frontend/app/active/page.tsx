@@ -1,16 +1,11 @@
-'use client';
-import dynamic from 'next/dynamic';
+import { VoiceClient } from '@/components/voice/VoiceClient';
+export const metadata = { title: 'Voice · OneBrain' };
 
-// Client-only: the voice engine touches mic/speech APIs that don't exist on
-// the server, and this keeps any bundle skew from crashing hydration.
-const ActiveMode = dynamic(
-  () => import('@/components/ActiveMode').then((m) => m.ActiveMode),
-  {
-    ssr: false,
-    loading: () => <p className="py-10 text-center text-gray-400">Loading voice engine…</p>,
-  }
-);
-
-export default function ActivePage() {
-  return <ActiveMode />;
+// “Active mode” is the name this app spoke and printed for a year: full-screen
+// listening. It used to open the entire workspace, which is why Today grew into a
+// tool cabinet. The route stays alive and now lands on the Voice tab’s surface —
+// client-only for the same reason it always was (the mic and speech APIs do not
+// exist on the server).
+export default function Page() {
+  return <VoiceClient />;
 }

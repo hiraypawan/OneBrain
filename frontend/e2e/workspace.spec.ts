@@ -6,15 +6,23 @@ test.beforeEach(async ({ page }) => {
   await page.route("https://js.puter.com/**", (route) => route.abort());
   await stubSpeechService(page);
   await page.goto("/");
-  await page.getByRole("tab", {name:"Context map",exact:true}).click();
 });
+/** The canvas map now lives in Your space → Notes & activity (Today is a brief). */
+async function openMap(page: import("@playwright/test").Page) {
+  await page.goto("/control?panel=notes");
+  await page.getByRole("tab", { name: "Context map", exact: true }).click();
+}
+async function openActivity(page: import("@playwright/test").Page) {
+  await page.goto("/control?panel=notes");
+  await page.getByRole("tab", { name: "Activity", exact: true }).click();
+}
 test("capture, persistence, explicit links, task completion and verified undo", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await expect(
-    page.getByRole("heading", { name: /Notes. Tasks. Answers./ }),
+    page.getByRole("region", { name: "Your day so far" }),
   ).toBeVisible();
   await page.getByLabel("Capture type").selectOption("person");
   await page
@@ -25,7 +33,7 @@ test("capture, persistence, explicit links, task completion and verified undo", 
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Save 1 item", exact: true }).click();
-  await expect(page.locator(".thought-node")).toHaveCount(1);
+  await expect(page.locator(".record-row")).toHaveCount(1);
   await page.getByLabel("Capture type").selectOption("task");
   await page
     .getByLabel("Capture a thought", { exact: true })
@@ -34,25 +42,23 @@ test("capture, persistence, explicit links, task completion and verified undo", 
     .getByRole("button", { name: "Review capture", exact: true })
     .click();
   await page.getByRole("button", { name: "Save 1 item", exact: true }).click();
-  await expect(page.locator(".thought-node")).toHaveCount(2);
+  await expect(page.locator(".record-row")).toHaveCount(2);
   await page
-    .locator(".thought-node")
+    .locator(".record-row")
     .filter({ hasText: "Prepare the website quotation" })
     .click();
   await page.getByLabel("Rahul — ABC Corp", { exact: true }).check();
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await page.getByRole("button", { name: "Close dialog" }).click();
+  await openMap(page);
   await expect(page.locator(".connections-svg line")).toHaveCount(1);
-  await page.reload();
-  await page.getByRole("tab", {name:"Context map",exact:true}).click();
   await expect(page.locator(".thought-node")).toHaveCount(2);
-  await expect(page.locator(".connections-svg line")).toHaveCount(1);
-  await page.getByRole("tab", { name: /Today/ }).click();
+  await page.goto("/");
   await page
     .getByRole("button", { name: "Complete Prepare the website quotation" })
     .click();
   await expect(page.locator(".task-row")).toHaveCount(0);
-  await page.getByRole("tab", { name: "Activity" }).click();
+  await openActivity(page);
   await expect(page.locator(".receipt")).toHaveCount(4);
   await expect(page.locator(".receipt").first()).toContainText(
     "Verified locally",
@@ -62,7 +68,7 @@ test("capture, persistence, explicit links, task completion and verified undo", 
     .first()
     .getByRole("button", { name: "Undo" })
     .click();
-  await page.getByRole("tab", { name: /Today/ }).click();
+  await page.goto("/");
   await expect(page.locator(".task-row")).toHaveCount(1);
   expect(errors).toEqual([]);
 });
@@ -108,15 +114,15 @@ test("mobile layout, brain dump preview and memory-off behavior", async ({
     .click();
   await expect(page.locator(".draft-editor")).toHaveCount(3);
   await page.getByRole("button", { name: "Save 3 items" }).click();
-  await page.getByRole("tab", { name: "Activity" }).click();
+  await openActivity(page);
   await expect(page.locator(".receipt")).toContainText("Session only");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await page.reload();
-  await expect(page.locator(".thought-node")).toHaveCount(0);
+  await page.goto("/");
+  await expect(page.locator(".record-row")).toHaveCount(0);
 });
 test("typed calculation is deterministic and connector status is honest", async ({
   page,
