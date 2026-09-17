@@ -17,7 +17,7 @@ import { useAssistantStore } from "@/store/assistant";
 import { useFeaturesStore } from "@/store/features";
 import { useWorkspaceStore } from "@/store/workspace";
 import { normalizeProactive } from "@/lib/proactive";
-import { buildTodoList, filterTodo, todoCounts } from "@/lib/todo";
+import { buildTodoList, todoCounts } from "@/lib/todo";
 import { todayStrip } from "@/lib/track";
 import { unlockAudioOutput } from "@/lib/audio";
 import {
@@ -135,11 +135,6 @@ export function TodayView() {
       ),
     [counts, strip, goals, workspace.items.length, now],
   );
-  const dueToday = useMemo(
-    () => filterTodo(todo, "today").slice(0, 3),
-    [todo],
-  );
-  void dueToday; // the brief lists device tasks it can complete; the rest is a count
   const latest = state.messages
     .filter((m) => m.role === "assistant")
     .slice(-1)[0];

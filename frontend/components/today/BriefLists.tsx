@@ -80,7 +80,7 @@ export function NextUp({
           </a>
         </>
       )}
-      {extra > 0 && (
+      {extra > 0 && tasks.length > 0 && (
         <p className="next-up-more">
           +{extra} more in your To-Do
           {counts.overdue ? ` · ${counts.overdue} overdue` : ""}
