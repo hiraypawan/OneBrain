@@ -148,7 +148,7 @@ function prune(css, live) {
  */
 function isBaseRule(rule) {
   const s = rule.selector.replace(/\s+/g, ' ').trim();
-  return !/^[.#\[]/.test(s);
+  return !/^[.#[]/.test(s);
 }
 
 function fold(globals, product, shellCss) {
