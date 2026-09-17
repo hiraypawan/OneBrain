@@ -4540,3 +4540,18 @@ html[data-ob-theme='light'] .track-window-kind button[aria-pressed='true'] {
 .save-receipt a:hover {
   text-decoration: underline;
 }
+
+/* The width guard the old page frame supplied for free.
+   `.thought-stage { min-width: 0 }` kept the context map from measuring an
+   unbounded container; inside a grid without it, the map’s own extent grows the
+   panel instead of its internal scroller — horizontal overflow at 320/390px,
+   and at desktop widths a measure→grow→re-measure loop that left the zoom
+   control permanently “not stable” (the browser suite timed out on it for 45s).
+   The panel is the grid now, so the guard is stated on its children. */
+.notes-panel > *,
+.notes-panel #notes-panel-body,
+.notes-panel .canvas-frame,
+.notes-panel .canvas-scroll {
+  min-width: 0;
+  max-width: 100%;
+}

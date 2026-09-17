@@ -80,12 +80,20 @@ jobs:
             # failure is also published on its own two lines. This index is what
             # makes a red run readable without opening a trace: last time eleven
             # failures fitted badly and only the tail survived the cap.
+            # Five short lines per failure: the title, the error, and the
+            # assertion’s own Expected/Received and code frame. Bodies are far
+            # too long for one annotation (a capped message kept the last failure
+            # and threw the first five away), and “expect(locator).toHaveCount
+            # failed” without the line it failed on is not a diagnosis.
             index=$(awk '
-              /^ +[0-9]+\) / { if (title != "") printf "%s\n%s\n", title, why; title = $0; why = ""; next }
-              /^ +Error:/ && why == "" { line = $0; sub(/^ +/, "", line); why = "    " substr(line, 1, 240) }
-              END { if (title != "") printf "%s\n%s\n", title, why }
+              /^ +[0-9]+\) / { if (t != "") printf "%s\n%s\n", t, b; t = $0; b = ""; n = 0; next }
+              t != "" && n < 14 {
+                line = $0; sub(/^ +/, "", line)
+                if (line ~ /^(Error|Expected|Received|Locator|> *[0-9]+ \||at \/)/) { b = b "\n    " substr(line, 1, 200); n++ }
+              }
+              END { if (t != "") printf "%s\n%s\n", t, b }
             ' "$log")
-            [ -n "$index" ] && emit "playwright-index/$(basename "$log")" "$index" 12000
+            [ -n "$index" ] && emit "playwright-index/$(basename "$log")" "$index" 20000
             blocks=$(grep -A 30 -E "^ +[0-9]+\) " "$log" | head -n 340)
             if [ -n "$blocks" ]; then
               emit "playwright-failures/$(basename "$log")" "$blocks" 40000

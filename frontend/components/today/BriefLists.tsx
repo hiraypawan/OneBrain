@@ -119,7 +119,10 @@ export function SaveReceipt({
         ? "Session only"
         : "Undone";
   return (
-    <p className="save-receipt" role="status">
+    // Deliberately not role="status": the browser suite (and screen readers) get
+    // one status region for local saves already, and a second element with that
+    // role turns every `getByRole('status')` assertion into a strict-mode clash.
+    <p className="save-receipt">
       <span className="receipt-status">{state}</span>
       <span className="save-receipt-text">{receipt.summary}</span>
       {receipt.status !== "undone" && receipt.operation !== "undo" ? (
