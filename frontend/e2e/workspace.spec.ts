@@ -76,6 +76,11 @@ test("capture, persistence, explicit links, task completion and verified undo", 
     .first()
     .getByRole("button", { name: "Undo" })
     .click();
+  // The receipt is written before the store reports the undo, so waiting for the
+  // "Undid" row is what proves the write landed. `page.goto` is a real navigation:
+  // issued while the transaction is in flight, the unload can tear it down and the
+  // next document shows the old state.
+  await expect(page.locator(".receipt").first()).toContainText("Undid:");
   await page.goto("/");
   // `.task-row` belonged to the task list that used to sit on Today; the panel
   // now owns the list, so the brief's own affordance is what has to come back.
