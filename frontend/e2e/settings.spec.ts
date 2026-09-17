@@ -259,7 +259,10 @@ test("settings navigation starts a fresh document and leaves a loaded provider b
 test("a saved local profile is not presented as a verified Google account", async ({
   page,
 }) => {
-  test.setTimeout(150_000); // [diagnostic]
+  // Marked slow, not loosened: this test waits on the app's own cold-start
+  // IndexedDB seeding, and two Chromium workers on a two-core runner push that
+  // past 45s. The assertions are untouched; only the budget is honest.
+  test.slow();
   await page.goto("/");
   await page.evaluate(async () => {
     await new Promise<void>((resolve, reject) => {

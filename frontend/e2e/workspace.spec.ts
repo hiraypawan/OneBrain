@@ -154,7 +154,10 @@ test("typed calculation is deterministic and connector status is honest", async 
 test("proactive voice invitation waits for silence, gets consent and stops with the session", async ({
   page,
 }) => {
-  test.setTimeout(150_000); // [diagnostic]
+  // Marked slow, not loosened: an hour of faked clock in one `runFor` call replays
+  // every app timer (idle probes, mic level, keep-alive) against a two-core runner.
+  // The assertions are untouched; only the budget is honest.
+  test.slow();
   await page.clock.install({ time: new Date(2026, 8, 10, 12, 0) });
   await page.evaluate(() => {
     const track = {
