@@ -175,13 +175,32 @@ test('blocked preference writes explain session-only changes', async ({ page }) 
   await expect(page.locator('.workspace-notice[role=alert]')).toContainText('Preferences could not be saved');
 });
 
+// Same two things the panel matrix learned on 2026-09-17, shared instead of
+// duplicated: settle the app's motion before measuring colour, and put axe's
+// measured reason in the failure text. Rule ids alone sent a reviewer hunting
+// for a trace.zip that CI cannot always serve.
+async function axeDetail(page: import('@playwright/test').Page) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    for (const a of document.getAnimations?.() ?? []) {
+      try { a.finish(); } catch { a.cancel(); } // infinite loops (voice dots) can’t finish
+    }
+  });
+  const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  return scan.violations.map(v => {
+    const reasons = v.nodes
+      .flatMap(n => [...n.any, ...n.all, ...n.none].map(c => c.message).filter(Boolean))
+      .map(t => t.replace(/\s+/g, ' ').trim());
+    return [v.id, v.help, ...reasons.map(r => `• ${r}`)].filter(Boolean).join(' — ');
+  });
+}
+
 test('Today and capture review have no detected WCAG A/AA violations', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByLabel('Capture a thought', { exact: true })).toBeVisible();
-  const scan = () => new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
-  expect((await scan()).violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) }))).toEqual([]);
+  await expect(await axeDetail(page)).toEqual([]);
   await page.getByLabel('Capture a thought', { exact: true }).fill('Accessible review');
   await page.getByRole('button', { name: 'Review capture', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Review your capture' })).toBeVisible();
-  expect((await scan()).violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) }))).toEqual([]);
+  await expect(await axeDetail(page)).toEqual([]);
 });
