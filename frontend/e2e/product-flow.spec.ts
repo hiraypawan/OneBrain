@@ -21,9 +21,10 @@ test("first use explains the product and supports try, review, save and reopen w
   await expect(
     page.getByRole("list", { name: "How OneBrain works" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("tab", { name: "List", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
+  // Today is a brief, not a workspace: no view tabs, no canvas, no search box.
+  // The record browser lives in Your space → Notes & activity now.
+  await expect(page.getByRole("tab")).toHaveCount(0);
+  await expect(page.getByLabel("Search your memory")).toHaveCount(0);
   await page.getByRole("button", { name: "Try a note", exact: true }).click();
   await expect(page.locator(".record-row")).toHaveCount(0);
   await page
@@ -48,19 +49,20 @@ test("first use explains the product and supports try, review, save and reopen w
   await expect(
     page.getByRole("dialog", { name: "The full context" }),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete item" })).toBeVisible();
   await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
     "Maya prefers a call before lunch",
   );
   expect(await page.evaluate(() => (window as any).__micCalls)).toBe(0);
 });
 for (const width of [320, 390, 768, 1440])
-  test(`only two main destinations, responsive at ${width}px`, async ({
+  test(`five main destinations, responsive at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Main navigation" });
-    await expect(nav.getByRole("link")).toHaveCount(2);
+    await expect(nav.getByRole("link")).toHaveCount(5);
     await expect(
       nav.getByRole("link", { name: "Today", exact: true }),
     ).toHaveAttribute("aria-current", "page");
@@ -69,11 +71,14 @@ for (const width of [320, 390, 768, 1440])
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await nav.getByRole("link", { name: "Your space", exact: true }).click();
+    await nav.getByRole("link", { name: "Space", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: /Your space/ }),
     ).toBeVisible();
-    await expect(nav.getByRole("link")).toHaveCount(2);
+    await expect(nav.getByRole("link")).toHaveCount(5);
+    await expect(
+      nav.getByRole("link", { name: "Space", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -228,4 +233,23 @@ test("notification permission is requested only after an explicit action", async
   expect(
     await page.evaluate(() => (window as any).__notificationRequests),
   ).toBe(1);
+});
+
+test("the theme preference is a reachable control, not an orphaned setting", async ({
+  page,
+}) => {
+  await page.goto("/control?panel=advanced");
+  const light = page.getByRole("radio", { name: "Light (beta)" });
+  await expect(light).toBeVisible();
+  await light.click();
+  await expect(page.locator("html")).toHaveAttribute("data-ob-theme", "light");
+  // It is saved, not just applied: the You tab reports it and a reload keeps it.
+  await page.goto("/you");
+  await expect(page.getByText("light (beta)")).toBeVisible();
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-ob-theme", "light");
+  // Back to the reviewed palette for the rest of the suite.
+  await page.goto("/control?panel=advanced");
+  await page.getByRole("radio", { name: "Dark", exact: true }).click();
+  await expect(page.locator("html")).not.toHaveAttribute("data-ob-theme");
 });

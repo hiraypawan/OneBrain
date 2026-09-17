@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CATALOG } from '@/components/control/catalog';
 import { FREE_LIMITS } from '@/lib/plans';
@@ -14,12 +14,16 @@ const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
  */
 const PROTECTED_STRINGS: { file: string; text: string }[] = [
   { file: 'components/AppHeader.tsx', text: 'Today' },
-  { file: 'components/AppHeader.tsx', text: 'Your space' },
-  { file: 'components/workspace/NeuralWorkspace.tsx', text: 'Open settings' },
+  // 2026-09-16: the shell grew to five tabs, so the nav label is "Space" —
+  // the page it opens still says "Your space" in its own heading.
+  { file: 'components/AppHeader.tsx', text: 'Space' },
+  { file: 'components/control/ControlCenter.tsx', text: 'Your space' },
+  { file: 'components/today/TodayView.tsx', text: 'Open settings' },
   { file: 'components/control/ControlCenter.tsx', text: 'Find a tool or setting' },
-  { file: 'components/workspace/NeuralWorkspace.tsx', text: 'Context map' },
+  // “Context map” is the canvas view; it moved out of Today into this panel.
+  { file: 'components/control/Notes.tsx', text: 'Context map' },
   {
-    file: 'components/workspace/NeuralWorkspace.tsx',
+    file: 'components/today/TodayView.tsx',
     text: 'OneBrain is your voice-first assistant for notes',
   },
 ];
@@ -36,7 +40,7 @@ describe('navigation clarity', () => {
   it('lists Music as a first-class panel, not a hidden setting', () => {
     const music = CATALOG.find((entry) => entry.id === 'music');
     expect(music).toBeDefined();
-    expect(music?.group).toBe('Do more');
+    expect(music?.group).toBe('Utilities');
     expect(music?.keywords).toContain('gaana');
     // Searchable in English and Hindi transliteration, like every other entry.
     expect(music?.keywords).toMatch(/song|music/);
@@ -55,12 +59,48 @@ describe('navigation clarity', () => {
   });
 
   it('drops the jargon that made Today hard to read', () => {
-    const workspace = read('components/workspace/NeuralWorkspace.tsx');
-    expect(workspace).not.toContain('POCKET MODE');
-    expect(workspace).not.toContain('Dark screen');
-    expect(workspace).not.toContain('ONEBRAIN / WORKSPACE');
-    expect(workspace).not.toContain('EVIDENCE, NOT JUST');
-    expect(workspace).toContain('SCREEN-OFF MODE');
+    const today = read('components/today/TodayView.tsx');
+    const voice = read('components/today/VoiceCard.tsx');
+    for (const source of [today, voice]) {
+      expect(source).not.toContain('POCKET MODE');
+      expect(source).not.toContain('Dark screen');
+      expect(source).not.toContain('ONEBRAIN / WORKSPACE');
+      expect(source).not.toContain('EVIDENCE, NOT JUST');
+    }
+    // The screen-off listener is described by what it does, not by a codename.
+    expect(voice).toContain('SCREEN-OFF MODE');
+  });
+
+  // 2026-09-17: Today was the whole workspace (1,541 lines, four view tabs). The
+  // redesign brief says Today is a summary you read, not a tool cabinet you open.
+  // These three guards are what stops the cabinet growing back.
+  it('keeps Today a brief, not a workspace', () => {
+    expect(existsSync(resolve(root, 'components/workspace/NeuralWorkspace.tsx'))).toBe(false);
+    const today = read('components/today/TodayView.tsx');
+    expect(today).not.toContain('role="tablist"');
+    expect(today).not.toContain('ContextMap');
+    expect(today).not.toContain('searchItems');
+    // Today is six files with one job each (440 lines of page + four small
+    // surfaces + the shared sheet) where it used to be one 1,541-line file that
+    // also owned search, the canvas and the receipt log. The ceiling is what
+    // keeps the next feature from being bolted onto the front page again.
+    expect(today.split('\n').length).toBeLessThan(520);
+    const lines = readdirSync(resolve(root, 'components/today')).reduce(
+      (n, f) => n + read(`components/today/${f}`).split('\n').length,
+      0,
+    );
+    expect(lines).toBeLessThan(1400);
+  });
+
+  it('puts the record browser in exactly one place', () => {
+    const notes = read('components/control/Notes.tsx');
+    expect(notes).toContain('role="tablist"');
+    expect(notes).toContain('ContextMap');
+    expect(notes).toContain('Search your memory');
+    // Undo is a real capability, so the receipt log must still exist somewhere.
+    expect(notes).toContain('workspace.undo');
+    const catalog = read('components/control/catalog.ts');
+    expect(catalog).toContain('id: "notes"');
   });
 });
 
@@ -77,8 +117,8 @@ describe('the "try one of these" card', () => {
 
   it('makes every phrase tappable through the real transcript path', () => {
     expect(source).toContain('onClick={() => say(item.say)}');
-    const workspace = read('components/workspace/NeuralWorkspace.tsx');
-    expect(workspace).toContain('<FeatureHint say={say} />');
+    const today = read('components/today/TodayView.tsx');
+    expect(today).toContain('<FeatureHint say={say} />');
   });
 
   it('mentions the music phrases that stop/continue must not swallow', () => {

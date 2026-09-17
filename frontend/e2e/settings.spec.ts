@@ -18,7 +18,12 @@ test("sign-in is visible on a 320px home and settings have distinct destinations
   ).toBe(true);
   await page.getByRole("button", { name: "Open settings" }).click();
   const shortcuts = page.getByRole("navigation", { name: "Settings sections" });
-  await expect(shortcuts.getByRole("link")).toHaveCount(4);
+  // Account, Notes & activity, Voice, Privacy, Advanced — the fifth appeared when
+  // Today’s record browser became a panel of its own.
+  await expect(shortcuts.getByRole("link")).toHaveCount(5);
+  await expect(
+    shortcuts.getByRole("link", { name: /Notes & activity/ }),
+  ).toHaveAttribute("href", /control\?panel=notes$/);
   await shortcuts.getByRole("link", { name: "Account", exact: true }).click();
   await expect(page).toHaveURL(/control\?panel=account$/);
   await expect(
@@ -242,7 +247,7 @@ test("settings navigation starts a fresh document and leaves a loaded provider b
     (window as any).__oldDocument = true;
     (window as any).puter = { testOnly: true };
   });
-  await page.getByRole("link", { name: "Your space", exact: true }).click();
+  await page.getByRole("link", { name: "Space", exact: true }).click();
   await expect(page).toHaveURL(/control$/);
   expect(
     await page.evaluate(() => ({
@@ -254,6 +259,10 @@ test("settings navigation starts a fresh document and leaves a loaded provider b
 test("a saved local profile is not presented as a verified Google account", async ({
   page,
 }) => {
+  // Marked slow, not loosened: this test waits on the app's own cold-start
+  // IndexedDB seeding, and two Chromium workers on a two-core runner push that
+  // past 45s. The assertions are untouched; only the budget is honest.
+  test.slow();
   await page.goto("/");
   await page.evaluate(async () => {
     await new Promise<void>((resolve, reject) => {

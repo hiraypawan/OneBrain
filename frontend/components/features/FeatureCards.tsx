@@ -5,6 +5,7 @@ import { useAssistantStore } from '@/store/assistant';
 import { useWorkspaceStore } from '@/store/workspace';
 import { mailtoHref, retone, type EmailTone } from '@/lib/email';
 import { formatLogLine } from '@/lib/fitness';
+import { trackHref } from '@/lib/track';
 import { formatClock } from '@/lib/workout';
 import { PAIRS, LANG_NAMES } from '@/lib/translate';
 import { episodesToday, BEDTIME_CAP } from '@/lib/story';
@@ -105,6 +106,7 @@ function CardBody({ card, say }: { card: FeatureCard; say: (t: string) => void }
     case 'digest': return <DigestCard card={card} say={say} />;
     case 'plan': return <PlanCard card={card} />;
     case 'message': return <MessageCard card={card} />;
+    case 'track': return <TrackCard card={card} />;
   }
 }
 
@@ -153,6 +155,11 @@ function EmailCard({ card }: { card: Extract<FeatureCard, { kind: 'email' }> }) 
   );
 }
 
+/** Which Track lens shows a given log kind. */
+export function lensOf(kind: string): 'expenses' | 'food' | 'health' | 'workouts' {
+  return kind === 'expense' ? 'expenses' : kind === 'food' ? 'food' : kind === 'workout' ? 'workouts' : 'health';
+}
+
 function FitnessCard({ card }: { card: Extract<FeatureCard, { kind: 'fitness' }> }) {
   const remove = useFeaturesStore((s) => s.removeFitnessLog);
   const [gone, setGone] = useState(false);
@@ -163,7 +170,7 @@ function FitnessCard({ card }: { card: Extract<FeatureCard, { kind: 'fitness' }>
       <p className="feat-note">{card.totalsLine}</p>
       <p className="feat-note">{card.streakLine}</p>
       <div className="feat-row">
-        <a className="text-button" href="/control?panel=fitness">Open timeline ↗</a>
+        <a className="text-button" href={trackHref({ lens: lensOf(card.log.kind), range: 'day' })}>View in Track →</a>
         {!gone && (
           <button className="text-button danger" onClick={() => { remove(card.log.id); setGone(true); }}>Delete this log</button>
         )}
@@ -206,7 +213,7 @@ function WorkoutCard({ say }: { say: (t: string) => void }) {
       <div>
         <span className="eyebrow">🏁 WORKOUT COMPLETE</span>
         <p className="feat-big">{workout.preset.name} — logged to your fitness timeline!</p>
-        <a className="text-button" href="/control?panel=fitness">See timeline ↗</a>
+        <a className="text-button" href={trackHref({ lens: 'workouts', range: 'week' })}>See this week in Track →</a>
       </div>
     );
   }
@@ -628,6 +635,22 @@ function MessageCard({ card }: { card: Extract<FeatureCard, { kind: 'message' }>
     <div>
       <span className="eyebrow">💡 {card.title.toUpperCase()}</span>
       <p>{card.body}</p>
+    </div>
+  );
+}
+
+/** A deterministic answer about the log, with a deep link straight into Track. */
+function TrackCard({ card }: { card: Extract<FeatureCard, { kind: 'track' }> }) {
+  const href = trackHref({ lens: card.lens, range: card.range, day: card.day });
+  return (
+    <div>
+      <span className="eyebrow">📊 YOUR LOG · {card.title.toUpperCase()}</span>
+      <pre className="feat-pre">{card.body}</pre>
+      <div className="feat-row">
+        <a className="text-button" href={href}>View in Track →</a>
+        <a className="text-button" href="/control?panel=fitness">Full timeline ↗</a>
+      </div>
+      <p className="feat-note">Counted from your own logs on this device — no AI, no guesses.</p>
     </div>
   );
 }

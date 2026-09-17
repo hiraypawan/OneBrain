@@ -27,7 +27,6 @@ import {
 import { db } from "@/lib/db";
 import { useAssistantStore } from "@/store/assistant";
 import { askBrain, askBrainDetailed } from "@/lib/brain";
-import { formatLogsForContext } from "@/lib/fitness";
 import {
   handleFeatureTurn,
   observeTranscript,
@@ -58,7 +57,8 @@ import { synthesizeSpeech } from "@/lib/tts";
 import { digestMessages } from "@/lib/digest";
 import { buildProfileBlock } from "@/lib/profile";
 import { recallRelevant, formatRecall } from "@/lib/recall";
-import { extractiveSummary } from "@/lib/summarize";
+import { rollingSummaryStep } from "@/lib/summarize";
+import { buildContextEnvelope, envelopeForPrompt } from "@/lib/context-envelope";
 import { fitHistory } from "@/lib/context";
 import {
   showActiveNotification,
@@ -944,16 +944,20 @@ export function useAssistant() {
         store.addMessage("user", transcript, meta);
         for (const m of feat.messages) store.addMessage("assistant", m.text, m.meta);
         if (feat.card) useFeaturesStore.getState().setCard(feat.card);
-        // Rolling summary every 20 user messages: fold old context, keep fresh.
+        // Rolling summary on a short turn window (was: every 20 user
+        // messages, which left the first 19 turns carrying the whole
+        // transcript and then folded everything at once). Policy in
+        // lib/summarize.
         try {
           const after = useAssistantStore.getState();
-          const userCount = after.messages.filter(
-            (m) => m.role === "user",
-          ).length;
-          if (userCount > 0 && userCount % 20 === 0) {
-            after.setSessionSummary(
-              extractiveSummary(after.messages, after.sessionSummary || ""),
-            );
+          const step = rollingSummaryStep(
+            after.messages,
+            after.sessionSummary || "",
+            after.summaryState,
+          );
+          if (step) {
+            after.setSessionSummary(step.summary);
+            after.setSummaryState(step.state);
           }
         } catch {}
         await speak(feat.speak);
@@ -968,6 +972,7 @@ export function useAssistant() {
       // chats) + fitted recent history (never overflows small models).
       let profile = "";
       let recall = "";
+      let envelopeLine = "";
       try {
         const d = digestMessages(
           full.slice(-200).map((m) => ({
@@ -998,14 +1003,31 @@ export function useAssistant() {
           useWorkspaceStore.getState().items,
           transcript,
         );
-        // Device fitness/food/expense/sleep log: previously invisible to the
-        // AI, so "what did I spend yesterday" could never work. Now the most
-        // recent entries travel with every turn (see formatLogsForContext).
+        // The token-budgeted envelope: open tasks and reminders, the recent
+        // log, the rolling conversation summary and the connected-work note,
+        // highest-value first and capped, so a long day never bloats the call.
+        // Before this, only the raw log travelled with the turn.
         try {
-          const logsCtx = formatLogsForContext(
-            useFeaturesStore.getState().fitnessLogs,
-          );
-          if (logsCtx) recall += (recall ? "\n" : "") + logsCtx;
+          const features = useFeaturesStore.getState();
+          const envelope = buildContextEnvelope({
+            tasks: useWorkspaceStore.getState().items,
+            reminders: st.reminders,
+            sessionSummary: st.sessionSummary,
+            conversations: st.conversations,
+            fitnessLogs: features.fitnessLogs,
+            serverNotes: features.serverEntitlement
+              ? [
+                  `Connected work is signed in; shared records are read and written from the Connected work panel, never silently from here.`,
+                ]
+              : features.planNotice
+                ? [features.planNotice]
+                : [],
+          });
+          if (envelope.text) {
+            recall +=
+              (recall ? "\n" : "") + envelopeForPrompt(envelope);
+            envelopeLine = `${envelope.included.length} saved thing${envelope.included.length === 1 ? "" : "s"} read for this answer (~${envelope.tokens} tokens${envelope.dropped.length ? `, ${envelope.dropped.length} lower-priority left out` : ""}).`;
+          }
         } catch {}
       }
       const tail = full
@@ -1019,17 +1041,19 @@ export function useAssistant() {
         verbosity: st.settings.verbosity,
       });
       if (sessionGenerationRef.current !== generation) return;
-      store.addMessage("assistant", answer);
-      // Rolling summary every 20 user messages: fold old context, keep it fresh.
+      store.addMessage("assistant", answer, envelopeLine || undefined);
+      // Same rolling window as the pre-send pass, so a long session never
+      // ships an unbounded raw tail.
       try {
         const after = useAssistantStore.getState();
-        const userCount = after.messages.filter(
-          (m) => m.role === "user",
-        ).length;
-        if (userCount > 0 && userCount % 20 === 0) {
-          after.setSessionSummary(
-            extractiveSummary(after.messages, after.sessionSummary || ""),
-          );
+        const step = rollingSummaryStep(
+          after.messages,
+          after.sessionSummary || "",
+          after.summaryState,
+        );
+        if (step) {
+          after.setSessionSummary(step.summary);
+          after.setSummaryState(step.state);
         }
       } catch {}
       await speak(answer);

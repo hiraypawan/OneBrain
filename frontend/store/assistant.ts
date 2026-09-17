@@ -44,6 +44,9 @@ interface AssistantState {
   markSessionStart: () => void;
   sessionSummary: string | null;
   setSessionSummary: (s: string | null) => void;
+  /** Rolling-summary policy state: how many messages were folded, and when. */
+  summaryState: { mark: number; at: number | null };
+  setSummaryState: (s: { mark: number; at: number | null }) => void;
   micDeviceId: string | null;
   setMicDeviceId: (id: string | null) => void;
   speakerDeviceId: string | null;
@@ -170,6 +173,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   sessionStart: null,
   markSessionStart: () => set({ sessionStart: Date.now(), bgLog: [] }),
   sessionSummary: null,
+  summaryState: { mark: 0, at: null },
+  setSummaryState: (summaryState) => set({ summaryState }),
   setSessionSummary: (sessionSummary) => {
     set({ sessionSummary });
     if (useAssistantStore.getState().settings.memoryEnabled) db.kv.put({ key: 'sessionSummary', value: sessionSummary }).catch(() => {});
@@ -247,7 +252,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       }
       await db.kv.delete('sessionSummary');
     });
-    set((s) => ({ messages: s.messages.filter((m) => !dropIds.has(m.id)), sessionSummary: null }));
+    set((s) => ({ messages: s.messages.filter((m) => !dropIds.has(m.id)), sessionSummary: null, summaryState: { mark: 0, at: null } }));
   },
   deleteConversation: async (id) => {
     await deleteConversationLocal(id);
@@ -256,6 +261,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       messages: s.currentConversationId === id ? [] : s.messages,
       currentConversationId: s.currentConversationId === id ? crypto.randomUUID() : s.currentConversationId,
       sessionSummary: s.currentConversationId === id ? null : s.sessionSummary,
+      summaryState: s.currentConversationId === id ? { mark: 0, at: null } : s.summaryState,
     }));
   },
   newConversation: () => {
@@ -263,6 +269,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
     set((s) => ({
       messages: [],
       sessionSummary: null,
+      summaryState: { mark: 0, at: null },
       currentConversationId: id,
       conversations: [{ id, title: 'Conversation', createdAt: Date.now(), messages: [] }, ...s.conversations],
     }));
@@ -299,7 +306,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
     }
     try { const { useWorkspaceStore } = await import('./workspace'); await useWorkspaceStore.getState().load('device'); } catch {}
     set({
-      settings: defaultSettings, sessionSummary: null,
+      settings: defaultSettings, sessionSummary: null, summaryState: { mark: 0, at: null },
       messages: [], conversations: [], reminders: [], user: null,
       isAuthenticated: false, authRevision: useAssistantStore.getState().authRevision + 1, isActive: false, currentStatus: 'idle',
       currentConversationId: `${Date.now()}`, apiKey: '', voiceBaseline: null, micNotice: null,

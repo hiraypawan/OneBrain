@@ -59,8 +59,8 @@ jobs:
           # artifacts, which are served from hosts a sandboxed reviewer cannot
           # reach. Emit the failing test titles and the report tail as ::error::.
           emit() {
-            title="$1"; shift
-            msg=$(printf '%s' "$1" | head -c 6000 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/%0A$//')
+            title="$1"; body="$2"; cap="${3:-6000}"
+            msg=$(printf '%s' "$body" | head -c "$cap" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed 's/%0A$//')
             echo "::error title=${title}::${msg}"
           }
           for log in /tmp/e2e.log /tmp/compat.log; do
@@ -71,10 +71,38 @@ jobs:
               tail -n 220 "$log"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            grep -E "^ +[0-9]+\) " "$log" | head -n 12 | while read -r line; do
-              emit "playwright/$(basename "$log")" "$line"
-            done
-            emit "report-tail/$(basename "$log")" "$(tail -n 90 "$log")"
+            # A check run holds at most 50 annotations, and titles alone do not
+            # say why a test failed. Traces and artifacts live on hosts a review
+            # agent often cannot reach, so the bodies themselves (locator,
+            # expected vs received, the code frame) go up as one annotation per
+            # log; the per-test titles are only used when no body was found.
+            # Bodies are long and a message is capped, so the *why* of every
+            # failure is also published on its own two lines. This index is what
+            # makes a red run readable without opening a trace: last time eleven
+            # failures fitted badly and only the tail survived the cap.
+            # Five short lines per failure: the title, the error, and the
+            # assertion’s own Expected/Received and code frame. Bodies are far
+            # too long for one annotation (a capped message kept the last failure
+            # and threw the first five away), and “expect(locator).toHaveCount
+            # failed” without the line it failed on is not a diagnosis.
+            index=$(awk '
+              /^ +[0-9]+\) / { if (t != "") printf "%s\n%s\n", t, b; t = $0; b = ""; n = 0; next }
+              t != "" && n < 14 {
+                line = $0; sub(/^ +/, "", line)
+                if (line ~ /^(Error|Expected|Received|Locator|> *[0-9]+ \||at \/)/) { b = b "\n    " substr(line, 1, 200); n++ }
+              }
+              END { if (t != "") printf "%s\n%s\n", t, b }
+            ' "$log")
+            [ -n "$index" ] && emit "playwright-index/$(basename "$log")" "$index" 20000
+            blocks=$(grep -A 30 -E "^ +[0-9]+\) " "$log" | head -n 340)
+            if [ -n "$blocks" ]; then
+              emit "playwright-failures/$(basename "$log")" "$blocks" 40000
+            else
+              grep -E "^ +[0-9]+\) " "$log" | head -n 12 | while read -r line; do
+                emit "playwright/$(basename "$log")" "$line"
+              done
+            fi
+            emit "report-tail/$(basename "$log")" "$(tail -n 60 "$log")"
           done
       - uses: actions/upload-artifact@v4
         if: failure()

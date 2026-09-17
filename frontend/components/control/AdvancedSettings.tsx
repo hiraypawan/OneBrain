@@ -4,7 +4,7 @@ import { SettingsShell } from "@/components/settings/SettingsShell";
 import { VoiceEnrollment } from "@/components/settings/VoiceEnrollment";
 import { useAssistantStore } from "@/store/assistant";
 export default function Advanced() {
-  const { apiKey, setApiKey } = useAssistantStore();
+  const { apiKey, setApiKey, settings, updateSettings } = useAssistantStore();
   const [draft, setDraft] = useState(apiKey),
     [message, setMessage] = useState(""),
     [testing, setTesting] = useState(false),
@@ -60,6 +60,42 @@ export default function Advanced() {
       title="Advanced"
       description="Optional provider tools and device diagnostics. None of these are needed to sign in."
     >
+      <section className="settings-card">
+        <h2>Theme</h2>
+        <p>
+          Dark is the palette this app was designed and reviewed in. Light is an
+          early token swap for the tab bar and the Track, Voice and You tabs —
+          not a second design. Today and Your space keep their dark palette
+          until they are reviewed with it, so a light panel never ends up with
+          text chosen for the other one.
+        </p>
+        <div
+          className="settings-actions"
+          role="radiogroup"
+          aria-label="Theme on this browser"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={settings.theme !== "light"}
+            onClick={() => updateSettings({ theme: "dark" })}
+          >
+            Dark
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={settings.theme === "light"}
+            onClick={() => updateSettings({ theme: "light" })}
+          >
+            Light (beta)
+          </button>
+        </div>
+        <p className="settings-footnote">
+          Saved on this browser only. It changes colours; it does not change what
+          OneBrain stores or sends anywhere.
+        </p>
+      </section>
       <section className="settings-card">
         <h2>Optional AI provider</h2>
         <p>

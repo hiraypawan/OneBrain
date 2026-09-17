@@ -13,7 +13,9 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-const panels = ['', 'account', 'voice', 'privacy', 'advanced', 'data-export', 'debug', 'shared', 'tools', 'vault', 'reminders', 'memory', 'memory-search', 'timeline', 'conversations'];
+// 'notes' and 'tasks' joined the list on 2026-09-17 when Today’s record browser
+// (search, canvas, receipts) and the unified To-Do became real panels here.
+const panels = ['', 'account', 'voice', 'privacy', 'advanced', 'data-export', 'debug', 'shared', 'tools', 'vault', 'reminders', 'tasks', 'notes', 'memory', 'memory-search', 'timeline', 'conversations'];
 for (const panel of panels) test(`panel ${panel || 'directory'}: responsive, accessible, no automatic microphone`, async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -24,11 +26,34 @@ for (const panel of panels) test(`panel ${panel || 'directory'}: responsive, acc
   if (panel === 'vault') await expect(page.getByLabel('Master password')).toBeVisible();
   if (panel === 'shared' || panel === 'account') await expect(page.getByRole('button', { name: 'Continue with Google', exact: true })).toBeVisible();
   if (panel === 'memory-search') await expect(page.getByLabel('Words to find')).toBeVisible();
+  if (panel === 'notes') await expect(page.getByLabel('Search your memory')).toBeVisible();
   await expect(page.getByText('Opening encrypted storage…')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  // Settle the app’s own motion before measuring colour. `.control-panel` enters
+  // with a 180ms `panel-enter` opacity ramp, and axe reads *computed* colour: a
+  // snapshot mid-flight measures #eabb76 at ~half opacity over #090908 (3.5:1)
+  // and reports a contrast failure no reader ever sees. The app already promises
+  // “no animation under reduced motion”, so this measures the state it ships.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    for (const a of document.getAnimations?.() ?? []) {
+      try { a.finish(); } catch { a.cancel(); } // infinite loops (voice dots) can’t finish
+    }
+  });
   const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   await info.attach('accessibility-results', { body: JSON.stringify(scan.violations, null, 2), contentType: 'application/json' });
-  expect(scan.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) }))).toEqual([]);
+  // Violation ids alone sent a reviewer hunting for the trace, and traces and
+  // screenshots are not reachable from every environment. The reason axe actually
+  // gave (including the colours it compared) goes into the failure itself.
+  const detail = scan.violations.map(v => {
+    // axe-core 4 puts the measured reason on each node’s checks, not on the
+    // violation, so the contrast numbers have to be collected from there.
+    const reasons = v.nodes
+      .flatMap(n => [...n.any, ...n.all, ...n.none].map(c => c.message).filter(Boolean))
+      .map(t => t.replace(/\s+/g, ' ').trim());
+    return [v.id, v.help, ...reasons.map(r => `• ${r}`)].filter(Boolean).join(' — ');
+  });
+  expect(detail, detail.join('\n')).toEqual([]);
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => (window as any).__auditMicCalls)).toBe(0);
 });
@@ -43,6 +68,8 @@ test('long mixed-language capture survives review, reload, and editing', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await page.getByRole('button', { name: 'Save 1 item', exact: true }).click();
   await expect(page.locator('.record-row')).toHaveCount(1);
+  // A brief, not a workspace: Today must not grow view tabs back onto the page.
+  await expect(page.getByRole('tab')).toHaveCount(0);
   await page.reload();
   await page.locator('.record-row').click();
   await expect(page.getByRole('dialog', { name: 'The full context' })).toBeVisible();
@@ -77,13 +104,16 @@ test('memory-off reminders have an explicit blocked state', async ({ page }) => 
   await expect(page.getByRole('link', { name: 'Enable saved memory', exact: true })).toBeVisible();
 });
 
-test('keyboard focus, Escape and Back retain a usable two-screen flow', async ({ page }) => {
+test('keyboard focus, Escape and Back retain a usable tab flow', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Capture a thought', { exact: true }).fill('Keyboard access test');
   await page.getByRole('button', { name: 'Review capture', exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Your space', exact: true }).click();
+  const tabs = page.getByRole('navigation', { name: 'Main navigation' });
+  await expect(tabs.getByRole('link')).toHaveCount(5);
+  await tabs.getByRole('link', { name: 'Space', exact: true }).click();
+  await expect(tabs.getByRole('link', { name: 'Space', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.getByLabel('Find a tool or setting').fill('vault');
   await page.locator('.control-entry').click();
   await expect(page).toHaveURL(/panel=vault/);
@@ -145,13 +175,32 @@ test('blocked preference writes explain session-only changes', async ({ page }) 
   await expect(page.locator('.workspace-notice[role=alert]')).toContainText('Preferences could not be saved');
 });
 
+// Same two things the panel matrix learned on 2026-09-17, shared instead of
+// duplicated: settle the app's motion before measuring colour, and put axe's
+// measured reason in the failure text. Rule ids alone sent a reviewer hunting
+// for a trace.zip that CI cannot always serve.
+async function axeDetail(page: import('@playwright/test').Page) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    for (const a of document.getAnimations?.() ?? []) {
+      try { a.finish(); } catch { a.cancel(); } // infinite loops (voice dots) can’t finish
+    }
+  });
+  const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  return scan.violations.map(v => {
+    const reasons = v.nodes
+      .flatMap(n => [...n.any, ...n.all, ...n.none].map(c => c.message).filter(Boolean))
+      .map(t => t.replace(/\s+/g, ' ').trim());
+    return [v.id, v.help, ...reasons.map(r => `• ${r}`)].filter(Boolean).join(' — ');
+  });
+}
+
 test('Today and capture review have no detected WCAG A/AA violations', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByLabel('Capture a thought', { exact: true })).toBeVisible();
-  const scan = () => new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
-  expect((await scan()).violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) }))).toEqual([]);
+  await expect(await axeDetail(page)).toEqual([]);
   await page.getByLabel('Capture a thought', { exact: true }).fill('Accessible review');
   await page.getByRole('button', { name: 'Review capture', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Review your capture' })).toBeVisible();
-  expect((await scan()).violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) }))).toEqual([]);
+  await expect(await axeDetail(page)).toEqual([]);
 });

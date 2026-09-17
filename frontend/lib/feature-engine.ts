@@ -20,6 +20,16 @@ import {
   recoveryLine, spokenConfirm, detectLogRepair, formatLogLine, type FitnessLog,
 } from './fitness';
 import {
+  parseTrackCommand, plainMoney, rangeFor, expenseView, budgetStatus, trackHref,
+  type TrackLens, type TrackRangeKind,
+} from './track';
+import { didYouMean, isAffirmative, isNegative, askableTranscript } from './fuzzy';
+import { parseVoiceCommand, parseMediaCommand } from './commands';
+import { parseReminderIntent } from './reminders';
+import { INTENT_HINTS, type IntentHint } from './intents';
+import { buildTodoList, speakTodoSummary, todoCounts } from './todo';
+import type { Suggestion } from './fuzzy';
+import {
   detectWorkoutIntent, presetById, customPreset, buildCues, PRESETS,
 } from './workout';
 import {
@@ -151,10 +161,45 @@ function depthGate<T extends { createdAt: number }>(rows: T[]): { rows: T[]; gat
   return { rows: rows.filter((r) => r.createdAt >= cutoff), gated: true };
 }
 
-export async function handleFeatureTurn(transcript: string): Promise<FeatureTurn | null> {
+/**
+ * The one place that decides whether to interrupt with “did you mean…?”.
+ * It stays silent for free-form questions and for anything another path
+ * already owns — media words, session commands, reminder phrasing — because a
+ * suggestion in front of a sentence the app can handle is a regression
+ * dressed up as help. Exported (and tested) apart from the router so the rule
+ * can be checked without a store or a browser.
+ */
+const PENDING_INTENT_MS = 120000;
+
+export function fuzzySuggestion(text: string): Suggestion<IntentHint> | null {
+  const t = String(text || '').trim();
+  if (!askableTranscript(t)) return null;
+  const ownedElsewhere =
+    parseVoiceCommand(t) !== null ||
+    parseMediaCommand(t) !== null ||
+    parseReminderIntent(t, new Date()) !== null ||
+    parseTrackCommand(t) !== null ||
+    parseFitnessLog(t).status === 'ok' ||
+    detectFitnessRangeQuery(t);
+  if (ownedElsewhere) return null;
+  return didYouMean(t, INTENT_HINTS);
+}
+
+export async function handleFeatureTurn(
+  transcript: string,
+  opts?: { allowFuzzy?: boolean },
+): Promise<FeatureTurn | null> {
   const text = String(transcript || '').trim();
   if (!text) return null;
   const f = useFeaturesStore.getState();
+  // A "did you mean…?" is only ever alive for two minutes, and only for the
+  // next utterance. Anything else the user says first closes the question —
+  // a yes that arrives after three other turns must not run an old action.
+  const pending = f.pendingIntent;
+  const pendingFresh = !!pending && Date.now() - pending.askedAt < PENDING_INTENT_MS;
+  if (pending && (!pendingFresh || (!isAffirmative(text) && !isNegative(text)))) {
+    f.setPendingIntent(null);
+  }
 
   // 0. Distress always wins (except witness safe/stop handled in witness block).
   const wit0 = detectWitnessIntent(text);
@@ -334,6 +379,13 @@ export async function handleFeatureTurn(transcript: string): Promise<FeatureTurn
   // Must run BEFORE parseFitnessLog so a question is never mis-logged.
   if (detectFitnessRangeQuery(text)) {
     return fitnessRangeTurn(text);
+  }
+  // 4c. Commands about the Track tab itself: set/read the monthly budget, or
+  // open a view. Narrow on purpose — a plain “kharcha 200 chai” stays a LOG.
+  const trackCmd = parseTrackCommand(text);
+  if (trackCmd) {
+    const answer = await trackCommandTurn(trackCmd);
+    if (answer) return answer;
   }
   const fit = parseFitnessLog(text);
   if (fit.status === 'ok') {
@@ -624,6 +676,44 @@ export async function handleFeatureTurn(transcript: string): Promise<FeatureTurn
     return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'unlocked' } };
   }
 
+  // 13. “Did you mean…?” — the last stop before the generic AI. A single
+  // misheard word used to lose the whole turn; now we ask, and only run the
+  // real phrase after the user says yes. Two minutes to answer, then it expires.
+  if (pending && pendingFresh) {
+    if (isAffirmative(text)) {
+      f.setPendingIntent(null);
+      const rerun = await handleFeatureTurn(pending.text, { allowFuzzy: false });
+      if (rerun) {
+        return {
+          ...rerun,
+          messages: [
+            { text: `Ran “${pending.text}”.`, meta: 'Confirmed by you · nothing was guessed' },
+            ...rerun.messages,
+          ],
+        };
+      }
+      const msg = `I could not run “${pending.text}” after all. Say it yourself and I’ll try again.`;
+      return { messages: [{ text: msg }], speak: msg };
+    }
+    if (isNegative(text)) {
+      f.setPendingIntent(null);
+      const msg = 'Okay, I left it alone. Say it in your own words and I’ll handle that instead.';
+      return { messages: [{ text: msg }], speak: msg };
+    }
+  }
+  if (opts?.allowFuzzy !== false) {
+    const guess = fuzzySuggestion(text);
+    if (guess) {
+      f.setPendingIntent({ text: guess.candidate.say, phrase: guess.candidate.label, askedAt: Date.now() });
+      const msg = `Did you mean “${guess.candidate.say}” — ${guess.candidate.label}? Say yes and I’ll run it, or no to keep your words as they are.`;
+      return {
+        messages: [{ text: msg, meta: 'One word from a match · confirm, never guess' }],
+        speak: msg,
+        card: { kind: 'message', title: 'Did you mean…?', body: `“${guess.candidate.say}” (${guess.candidate.label})` },
+      };
+    }
+  }
+
   return null;
 }
 
@@ -691,7 +781,7 @@ async function saveFitnessLog(
   const streakLine = `🔥 ${streaks.logDays}-day log streak · 💪 ${streaks.workoutDays}-day workout streak`;
   const confirm = spokenConfirm(log);
   return {
-    messages: [{ text: `${confirm} (${totalsLine}. ${streakLine}.)`, meta: 'Fitness timeline · tap to edit in Your space → Fitness' }],
+    messages: [{ text: `${confirm} (${totalsLine}. ${streakLine}.)`, meta: 'Logged on this device · View in Track → shows the day, week and month' }],
     speak: `${confirm} ${streaks.logDays >= 3 ? `Day ${streaks.logDays} of your streak!` : ''}`,
     card: { kind: 'fitness', log: saved, totalsLine, streakLine },
   };
@@ -743,7 +833,7 @@ async function fitnessRangeTurn(text: string): Promise<FeatureTurn> {
   if (!inRange.length) {
     const msg = `No ${wantsSpend ? 'expenses' : wantsFood ? 'food' : 'fitness entries'} logged ${range.label === 'today' ? 'today' : `for ${range.label}`} yet. Say “kharcha 200 chai” to log spending, or “2 roti khayi” for food.`;
     return {
-      messages: [{ text: msg, meta: `Log check · ${range.label} · full timeline in Your space → Fitness` }],
+      messages: [{ text: msg, meta: `Log check · ${range.label} · the Track tab shows the same numbers by day, week or month` }],
       speak: msg,
       card: { kind: 'message', title: `Nothing logged · ${range.label}`, body: msg },
     };
@@ -769,12 +859,120 @@ async function fitnessRangeTurn(text: string): Promise<FeatureTurn> {
       ? `${when} ${food.length} cheezein khayi${kcal ? `, lagbhag ${kcal} calories` : ''}.`
       : `${when}: ${workouts.length} workouts, ${food.length} food items, ₹${spend} kharcha.`;
   const body = `${lines.join('\n')}`;
+  const lens: TrackLens = wantsSpend
+    ? 'expenses'
+    : wantsFood
+      ? 'food'
+      : workouts.length && !food.length
+        ? 'workouts'
+        : 'health';
+  const windowKind: TrackRangeKind =
+    range.end - range.start <= 86400000 ? 'day' : range.end - range.start <= 7 * 86400000 ? 'week' : 'month';
   return {
-    messages: [{ text: body, meta: `Log check · ${range.label} · full timeline in Your space → Fitness` }],
+    messages: [
+      {
+        text: body,
+        meta: `Log check · ${range.label} · Track → ${lens} has ${plainMoney(spend)} across ${expenses.length} item${expenses.length === 1 ? '' : 's'} for this window`,
+      },
+    ],
     speak,
-    card: { kind: 'message', title: `Logged · ${range.label}`, body },
+    card: {
+      kind: 'track',
+      title: `Logged · ${range.label}`,
+      body,
+      lens,
+      range: windowKind,
+      day: dayKey(range.start),
+    },
   };
 }
+
+/** Voice control for the Track tab: a monthly budget, its status, or opening a
+ *  view. Every figure comes from the local log — nothing is fetched. */
+async function trackCommandTurn(cmd: NonNullable<ReturnType<typeof parseTrackCommand>>): Promise<FeatureTurn> {
+  const f = useFeaturesStore.getState();
+  if (cmd.action === 'set-budget') {
+    f.setTrackGoal({ budget: cmd.amount, budgetCurrency: cmd.currency });
+    const month = rangeFor('month');
+    const spent = expenseView(f.fitnessLogs, month).total;
+    const state = budgetStatus({
+      spent,
+      limit: cmd.amount,
+      monthDays: month.days.length,
+      dayOfMonth: new Date().getDate(),
+      currency: cmd.currency,
+    });
+    const msg = `Monthly limit set to ${plainMoney(cmd.amount, cmd.currency)} for this device. ${state.line}.`;
+    return {
+      messages: [{ text: msg, meta: 'Budget lives in Track → Expenses. Change it any time by voice.' }],
+      speak: msg,
+      card: { kind: 'track', title: 'Budget set', body: `${state.line}\n${state.paceLine}`, lens: 'expenses', range: 'month', day: month.anchor },
+    };
+  }
+  if (cmd.action === 'todo-status') {
+    const w = useWorkspaceStore.getState();
+    const a = useAssistantStore.getState();
+    const list = buildTodoList({
+      tasks: w.items
+        .filter((i) => i.kind === 'task' || i.kind === 'habit' || i.kind === 'shopping')
+        .map((i) => ({ id: i.id, title: i.title, body: i.body, status: i.status, due: i.due, createdAt: i.createdAt, updatedAt: i.updatedAt })),
+      reminders: a.reminders,
+    });
+    const counts = todoCounts(list);
+    const top = list.filter((i) => !i.done).slice(0, 3);
+    const body = counts.open
+      ? `${speakTodoSummary(counts)}${top.length ? `\n${top.map((i) => `• ${i.title}${i.due ? ` (due ${i.due})` : i.time ? ` (at ${i.time})` : ''}`).join('\n')}` : ''}\nFull list with due dates and priorities: Your space → To-Do.`
+      : counts.done
+        ? `Nothing open — ${counts.done} thing${counts.done === 1 ? '' : 's'} already finished.`
+        : 'Your To-Do list is empty. Say “task: renew the passport” and it lands there.';
+    return {
+      messages: [{ text: body, meta: 'To-Do · merged from saved tasks and reminders on this device' }],
+      speak: speakTodoSummary(counts),
+      card: { kind: 'todo', title: 'To-Do', body, counts: { open: counts.open, dueToday: counts.dueToday, overdue: counts.overdue, done: counts.done } },
+    };
+  }
+  if (cmd.action === 'budget-status') {
+    const month = rangeFor('month');
+    const spent = expenseView(f.fitnessLogs, month).total;
+    const limit = f.trackGoals.budget || 0;
+    const now = new Date();
+    const state = budgetStatus({
+      spent,
+      limit,
+      monthDays: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
+      dayOfMonth: now.getDate(),
+      currency: f.trackGoals.budgetCurrency,
+    });
+    const body = limit
+      ? `${state.line}\n${state.paceLine}`
+      : `${plainMoney(spent, f.trackGoals.budgetCurrency)} spent in ${month.label}. No monthly limit is set — say “set monthly budget 20000” and I’ll track it.`;
+    return {
+      messages: [{ text: body, meta: 'Budget check · from your logged expenses only' }],
+      speak: limit ? state.line : `You have spent ${plainMoney(spent)} this month and no limit is set.`,
+      card: { kind: 'track', title: limit ? 'Budget' : 'No limit set', body, lens: 'expenses', range: 'month', day: month.anchor },
+    };
+  }
+  const range = rangeFor(cmd.range);
+  const view = expenseView(f.fitnessLogs, range);
+  const body =
+    cmd.lens === 'expenses'
+      ? `${plainMoney(view.total, view.currency)} across ${view.count} item${view.count === 1 ? '' : 's'} in ${range.label}.${
+          view.byCategory.length ? `\n${view.byCategory.slice(0, 4).map((c) => `• ${c.label}: ${plainMoney(c.total, view.currency)}`).join('\n')}` : ''
+        }`
+      : `${range.label} · ${TRACK_LENS_LABEL[cmd.lens]}. Opened view below.`;
+  return {
+    messages: [{ text: body, meta: `Track → ${cmd.lens} · ${cmd.range}` }],
+    speak: `Track, ${cmd.lens}, ${cmd.range}. Everything is on screen.`,
+    card: { kind: 'track', title: `Track · ${cmd.lens}`, body, lens: cmd.lens, range: cmd.range, day: range.anchor },
+  };
+}
+
+const TRACK_LENS_LABEL: Record<TrackLens, string> = {
+  expenses: 'expenses',
+  food: 'food diary',
+  health: 'health trends',
+  workouts: 'workouts and streaks',
+};
 
 async function fitnessSummary(): Promise<FeatureTurn> {
   const f = useFeaturesStore.getState();
@@ -788,9 +986,16 @@ async function fitnessSummary(): Promise<FeatureTurn> {
   });
   const body = `Today: ${totals.workoutCount} workouts (${totals.workouts.join('; ') || 'none yet'}) · ${totals.foodCalories} kcal ≈ from ${totals.foodItems} items · ₹${totals.spend} spent${totals.sleepHrs ? ` · slept ${totals.sleepHrs}h` : ''}. Streaks: ${streaks.logDays} days logging, ${streaks.workoutDays} days training. ${rec}`;
   return {
-    messages: [{ text: body, meta: 'Fitness summary · full timeline in Your space → Fitness' }],
+    messages: [{ text: body, meta: 'Fitness summary · the Track tab has the day/week/month view' }],
     speak: `Aaj: ${totals.workoutCount} workouts, lagbhag ${totals.foodCalories} calories, ₹${totals.spend} kharcha. ${streaks.logDays} din ki streak! ${rec}`,
-    card: { kind: 'message', title: 'Fitness summary', body },
+    card: {
+      kind: 'track',
+      title: 'Fitness summary',
+      body,
+      lens: 'workouts',
+      range: 'day',
+      day: tk,
+    },
   };
 }
 

@@ -4,8 +4,16 @@ import { stubSpeechService } from "./audio-stub";
 test.beforeEach(async ({ page }) => {
   await page.route("https://js.puter.com/**", (route) => route.abort());
   await page.goto("/");
-  await page.getByRole("tab", {name:"Context map",exact:true}).click();
 });
+/**
+ * The canvas map, the record list and the receipt log moved out of Today into
+ * Your space → Notes & activity (2026-09-17), so a spec that wants the map
+ * opens it. Same widget, same keys — it is no longer Today’s job.
+ */
+async function openMap(page: Page) {
+  await page.goto("/control?panel=notes");
+  await page.getByRole("tab", { name: "Context map", exact: true }).click();
+}
 async function dump(page: Page, text: string) {
   await page.getByLabel("Capture type", { exact: true }).selectOption("dump");
   await page.getByLabel("Capture a thought", { exact: true }).fill(text);
@@ -30,6 +38,7 @@ for (const width of [320, 390, 768, 1440]) {
     await page
       .getByRole("button", { name: "Save 19 items", exact: true })
       .click();
+    await openMap(page);
     await expect(page.locator(".thought-node")).toHaveCount(18);
     expect(
       await page.evaluate(
@@ -77,7 +86,7 @@ test("oversized brain dumps show a recoverable error without discarding input", 
   await expect(
     page.getByLabel("Capture a thought", { exact: true }),
   ).toHaveValue(source);
-  await expect(page.locator(".thought-node")).toHaveCount(0);
+  await expect(page.locator(".record-row")).toHaveCount(0);
 });
 test("financial review edits are persisted; the named dialog stays mounted and restores focus", async ({
   page,
@@ -103,7 +112,8 @@ test("financial review edits are persisted; the named dialog stays mounted and r
   await dialog
     .getByRole("button", { name: "Save 1 item", exact: true })
     .click();
-  await page.locator(".thought-node").click();
+  // Today’s “recently saved” row opens the very same sheet the map does.
+  await page.locator(".record-row").click();
   const detail = page.getByRole("dialog", { name: "The full context" });
   await expect(detail.getByLabel("Amount", { exact: true })).toHaveValue(
     "12.34",
@@ -123,15 +133,16 @@ test("financial review edits are persisted; the named dialog stays mounted and r
   await page.mouse.click(bounds!.x + 3, bounds!.y + 3);
   await expect(detail).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.locator(".thought-node")).toBeFocused();
+  await expect(page.locator(".record-row")).toBeFocused();
   await page.reload();
-  await page.getByRole("tab", {name:"Context map",exact:true}).click();
+  await openMap(page);
   await page.locator(".thought-node").click();
   await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("12.34");
 });
-test("workspace tabs have arrow-key, Home and End navigation", async ({
+test("the record tabs keep arrow-key, Home and End navigation", async ({
   page,
 }) => {
+  await openMap(page);
   await page.getByRole("tab", { name: "Context map" }).focus();
   await page.keyboard.press("ArrowRight");
   await expect(
@@ -233,7 +244,7 @@ test("cancelled permission responses release late microphone streams without sta
   ).toBe(true);
 });
 test("navigating to Your space while permission is pending replaces the document",async({page})=>{
- await mockAudio(page,{deferred:true});await page.getByTestId('active-button').click();await page.getByRole('link',{name:'Your space',exact:true}).click();await expect(page).toHaveURL(/control$/);expect(await page.evaluate(()=>typeof (window as any).__resolveMic)).toBe('undefined');await expect(page.getByRole('heading',{name:/Your space/})).toBeVisible();
+ await mockAudio(page,{deferred:true});await page.getByTestId('active-button').click();await page.getByRole('link',{name:'Space',exact:true}).click();await expect(page).toHaveURL(/control$/);expect(await page.evaluate(()=>typeof (window as any).__resolveMic)).toBe('undefined');await expect(page.getByRole('heading',{name:/Your space/})).toBeVisible();
 });
 test("unsupported speech never requests a mic; recognition startup failures release it", async ({
   page,
