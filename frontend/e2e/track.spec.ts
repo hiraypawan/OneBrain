@@ -187,8 +187,11 @@ test("one search box finds saved things and retires old panel URLs without dead 
   // Every retired door still opens something: the URL redirects instead of 404.
   await page.goto("/control?panel=track");
   await expect(page).toHaveURL(/\/track/);
+  // `?panel=notes` used to bounce to Today because the record browser lived
+  // there; Today is a brief now, and the panel is the destination.
   await page.goto("/control?panel=notes");
-  await expect(page).toHaveURL(/\/(\?|$)/);
+  await expect(page).toHaveURL(/control\?panel=notes$/);
+  await expect(page.getByRole("tab", { name: "List", exact: true })).toBeVisible();
   await page.goto("/control?panel=to-do");
   await expect(page).toHaveURL(/control\?panel=tasks$/);
 });

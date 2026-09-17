@@ -1,139 +1,165 @@
 // One-off CSS consolidation, run 2026-09-17 with:
-//   node scripts/css-consolidate.mjs --prune --fold
+//   node scripts/css-consolidate.mjs --fold --prune
 //
-// Why it exists: Today stopped being the workspace, which left product.css and
-// globals.css holding rules for a `.brain-workspace` / `.today-rail` /
-// `.memory-section` DOM that no longer renders, the shared record widgets
-// (rows, tabs, search, receipts) still scoped to those dead wrappers even though
-// they now live in Your space too, and ~1,250 lines of new surfaces sitting in a
-// third stylesheet that had to be imported in exactly the right order.
+// Why this exists: Today stopped being the workspace. That left product.css and
+// globals.css holding rules for a `.brain-workspace` / `.home-stage` /
+// `.today-rail` / `.memory-section` DOM that no longer renders, the shared
+// widgets those pages contained (record rows, view tabs, the search row,
+// receipts) still anchored to wrappers that are gone, and ~1,250 lines of new
+// surfaces in a third stylesheet whose position in app/layout.tsx decided which
+// cascade won.
 //
-// --prune  re-scope or delete every rule, using the shipped source as the truth
-//          about which class names exist (no build step, no heuristics on text).
-// --fold   move globals.css’s component rules into product.css (their relative
-//          order is preserved, so the cascade is identical) and fold shell.css in
-//          at the end. Result: two authored files, one import.
+// --prune  two jobs per rule, both mechanical and reviewable:
+//            * re-anchor: a rule keyed on a retired wrapper is rewritten onto
+//              whichever surface renders what it styles now — `.today-screen`
+//              (the brief) or `.notes-panel` (Your space → Notes & activity) —
+//              and dropped when neither renders it. Guessing “root for
+//              everything” is how an earlier attempt gave Today a 260px empty
+//              column and a -48px header bleed, i.e. horizontal overflow at
+//              every width, which the browser suite caught and the diff did not.
+//            * delete: a rule none of whose class names appear in shipped
+//              source styles nothing.
+// --fold   move globals.css’s component rules into product.css, preserving
+//          their relative order so the cascade is identical, then append
+//          shell.css. Result: base layer + one product stylesheet.
 //
-// It is deterministic and reviewable: `git diff app/globals.css app/product.css`
-// after running it is the whole change.
+// postcss keeps each untouched node’s own formatting, so the diff stays
+// reviewable; `git diff app/*.css app/layout.tsx` is the whole change.
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-// app/shell.css is unlinked after folding: update app/layout.tsx to import only
-// globals.css + product.css (the two-file system this script produces).
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+import postcss from 'postcss';
 
-const require = createRequire(import.meta.url);
-const postcss = require('postcss');
 const ROOT = path.resolve(import.meta.dirname, '..');
 const flags = process.argv.slice(2);
+const read = (f) => readFileSync(path.join(ROOT, f), 'utf8');
+const readList = (files) =>
+  files
+    .map((f) => {
+      try {
+        return read(f);
+      } catch {
+        return '';
+      }
+    })
+    .join('\n');
 
-/** Every class/id name that appears in shipped source, as a whole word. */
+const RETIRED_WRAPPERS = new Set([
+  'brain-workspace', 'home-stage', 'thought-stage', 'today-rail', 'memory-section',
+  'memory-heading', 'workspace-toolbar', 'storage-label', 'workspace-intro',
+]);
+const SCOPES = { today: 'today-screen', notes: 'notes-panel' };
+
+/** The two surfaces the retired wrappers’ widgets ended up on. */
+const NOTES_SRC = readList(['components/control/Notes.tsx']);
+const TODAY_SRC = readList([
+  'components/today/TodayView.tsx',
+  'components/today/CaptureComposer.tsx',
+  'components/today/VoiceCard.tsx',
+  'components/today/BriefLists.tsx',
+  'components/today/AssistantSurfaces.tsx',
+  'components/today/DraftReview.tsx',
+  'components/workspace/ItemSheet.tsx',
+  'components/workspace/ContextMap.tsx',
+  'components/features/FeatureCards.tsx',
+  'components/features/FeatureRunners.tsx',
+]);
+
+/** Every class/id mentioned anywhere in shipped source: the liveness oracle. */
 function liveTokens() {
   const files = execSync(
     `find . -type f \\( -name '*.tsx' -o -name '*.ts' -o -name '*.js' -o -name '*.mjs' -o -name '*.html' \\)` +
       ` -not -path './node_modules/*' -not -path './.next/*' -not -path './coverage/*'`,
     { cwd: ROOT, encoding: 'utf8' },
-  ).split('\n').filter(Boolean);
+  )
+    .split('\n')
+    .filter(Boolean);
   const out = new Set();
   for (const f of files) {
     const text = readFileSync(path.join(ROOT, f), 'utf8');
-    for (const m of text.matchAll(/[\w"'.`$>{-]*/g)) void m; // keep regex warm; tokens below
-    for (const m of text.matchAll(/(?:className=|class=)[\s\S]{0,400}/g)) {
-      for (const t of m[0].matchAll(/[a-zA-Z][\w-]*/g)) out.add(t[0]);
-    }
-  }
-  // Anything in the file counts too: state classes are toggled from JS strings,
-  // and a false “dead” verdict costs a visible style, while a false “live” one
-  // costs only a line of CSS.
-  for (const f of files) {
-    const text = readFileSync(path.join(ROOT, f), 'utf8');
-    for (const t of text.matchAll(/\.([a-zA-Z][\w-]*)/g)) out.add(t[1]);
+    for (const m of text.matchAll(/[A-Za-z][\w-]*/g)) out.add(m[0]);
   }
   return out;
 }
 
-const RETIRED_WRAPPERS = new Set([
-  'brain-workspace', 'home-stage', 'thought-stage', 'today-rail', 'memory-section',
-  'memory-heading', 'workspace-toolbar', 'storage-label', 'workspace-intro', 'memory-toolbar',
-]);
-const LIVE_SCOPES = ['today-screen', 'notes-panel'];
-
 function splitSelector(sel) {
   const parts = [];
-  let depth = 0, cur = '';
+  let depth = 0;
+  let cur = '';
   for (const ch of sel) {
     if (ch === '(' || ch === '[') depth++;
     else if (ch === ')' || ch === ']') depth--;
-    if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; continue; }
+    if (ch === ',' && depth === 0) {
+      parts.push(cur);
+      cur = '';
+      continue;
+    }
     cur += ch;
   }
   parts.push(cur);
   return parts.map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 
-function classesIn(sel) {
-  return [...sel.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]);
-}
-function idsIn(sel) {
-  return [...sel.matchAll(/#([a-zA-Z][\w-]*)/g)].map((m) => m[1]);
-}
+const classesIn = (sel) => [...sel.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]);
+const hasToken = (text, token) =>
+  new RegExp('(?<![\\w-])' + token + '(?![\\w-])').test(text);
 
 /**
- * Rewrite one selector part. Returns an array of replacement parts (a rule that
- * used to hang off the workspace root now needs to hang off both surfaces).
+ * Rewrite one selector part. `[]` means: nothing left to style here.
  */
-function rewritePart(part, live) {
-  const has = (c) => new RegExp('\\.' + c + '\\b').test(part);
-  const retired = [...RETIRED_WRAPPERS].filter(has);
+function rewritePart(part) {
+  const retired = [...RETIRED_WRAPPERS].filter((c) => hasToken(part, c));
   if (!retired.length) return [part];
+  // The header bled sideways through the old page frame; the shell block styles
+  // the header itself, so that rule must not follow the frame’s widgets.
+  if (hasToken(part, 'app-header')) return [];
+  const content = classesIn(part).filter((c) => !RETIRED_WRAPPERS.has(c));
+  if (!content.length) return [];
+  const swap = (scope) =>
+    part
+      .replace(new RegExp('\\.(' + [...retired].join('|') + ')(?![\\w-])', 'g'), '.' + scope)
+      .replace(/\s+/g, ' ')
+      .trim();
   const out = [];
-  for (const scope of LIVE_SCOPES) {
-    let cand = part;
-    for (const r of retired) cand = cand.replace(new RegExp('\\.' + r + '(?![\\w-])'), '.' + scope);
-    cand = cand.replace(/\s+/g, ' ').trim();
-    // `.notes-panel .notes-panel x` or a bare duplicated scope is pointless.
-    if (cand === `.${scope}` || out.includes(cand)) continue;
-    if (!out.includes(cand)) out.push(cand);
-  }
-  // A selector that was *only* the retired wrapper itself styles the page root.
-  if (retired.length && retired.every((r) => part.trim() === '.' + r)) out.length = 0, out.push('.today-screen');
-  return out;
+  if (content.some((c) => hasToken(TODAY_SRC, c))) out.push(swap(SCOPES.today));
+  if (content.some((c) => hasToken(NOTES_SRC, c))) out.push(swap(SCOPES.notes));
+  // A wrapper-only rule re-anchored onto the panel root would invent a grid for
+  // the panel; the panel gets its own block in this file instead.
+  return [...new Set(out)].filter((p) => p !== '.' + SCOPES.notes);
 }
 
 function prune(css, live) {
-  let dropped = 0, rescoped = 0;
+  let dropped = 0;
+  let rescoped = 0;
   css.walkRules((rule) => {
     if (rule.parent && rule.parent.name === 'keyframes') return;
     const parts = splitSelector(rule.selector);
     if (!parts.length) return;
     const kept = [];
     for (const part of parts) {
-      const rewritten = rewritePart(part, live);
+      const rewritten = rewritePart(part);
       if (rewritten.length !== 1 || rewritten[0] !== part) rescoped++;
       for (const cand of rewritten) {
-        const content = [...classesIn(cand), ...idsIn(cand)].filter(
-          (c) => !RETIRED_WRAPPERS.has(c) && !LIVE_SCOPES.includes(c) && c !== 'control-panel' && c !== 'dark' && c !== 'light',
+        const content = classesIn(cand).filter(
+          (c) => !RETIRED_WRAPPERS.has(c) && !['today-screen', 'notes-panel', 'dark', 'light'].includes(c),
         );
-        // A rule with no class at all (element selectors) is base styling: keep.
+        // Element-only rules (`body p`, `:focus-visible`) are base styling: keep.
         if (!content.length || content.some((c) => live.has(c))) kept.push(cand);
       }
     }
     if (!kept.length) {
+      // Take a short comment that documented only this rule with it — leaving
+      // “style the memory rail” above nothing is how dead CSS gets defended.
       const prev = rule.prev();
-      // Take an immediately preceding comment with the rule: leaving “Style the
-      // memory rail” above nothing is how dead CSS gets defended later.
-      if (prev && prev.type === 'comment' && /[^]*\S$/.test(prev.text)) {
-        const dead = [...new Set([...classesIn(rule.selector)])].filter((c) => !live.has(c) && RETIRED_WRAPPERS.has(c));
-        if (dead.some((c) => prev.text.includes(c.replace(/-/g, ' '))) || prev.text.trim().length < 80) prev.remove();
-      }
+      if (prev && prev.type === 'comment' && prev.text.trim().length < 90) prev.remove();
       rule.remove();
       dropped++;
       return;
     }
     const joined = kept.join(',\n');
-    if (joined !== parts.join(', ')) rule.selector = joined;
+    if (joined !== splitSelector(rule.selector).join(', ')) rule.selector = joined;
   });
   css.walkAtRules((at) => {
     if (at.nodes && !at.nodes.length) at.remove();
@@ -142,35 +168,52 @@ function prune(css, live) {
 }
 
 /**
- * globals.css keeps the base layer (tailwind directives, tokens, element and
- * `@font-face` rules). Anything keyed on a class or an id is a component rule
- * and belongs in the product stylesheet.
+ * globals.css keeps the base layer: tailwind directives, `@font-face`,
+ * `@keyframes`, tokens on `:root`, and element selectors. Anything keyed on a
+ * class or id is a component rule and belongs in the product stylesheet.
  */
-function isBaseRule(rule) {
-  const s = rule.selector.replace(/\s+/g, ' ').trim();
-  return !/^[.#[]/.test(s);
+function isBaseRule(node) {
+  if (node.type !== 'rule') return false;
+  return !/^[.#[]/.test(node.selector.replace(/\s+/g, ' ').trim());
 }
 
 function fold(globals, product, shellCss) {
-  // Move component rules out of globals (base + tokens stay) preserving order.
   const moved = [];
-  let pending = []; // comments that document the rule that follows them
+  let pending = [];
   const take = (node) => {
-    for (const c of pending.splice(0)) moved.push(c.clone(), c.remove());
+    for (const c of pending.splice(0)) {
+      moved.push(c.clone());
+      c.remove();
+    }
     moved.push(node.clone());
     node.remove();
   };
   globals.each((node) => {
-    if (node.type === 'comment') { pending.push(node); return; }
-    if (node.type === 'rule' && isBaseRule(node)) { pending = []; return; }
-    if (node.type === 'atrule' && /^(tailwind|import|charset|font-face|keyframes)/.test(node.name)) { pending = []; return; }
+    if (node.type === 'comment') {
+      pending.push(node);
+      return;
+    }
+    if (node.type === 'rule' && isBaseRule(node)) {
+      pending = [];
+      return;
+    }
+    if (node.type === 'atrule' && /^(tailwind|import|charset|font-face|keyframes)/.test(node.name)) {
+      pending = [];
+      return;
+    }
     if (node.type === 'atrule' && node.name === 'media') {
       const inner = node.nodes ? [...node.nodes] : [];
       const movable = inner.filter((n) => n.type === 'rule' && !isBaseRule(n));
-      if (movable.length && movable.length === inner.length) { take(node); return; }
-      for (const n of inner) if (!isBaseRule(n) && n.type === 'rule') {
-        const c = n.prev() && n.prev().type === 'comment' ? n.prev() : null;
-        if (c) { moved.push(c.clone()); c.remove(); }
+      if (movable.length && movable.length === inner.filter((n) => n.type === 'rule').length) {
+        take(node);
+        return;
+      }
+      for (const n of movable) {
+        const before = n.prev();
+        if (before && before.type === 'comment') {
+          moved.push(before.clone());
+          before.remove();
+        }
         moved.push(n.clone());
         n.remove();
       }
@@ -180,18 +223,22 @@ function fold(globals, product, shellCss) {
     }
     take(node);
   });
-  for (const node of moved) {
+  // Prepend in reverse so the moved rules land *before* the product rules they
+  // used to precede: appending would quietly reverse the cascade and let older
+  // base-layer rules start winning.
+  for (const node of moved.reverse()) {
     node.raws.before = '\n';
-    product.append(node);
+    product.prepend(node);
   }
   if (shellCss) {
     const banner = postcss.parse(
-      '/* -------------------------------------------------------------------- ' +
-      ' Today, Track, Voice, You and the unified To-Do: the surfaces added by the ' +
-      ' five-tab shell. They live here since 2026-09-17 so there is exactly one ' +
-      ' product stylesheet — the import order in app/layout.tsx used to decide ' +
-      ' which of two files won, and that is not a design system. ' +
-      ' -------------------------------------------------------------------- */\n',
+      '/* ---------------------------------------------------------------------\n' +
+        ' Today, Track, Voice, You and the unified To-Do: the surfaces added by\n' +
+        ' the five-tab shell. They live in this file since 2026-09-17 so there is\n' +
+        ' exactly one product stylesheet — the order of two imports in\n' +
+        ' app/layout.tsx used to decide which cascade won, and that is a bug that\n' +
+        ' waits for someone to move a rule.\n' +
+        ' --------------------------------------------------------------------- */\n',
     );
     banner.each((node) => {
       node.raws.before = '\n';
@@ -206,17 +253,16 @@ function fold(globals, product, shellCss) {
   return moved.length;
 }
 
-const read = (f) => readFileSync(path.join(ROOT, f), 'utf8');
-
 let globals = postcss.parse(read('app/globals.css'), { from: 'app/globals.css' });
 let product = postcss.parse(read('app/product.css'), { from: 'app/product.css' });
-const shell = existsSync(path.join(ROOT, 'app/shell.css')) ? postcss.parse(read('app/shell.css'), { from: 'app/shell.css' }) : null;
+const shell = existsSync(path.join(ROOT, 'app/shell.css'))
+  ? postcss.parse(read('app/shell.css'), { from: 'app/shell.css' })
+  : null;
 
 let movedCount = 0;
 if (flags.includes('--fold')) {
   movedCount = fold(globals, product, shell);
-  const { unlinkSync } = await import('node:fs');
-  if (existsSync(path.join(ROOT, 'app/shell.css'))) unlinkSync(path.join(ROOT, 'app/shell.css'));
+  if (shell) unlinkSync(path.join(ROOT, 'app/shell.css'));
 }
 const stats = { dropped: 0, rescoped: 0 };
 if (flags.includes('--prune')) {
@@ -230,5 +276,5 @@ if (flags.includes('--prune')) {
 writeFileSync(path.join(ROOT, 'app/globals.css'), globals.toString());
 writeFileSync(path.join(ROOT, 'app/product.css'), product.toString());
 console.log(
-  `fold: moved ${movedCount} rule blocks from globals.css; prune: dropped ${stats.dropped} rules, re-scoped ${stats.rescoped}`,
+  `fold: moved ${movedCount} blocks out of globals.css; prune: dropped ${stats.dropped} rules, re-anchored ${stats.rescoped} parts`,
 );

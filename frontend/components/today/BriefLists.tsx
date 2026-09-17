@@ -2,7 +2,7 @@
 import { Icon } from "@/components/ui/Icon";
 import { SYMBOLS } from "@/components/workspace/ContextMap";
 import type { BriefFact } from "@/lib/today-brief";
-import type { BrainItem } from "@/lib/workspace/model";
+import type { ActionReceipt, BrainItem } from "@/lib/workspace/model";
 import type { TodoCounts } from "@/lib/todo";
 
 /**
@@ -91,6 +91,44 @@ export function NextUp({
         <Icon name="arrow" />
       </a>
     </div>
+  );
+}
+
+/**
+ * The last local action, with undo next to it.
+ *
+ * The full receipt log lives in Your space → Notes & activity, but that is a
+ * separate document, and a session with Memory off is kept in this document only.
+ * So Today shows the one receipt a person could still act on — and the “Session
+ * only” wording is the point: it says out loud that nothing reached the disk.
+ */
+export function SaveReceipt({
+  receipt,
+  busy,
+  onUndo,
+}: {
+  receipt?: ActionReceipt;
+  busy: boolean;
+  onUndo: () => void;
+}) {
+  if (!receipt) return null;
+  const state =
+    receipt.status === "verified-local"
+      ? "Verified locally"
+      : receipt.status === "session-only"
+        ? "Session only"
+        : "Undone";
+  return (
+    <p className="save-receipt" role="status">
+      <span className="receipt-status">{state}</span>
+      <span className="save-receipt-text">{receipt.summary}</span>
+      {receipt.status !== "undone" && receipt.operation !== "undo" ? (
+        <button className="text-button" disabled={busy} onClick={onUndo}>
+          Undo
+        </button>
+      ) : null}
+      <a href="/control?panel=notes">All actions</a>
+    </p>
   );
 }
 

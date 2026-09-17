@@ -114,8 +114,10 @@ test("mobile layout, brain dump preview and memory-off behavior", async ({
     .click();
   await expect(page.locator(".draft-editor")).toHaveCount(3);
   await page.getByRole("button", { name: "Save 3 items" }).click();
-  await openActivity(page);
-  await expect(page.locator(".receipt")).toContainText("Session only");
+  // Memory is off, so this session never reached disk: the receipt is shown where
+  // it happened (Today) and the panel in another document cannot claim it.
+  await expect(page.locator(".save-receipt")).toContainText("Session only");
+  await expect(page.locator(".save-receipt").getByRole("button", { name: "Undo" })).toBeEnabled();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

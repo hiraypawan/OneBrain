@@ -76,6 +76,16 @@ jobs:
             # agent often cannot reach, so the bodies themselves (locator,
             # expected vs received, the code frame) go up as one annotation per
             # log; the per-test titles are only used when no body was found.
+            # Bodies are long and a message is capped, so the *why* of every
+            # failure is also published on its own two lines. This index is what
+            # makes a red run readable without opening a trace: last time eleven
+            # failures fitted badly and only the tail survived the cap.
+            index=$(awk '
+              /^ +[0-9]+\) / { if (title != "") printf "%s\n%s\n", title, why; title = $0; why = ""; next }
+              /^ +Error:/ && why == "" { line = $0; sub(/^ +/, "", line); why = "    " substr(line, 1, 240) }
+              END { if (title != "") printf "%s\n%s\n", title, why }
+            ' "$log")
+            [ -n "$index" ] && emit "playwright-index/$(basename "$log")" "$index" 12000
             blocks=$(grep -A 30 -E "^ +[0-9]+\) " "$log" | head -n 340)
             if [ -n "$blocks" ]; then
               emit "playwright-failures/$(basename "$log")" "$blocks" 40000

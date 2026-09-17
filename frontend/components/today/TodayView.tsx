@@ -42,7 +42,12 @@ import {
   ReviewCards,
   VoiceNoticeBar,
 } from "./AssistantSurfaces";
-import { BriefFacts, NextUp, RecentlySaved } from "./BriefLists";
+import {
+  BriefFacts,
+  NextUp,
+  RecentlySaved,
+  SaveReceipt,
+} from "./BriefLists";
 import { CaptureComposer, type ComposerKind } from "./CaptureComposer";
 import { DraftReview } from "./DraftReview";
 import { PocketScreen, VoiceCard } from "./VoiceCard";
@@ -342,6 +347,18 @@ export function TodayView() {
             items={recent}
             total={workspace.items.length}
             onOpen={setSelectedId}
+          />
+          <SaveReceipt
+            receipt={workspace.receipts[0]}
+            busy={busy}
+            onUndo={() =>
+              attempt(
+                () => workspace.undo(workspace.receipts[0].id),
+                state.settings.memoryEnabled
+                  ? "Action undone locally."
+                  : "Undone for this session only.",
+              )
+            }
           />
         </div>
 

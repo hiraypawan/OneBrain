@@ -18,7 +18,12 @@ test("sign-in is visible on a 320px home and settings have distinct destinations
   ).toBe(true);
   await page.getByRole("button", { name: "Open settings" }).click();
   const shortcuts = page.getByRole("navigation", { name: "Settings sections" });
-  await expect(shortcuts.getByRole("link")).toHaveCount(4);
+  // Account, Notes & activity, Voice, Privacy, Advanced — the fifth appeared when
+  // Today’s record browser became a panel of its own.
+  await expect(shortcuts.getByRole("link")).toHaveCount(5);
+  await expect(
+    shortcuts.getByRole("link", { name: /Notes & activity/ }),
+  ).toHaveAttribute("href", /control\?panel=notes$/);
   await shortcuts.getByRole("link", { name: "Account", exact: true }).click();
   await expect(page).toHaveURL(/control\?panel=account$/);
   await expect(
