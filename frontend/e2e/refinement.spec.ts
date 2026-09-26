@@ -38,6 +38,10 @@ for (const width of [320, 390, 768, 1440]) {
     await page
       .getByRole("button", { name: "Save 19 items", exact: true })
       .click();
+    // The review sheet closes only after the IndexedDB write commits. page.goto
+    // is a real navigation and can tear down an unfinished write (cold start at
+    // the first width made this intermittent), so wait for the save first.
+    await expect(page.getByRole("button", { name: /^(Save 19 items|Saving…)$/ })).toHaveCount(0, { timeout: 15000 });
     await openMap(page);
     await expect(page.locator(".thought-node")).toHaveCount(18);
     expect(

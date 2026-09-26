@@ -156,7 +156,7 @@ export function AccountSettings() {
           </section>
         </>
       ) : (
-        <GoogleSignIn className="settings-card" />
+        <GoogleSignIn className="settings-card auth-entry" next="/control?panel=account" />
       )}
       <section className="settings-card">
         <h2>Local is separate from shared</h2>

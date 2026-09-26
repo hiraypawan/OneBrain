@@ -52,7 +52,7 @@ export async function askPuter(
     const puter = (window as any).puter;
     const res = await Promise.race([
       puter.ai.chat(
-        [{ role: 'system', content: system }, ...(history || []).slice(-6)],
+        [{ role: 'system', content: system }, ...(history || []).slice(-21)],
         { max_tokens: 600 }
       ),
       new Promise((_, reject) => {

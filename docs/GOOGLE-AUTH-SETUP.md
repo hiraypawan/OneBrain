@@ -110,3 +110,10 @@ Accounts are keyed by Google's verified **subject (`sub`)**, not email alone. A 
 The encrypted vault master password is separate from account authentication. Google cannot recover it, and it is not a second account login method.
 
 Official references: [Google web-server OAuth](https://developers.google.com/identity/protocols/oauth2/web-server), [OpenID Connect](https://developers.google.com/identity/openid-connect), [production OAuth policies](https://developers.google.com/identity/protocols/oauth2/production-readiness/policy-compliance).
+
+## Sign-in UX (2026-09-26)
+
+- **One entry point:** `/auth/login` (and `/auth/signup`, same page) is the only place with a Google button. Header, You tab, Account settings and Shared spaces all link to it with `?next=<page>`; after sign-in the callback returns there (validated same-site path, default `/`), not `/operations`.
+- **Distinct errors:** `?error=configuration` (platform API/Google not configured), `unreachable` (network), `cancelled` (consent declined), `expired` (state cookie missing — e.g. finished in another tab/browser), `google` (code exchange rejected).
+- **Why the button is disabled:** `GET /api/platform/capabilities` must return `authMode: "google-only"` and `configured: true`. That needs the Workers API deployed with `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and the login redirect set, and the frontend connected via the `PLATFORM_API` service binding (Cloudflare) or `PLATFORM_API_URL` (local Next.js).
+- **Embedded previews:** Google refuses to show consent inside an iframe, so in a framed preview the button becomes “Open sign-in in a new tab”.

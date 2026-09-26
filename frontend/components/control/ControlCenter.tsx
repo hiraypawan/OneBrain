@@ -147,7 +147,8 @@ export function ControlCenter() {
   const [query, setQuery] = useState("");
   const searching = query.trim().length >= 2;
   const { rows, reminders, fitnessLogs, emailDrafts, stories } = useSpaceRows(searching);
-  const matches = CATALOG.filter((e) =>
+  const labsEnabled = useAssistantStore((s) => !!s.settings.labsEnabled);
+  const matches = CATALOG.filter((e) => (labsEnabled || !e.labs) &&
     `${e.title} ${e.description} ${e.keywords || ""}`
       .toLowerCase()
       .includes(query.toLowerCase().trim()),
@@ -197,6 +198,7 @@ export function ControlCenter() {
               </Link>
               <span>/</span>
               <span>{entry.title}</span>
+              {"labs" in entry && entry.labs ? <em className="labs-badge" title="Still being finished — it may change or break.">Labs</em> : null}
             </div>
             <header className="control-heading">
               <h1>{entry.title}</h1>
@@ -318,7 +320,7 @@ export function ControlCenter() {
                           <Icon name={e.icon} />
                         </span>
                         <span>
-                          <strong>{e.title}</strong>
+                          <strong>{e.title}{e.labs && <em className="labs-badge">Labs</em>}</strong>
                           <small>{e.description}</small>
                         </span>
                         <Icon name="arrow" />

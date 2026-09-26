@@ -15,8 +15,8 @@ import {
 import { previewShared, saveShared, sharedIntent, type SharedPreview } from "@/lib/shared-voice";
 import { prepareVoiceInput } from "@/lib/voice-input";
 import {
-  createFinalCollector,
-  type FinalCollector,
+  createUtteranceAssembler,
+  type UtteranceAssembler,
 } from "@/lib/transcript-gate";
 import { useWorkspaceStore } from "@/store/workspace";
 import { interpretLocal } from "@/lib/workspace/voice";
@@ -72,7 +72,7 @@ import {
   shouldIgnoreTranscript,
 } from "@/lib/voiceprint";
 import { normalizeHinglish } from "@/lib/transliterate";
-import { parseVoiceCommand, parseMediaCommand, type VoiceCommand } from "@/lib/commands";
+import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/commands";
 import { useMediaStore } from "@/store/media";
 import { parseReminderIntent } from "@/lib/reminders";
 
@@ -80,6 +80,7 @@ export interface ChatExtra {
   profile?: string;
   recall?: string;
   verbosity?: string;
+  language?: string;
 }
 
 async function fetchChat(
@@ -168,7 +169,10 @@ export function useAssistant() {
   const recogRef = useRef<any>(null);
   const recognitionReadyRef = useRef(false);
   // Result gate for the live recognizer (Android confidence-0 finals etc.).
-  const collectorRef = useRef<FinalCollector | null>(null);
+  const collectorRef = useRef<UtteranceAssembler | null>(null);
+  // Typed/tapped turns that arrive while a reply is still being worked on.
+  // They wait here (merged, bounded) instead of being thrown away.
+  const queuedTurnRef = useRef<string | null>(null);
   // Set while a stop() is in flight so onend knows to bring the mic back.
   const restartAfterEndRef = useRef(false);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1031,14 +1035,15 @@ export function useAssistant() {
         } catch {}
       }
       const tail = full
-        .slice(-12)
+        .slice(-21)
         .map((m) => ({ role: m.role, content: m.content }));
-      const history = fitHistory(tail);
+      const history = fitHistory(tail, 2500);
       const generation = sessionGenerationRef.current;
       const answer = await fetchChat(transcript, history, st.apiKey, {
         profile,
         recall,
         verbosity: st.settings.verbosity,
+        language: st.settings.language,
       });
       if (sessionGenerationRef.current !== generation) return;
       store.addMessage("assistant", answer, envelopeLine || undefined);
@@ -1062,12 +1067,13 @@ export function useAssistant() {
     [store, speak, utteranceMeta, runVoiceCommand, persistProactive, resumeListening],
   );
 
+  const handleTranscriptRef = useRef<(t: string) => Promise<void>>(async () => {});
   const handleTranscript = useCallback(
     async (text: string, confidence?: number) => {
       lastActivityRef.current = Date.now();
       if (!text.trim()) return;
       // Stop commands always remain available, even while a request is running.
-      if (/^(pause|pause session|pause listening)$/i.test(text.trim())) {
+      if (isPauseCommand(text)) {
         controlsRef.current.stopActive();useAssistantStore.getState().setCurrentStatus('paused');return;
       }
       if (parseVoiceCommand(text) === "stop") {
@@ -1075,9 +1081,11 @@ export function useAssistant() {
         return;
       }
       if (processingRef.current) {
+        const prev = queuedTurnRef.current;
+        queuedTurnRef.current = (prev ? `${prev} ${text.trim()}` : text.trim()).slice(0, 4000);
         useAssistantStore
           .getState()
-          .setMicNotice("Finish or cancel the current request first.");
+          .setMicNotice("Got it — I’ll answer that right after this one.");
         return;
       }
       processingRef.current = true;
@@ -1099,8 +1107,15 @@ export function useAssistant() {
         processingRef.current = false;
         const st = useAssistantStore.getState();
         st.setCurrentStatus(st.isActive ? "listening" : "idle");
-        expectingRef.current = st.isActive;
-        if (st.isActive) resumeListening();
+        const queued = queuedTurnRef.current;
+        queuedTurnRef.current = null;
+        if (queued) {
+          st.setMicNotice(null);
+          setTimeout(() => void handleTranscriptRef.current(queued), 0);
+        } else {
+          expectingRef.current = st.isActive;
+          if (st.isActive) resumeListening();
+        }
         }
       }
     },
@@ -1475,9 +1490,11 @@ export function useAssistant() {
           if (!current() || recogRef.current !== recog) return;
           lastActivityRef.current = Date.now();
         };
-        // One accepted utterance = one turn: stop capturing (no runaway
-        // listening / hearing our own reply), process, speak, then resume.
-        const collector = createFinalCollector({
+        // One turn = everything said until the person actually stops
+        // (silenceMs of quiet), not the first breath pause. Then stop
+        // capturing (no hearing our own reply), process, speak, resume.
+        const collector = createUtteranceAssembler({
+          silenceMs: store.settings.endOfSpeechMs,
           onAccept: (text, confidence) => {
             if (!current() || recogRef.current !== recog) return;
             expectingRef.current = false;
@@ -1540,15 +1557,15 @@ export function useAssistant() {
                   "recog-noise",
                   `${String(alt.transcript || "").slice(0, 40)} @${Number(alt.confidence).toFixed(2)}`,
                 );
-            // A turn was accepted: the recognizer is stopping, later
-            // entries in this batch belong to the next turn.
-            if (outcome === "accept" || expectingRef.current === false) break;
+            // A turn was sent (Send now / cap): later entries belong to the next turn.
+            if (expectingRef.current === false) break;
           }
-          // Still listening (no final accepted): show what is being heard.
-          // On accept, onAccept already cleared the caption above.
-          if (expectingRef.current && interim) {
+          void interim;
+          // Still listening: show the WHOLE turn so far, not just the last phrase.
+          const heard = collector.preview();
+          if (expectingRef.current && heard) {
             try {
-              useAssistantStore.getState().setLiveTranscript(interim);
+              useAssistantStore.getState().setLiveTranscript(heard);
             } catch {}
           }
         };
@@ -1587,11 +1604,24 @@ export function useAssistant() {
           if (!current() || recogRef.current !== recog) return;
           recognitionReadyRef.current = false;
           const st = useAssistantStore.getState();
-          // Android ends the session right after an unscored final: accept
-          // what was held now rather than losing the whole utterance.
-          if (collector.flush()) {
-            st.logBgEvent("recog-end", "flushed final");
-            return;
+          // Android ends the session after each phrase. If the person is
+          // mid-turn, restart and keep assembling — the silence timer still
+          // sends the turn. Only flush if we are no longer allowed to listen.
+          if (collector.pending()) {
+            if (st.isActive && !speakingRef.current && !processingRef.current && expectingRef.current) {
+              st.logBgEvent("recog-end", "mid-turn restart");
+              try {
+                recog.start();
+                return;
+              } catch {
+                /* fall through: silence timer or flush below delivers it */
+              }
+              return;
+            }
+            if (collector.flush()) {
+              st.logBgEvent("recog-end", "flushed turn");
+              return;
+            }
           }
           // Restart while genuinely expecting input (not processing/speaking
           // between turns), or when a start() raced this end and asked for it.
@@ -1737,6 +1767,7 @@ export function useAssistant() {
     }
     collectorRef.current?.reset();
     collectorRef.current = null;
+    queuedTurnRef.current = null;
     try {
       useAssistantStore.getState().setLiveTranscript(null);
     } catch {}
@@ -1882,6 +1913,9 @@ export function useAssistant() {
     [],
   );
 
+  handleTranscriptRef.current = handleTranscript;
+  const sendNow = useCallback(() => collectorRef.current?.sendNow() ?? false, []);
+
   // Fill the cross-call ref now that every callback exists.
   controlsRef.current = { stopActive, startActive, speak };
 
@@ -1896,6 +1930,7 @@ export function useAssistant() {
     replayLastReply,
     hasReplay,
     handleTranscript,
+    sendNow,
     enrollVoice,
     recover,
     isActive: store.isActive,

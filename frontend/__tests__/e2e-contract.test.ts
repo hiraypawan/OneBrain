@@ -69,6 +69,7 @@ function assertedLiterals(): { file: string; text: string }[] {
 const EXTERNAL_TEXT: Record<string, string> = {
   // Typed into a form by the test, then asserted back as saved data.
   '2099-09-15': 'fixture input (reminder date)',
+  '20 +': 'fixture speech (mid-sentence pause spec), shown back in the live caption',
   'Browser test studio': 'fixture input (story title)',
   'Call shared client': 'fixture input (shared task body)',
   'Catalog 0-00': 'fixture input (imported record title)',

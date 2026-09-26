@@ -51,8 +51,42 @@ const EXACT: Record<string, VoiceCommand> = {
   'main tumse baat nahi kar rahi': 'notyou',
 };
 
+// Politeness and address words people wrap commands in ("okay stop please",
+// "onebrain ruko", "bhai bas karo yaar"). They are stripped only from the
+// edges and the remainder must still be an exact command, so "stop the car at
+// 5" or "don't stop" never trigger anything.
+const FILLER = new Set([
+  'ok', 'okay', 'please', 'pls', 'plz', 'hey', 'hi', 'onebrain', 'one', 'brain', 'bhai', 'yaar', 'yar',
+  'ji', 'abhi', 'now', 'right', 'just', 'thanks', 'thank', 'you', 'hmm', 'arre', 'arey', 'acha', 'accha',
+  'bas', 'so', 'and', 'can', 'could', 'would', 'kindly', 'zara', 'jara', 'the',
+]);
+
+/** "okay stop listening please" → "stop listening". Exact commands pass untouched. */
+export function stripCommandFillers(text: string, known: (s: string) => boolean = (s) => !!EXACT[s]): string {
+  const exact = norm(text).replace(/[?!.,:;]/g, '');
+  if (known(exact)) return exact;
+  const words = exact.split(' ').filter(Boolean);
+  if (words.length > 7) return exact;
+  // Try every span reachable by peeling filler words off either edge.
+  for (let a = 0; a <= words.length; a++) {
+    if (a > 0 && !FILLER.has(words[a - 1])) break;
+    for (let b = words.length; b > a; b--) {
+      if (b < words.length && !FILLER.has(words[b])) break;
+      const span = words.slice(a, b).join(' ');
+      if (known(span)) return span;
+    }
+  }
+  return exact;
+}
+
 export function parseVoiceCommand(text: string): VoiceCommand {
-  return EXACT[norm(text)] || null;
+  return EXACT[norm(text)] || EXACT[stripCommandFillers(text)] || null;
+}
+
+/** Pause-the-session phrases, with the same filler tolerance. */
+export function isPauseCommand(text: string): boolean {
+  const re = /^(pause|pause session|pause listening|thoda ruko|ek minute ruko)$/;
+  return re.test(stripCommandFillers(text, (s) => re.test(s)));
 }
 
 export type MediaAction =

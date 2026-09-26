@@ -233,7 +233,7 @@ export default function Operations() {
           <button onClick={()=>setBootstrapAttempt(n=>n+1)}>Retry shared connection</button>
         </section>
       ) : !user ? (
-        <GoogleSignIn />
+        <GoogleSignIn className="ops-card ops-auth" next="/control?panel=shared" />
       ) : (
         <>
           <section className="ops-workspaces">

@@ -168,6 +168,9 @@ export function VoiceSurface() {
         <p className="live-caption" role="status" data-testid="live-caption">
           <span className="live-dot" aria-hidden="true" />
           Hearing: {state.liveTranscript}…
+          <button type="button" className="text-button live-send" onClick={() => { void unlockAudioOutput(); assistant.sendNow(); }}>
+            Send now
+          </button>
         </p>
       )}
 

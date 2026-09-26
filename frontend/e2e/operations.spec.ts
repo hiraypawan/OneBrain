@@ -73,7 +73,7 @@ test('voice-created server reminders remain drafts until separately reviewed in 
 test('only Google sign-in is offered and retired password routes cannot authenticate',async({page})=>{
  await page.goto('/auth/signup');await expect(page.getByRole('button',{name:'Continue with Google',exact:true})).toBeVisible();await expect(page.locator('input[type=password]')).toHaveCount(0);
  const response=await page.request.post('/api/platform/login',{data:{email:'old@example.test',password:'old-password'}});expect(response.status()).toBe(410);
- await page.goto('/api/auth/google/callback?state=forged&code=forged');await expect(page).toHaveURL(/control\?panel=account&error=google/);await expect(page.getByRole('alert').filter({hasText:'Google sign-in was not completed'})).toBeVisible();
+ await page.goto('/api/auth/google/callback?state=forged&code=forged');await expect(page).toHaveURL(/auth\/login\?error=expired/);await expect(page.getByRole('alert').filter({hasText:'sign-in attempt expired'})).toBeVisible();
  const hidden=await page.request.post('/api/platform/auth/google/start',{data:{}});expect(hidden.status()).toBe(404);
  const csrf=await page.request.post('/api/auth/google/start',{headers:{origin:'https://attacker.example'},data:{}});expect(csrf.status()).toBe(403);
 });
