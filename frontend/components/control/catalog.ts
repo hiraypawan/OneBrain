@@ -13,6 +13,8 @@ export type ToolEntry = {
    * becomes a dead end.
    */
   href?: string;
+  /** Half-finished: hidden from Your space unless Labs is on (Advanced settings). Direct links still work. */
+  labs?: boolean;
 };
 /** The four sections of Your space. Retired 2026-09-16: this replaced a
  *  flat fifteen-tile wall where the same To-Do lived in three places. */
@@ -100,6 +102,7 @@ export const CATALOG: ToolEntry[] = [
   },
   {
     id: "drafts",
+    labs: true,
     title: "Email drafts",
     description: "Voice-drafted mails, ready to copy or send.",
     group: "Your record",
@@ -108,6 +111,7 @@ export const CATALOG: ToolEntry[] = [
   },
   {
     id: "stories",
+    labs: true,
     title: "Stories",
     description: "Bedtime tales that remember their characters.",
     group: "Your record",
@@ -132,6 +136,7 @@ export const CATALOG: ToolEntry[] = [
   },
   {
     id: "music",
+    labs: true,
     title: "Music & podcasts",
     description: "Say “play kesariya”, or search here. Free sources, no accounts.",
     group: "Utilities",

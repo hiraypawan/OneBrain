@@ -1,5 +1,6 @@
 # OneBrain — Context, capture, and reviewed action
 
+> **Direction:** [ROADMAP.md](docs/ROADMAP.md) — what works now, what is next, what is in Labs, what is parked.
 > **Google-only authentication:** Account sign-up/sign-in now uses Google. See [secure setup steps](docs/GOOGLE-AUTH-SETUP.md) and [PR/release gates](docs/PR-RELEASE-GATES.md). Password login is retired; live Google configuration is still required.
 > **Build status:** Neural Canvas, pocket voice, opt-in proactive conversation, local encrypted vault, utilities, a real local D1-backed shared platform, and server-side plans with a quota ledger (operator-minted keys, **no payments or checkout**) are implemented within the documented limits. Music/podcast playback was reintroduced as an opt-in panel on 2026-09-15, which reverses ledger row 170 and is **not verified against live sources**. **The full 175-item product scope is not complete.** See the [numbered requirement ledger](docs/IMPLEMENTATION-STATUS.md).
 >

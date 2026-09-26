@@ -30,6 +30,8 @@ export interface UserSettings {
   silentMode?: boolean;
   /** Quiet time (ms) after you stop talking before OneBrain answers. 700–4000, default 1600. */
   endOfSpeechMs?: number;
+  /** Show half-finished features (Stories, Email drafts, Music) in Your space. */
+  labsEnabled?: boolean;
   memoryEnabled: boolean;
   voiceSpeed: number;
   language: string;

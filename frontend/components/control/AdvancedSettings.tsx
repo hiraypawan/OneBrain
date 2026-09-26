@@ -61,6 +61,22 @@ export default function Advanced() {
       description="Optional provider tools and device diagnostics. None of these are needed to sign in."
     >
       <section className="settings-card">
+        <h2>Labs</h2>
+        <p>
+          Some features are still being finished: Stories, Email drafts and
+          Music &amp; podcasts. They are hidden from Your space so the app stays
+          focused. Turn this on to try them — they may change or break.
+        </p>
+        <label className="switch-row">
+          <span>Show Labs features</span>
+          <input
+            type="checkbox"
+            checked={!!settings.labsEnabled}
+            onChange={(e) => updateSettings({ labsEnabled: e.target.checked })}
+          />
+        </label>
+      </section>
+      <section className="settings-card">
         <h2>Theme</h2>
         <p>
           Dark is the palette this app was designed and reviewed in. Light is an

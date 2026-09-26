@@ -1,3 +1,5 @@
+> **Direction:** see [ROADMAP.md](ROADMAP.md) for what works now, what is next, what is in Labs and what is parked.
+
 # OneBrain implementation status
 
 > **Google-only authentication update (2026-09-11):** Password/local account login and legacy JWT OAuth are retired. Follow [Google setup](GOOGLE-AUTH-SETUP.md) and [PR gates](PR-RELEASE-GATES.md). Sign-in requires private, environment-specific operator OAuth configuration; the full live Google consent/sign-in flow is not verified. Prior password/authentication descriptions below are historical where they conflict with this update.

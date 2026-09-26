@@ -62,6 +62,7 @@ export function normalizeTranscript(text: string): string {
     .toLowerCase();
 }
 
+/** @deprecated Replaced by createUtteranceAssembler (whole turns across pauses). Kept for its tests; not used by the app. */
 export function createFinalCollector(options: CollectorOptions): FinalCollector {
   const holdMs = options.holdMs ?? 1200;
   const dedupeMs = options.dedupeMs ?? 3000;
