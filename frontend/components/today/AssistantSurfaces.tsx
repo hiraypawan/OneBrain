@@ -61,6 +61,9 @@ export function LiveCaption({ assistant }: { assistant: Assistant }) {
     >
       <span className="live-dot" aria-hidden="true" />
       Hearing: {liveTranscript}…
+          <button type="button" className="text-button live-send" onClick={() => { assistant.sendNow(); }}>
+            Send now
+          </button>
     </p>
   );
 }

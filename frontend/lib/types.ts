@@ -28,6 +28,8 @@ export interface UserSettings {
   speechAliases?: Record<string,string>;
   proactive?: import('./proactive').ProactivePreferences;
   silentMode?: boolean;
+  /** Quiet time (ms) after you stop talking before OneBrain answers. 700–4000, default 1600. */
+  endOfSpeechMs?: number;
   memoryEnabled: boolean;
   voiceSpeed: number;
   language: string;

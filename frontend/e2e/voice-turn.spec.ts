@@ -129,12 +129,12 @@ test("Android-style confidence-0 finals produce an answer, speech and a resumed 
     .poll(() => page.evaluate(() => (window as any).__testRecognition.running))
     .toBe(true);
   expect(await page.evaluate(() => (window as any).__starts)).toBeGreaterThanOrEqual(2);
-  // Second turn works too (no "Finish or cancel the current request" lockout).
+  // Second turn works too (no queue/lockout notice between normal turns).
   await page.evaluate(() =>
     (window as any).__testRecognition.emit([{ text: "20 + 5", isFinal: true, confidence: 0.91 }]),
   );
   await expect(page.getByRole("region", { name: "OneBrain response" })).toContainText("25");
-  await expect(page.getByText("Finish or cancel")).toHaveCount(0);
+  await expect(page.getByText("right after this one")).toHaveCount(0);
   await page.getByTestId("stop-button").click();
   await expect(page.getByTestId("active-button")).toBeEnabled();
 });
@@ -176,5 +176,36 @@ test("recognizer ending right after an unscored final still answers (Android ses
   });
   await expect(page.getByRole("region", { name: "OneBrain response" })).toContainText("15");
   await expect.poll(() => page.evaluate(() => (window as any).__testRecognition.running)).toBe(true);
+  await page.getByTestId("stop-button").click();
+});
+
+test("a breath pause mid-sentence does not cut the turn in half", async ({ page }) => {
+  await mockVoice(page);
+  await page.getByTestId("active-button").click();
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+  await page.evaluate(() =>
+    (window as any).__testRecognition.emit([{ text: "20 +", isFinal: true, confidence: 0.9 }]),
+  );
+  // Shorter than the 1.6 s end-of-speech wait: still the same turn.
+  await page.waitForTimeout(900);
+  await expect(page.getByTestId("live-caption")).toContainText("20 +");
+  await page.evaluate(() =>
+    (window as any).__testRecognition.emit([{ text: "7", isFinal: true, confidence: 0.9 }]),
+  );
+  await expect(page.getByRole("region", { name: "OneBrain response" })).toContainText("27", { timeout: 6000 });
+  const spoken = await page.evaluate(() => (window as any).__spoken as string[]);
+  expect(spoken.some((t) => /\b20\b/.test(t) && !/27/.test(t))).toBe(false);
+  await page.getByTestId("stop-button").click();
+});
+
+test("Send now answers immediately without waiting for silence", async ({ page }) => {
+  await mockVoice(page);
+  await page.getByTestId("active-button").click();
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+  await page.evaluate(() =>
+    (window as any).__testRecognition.emit([{ text: "9 + 9", isFinal: false, confidence: 0 }]),
+  );
+  await page.getByRole("button", { name: "Send now" }).click();
+  await expect(page.getByRole("region", { name: "OneBrain response" })).toContainText("18", { timeout: 1500 });
   await page.getByTestId("stop-button").click();
 });

@@ -4,7 +4,7 @@ import { DEFAULT_PROACTIVE, normalizeProactive } from './proactive';
 export const defaultSettings: UserSettings = {
   memoryEnabled: true, voiceSpeed: 1, language: 'hinglish', verbosity: 'short',
   theme: 'dark', nightMode: false, autoDeleteDays: 0, ownerOnly: false,
-  proactive: DEFAULT_PROACTIVE, silentMode: false, musicEnabled: true,
+  proactive: DEFAULT_PROACTIVE, silentMode: false, musicEnabled: true, endOfSpeechMs: 1600,
 };
 
 /** Storage/imports are untrusted. In particular, strings must never grant consent. */
@@ -25,6 +25,7 @@ export function normalizeSettings(value: unknown): UserSettings {
     autoDeleteDays: Math.floor(finite('autoDeleteDays', 0, 0, 3650)), ownerOnly: p.ownerOnly === true,
     wakePhrase: p.wakePhrase === true, silentMode: p.silentMode === true,
     musicEnabled: p.musicEnabled === undefined ? true : p.musicEnabled === true,
+    endOfSpeechMs: Math.round(finite('endOfSpeechMs', 1600, 700, 4000)),
     proactive: normalizeProactive(p.proactive), speechAliases: aliases,
   };
 }

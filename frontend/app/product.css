@@ -4572,3 +4572,4 @@ html[data-ob-theme='light'] .track-window-kind button[aria-pressed='true'] {
 .auth-actions{display:flex;flex-direction:column;gap:12px}
 .auth-actions a:not(.auth-button){color:#eebd70}
 .auth-skip{text-align:center;font-size:13px}.auth-skip a{color:#b0a28a}
+.live-caption .live-send{margin-left:10px;min-height:32px;padding:4px 10px;border:1px solid #5a4526;border-radius:999px;font-size:12px;color:#eebd70;background:transparent;cursor:pointer}

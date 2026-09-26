@@ -178,6 +178,22 @@ export function VoicePreferences({
           }}
         />
       </label>
+      <label>
+        Wait before answering
+        <small>
+          How long OneBrain waits after you stop talking. Longer = fewer cut-off
+          sentences; shorter = faster replies.
+        </small>
+        <select
+          value={String(state.settings.endOfSpeechMs ?? 1600)}
+          onChange={(e) => state.updateSettings({ endOfSpeechMs: Number(e.target.value) })}
+        >
+          <option value="1000">Quick (1 s)</option>
+          <option value="1600">Normal (1.6 s)</option>
+          <option value="2500">Patient (2.5 s) — I pause to think</option>
+          <option value="3500">Very patient (3.5 s)</option>
+        </select>
+      </label>
       {includeMemory && <MemoryPreference />}
       <label>
         Recognition language
