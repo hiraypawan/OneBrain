@@ -1,61 +1,99 @@
 "use client";
+// The ONLY Google sign-in button in the app. It lives on /auth/login; every
+// other "Sign in" entry point links there (see lib/auth-return.ts loginHref).
 import { useEffect, useState } from "react";
 import { platformApi } from "@/lib/platform";
+import { safeReturnPath, signInErrorMessage } from "@/lib/auth-return";
+
+type Availability = "loading" | "ready" | "unconfigured" | "error" | "paused";
+
 export function GoogleSignIn({
   className = "ops-card ops-auth",
-}: { className?: string } = {}) {
-  const [availability, setAvailability] = useState<
-      "loading" | "ready" | "unconfigured" | "error" | "paused"
-    >("loading"),
+  next = "/",
+  error = null,
+}: { className?: string; next?: string; error?: string | null } = {}) {
+  const [availability, setAvailability] = useState<Availability>("loading"),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState(false),
+    [embedded, setEmbedded] = useState(false),
     [attempt, setAttempt] = useState(0);
+  const returnTo = safeReturnPath(next);
+  const errorText = signInErrorMessage(error);
+
+  useEffect(() => {
+    try {
+      setEmbedded(window.self !== window.top);
+    } catch {
+      setEmbedded(true);
+    }
+    // Coming back from a bfcache "Back" after leaving for Google.
+    const reset = (e: PageTransitionEvent) => e.persisted && setBusy(false);
+    window.addEventListener("pageshow", reset);
+    return () => window.removeEventListener("pageshow", reset);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     setAvailability("loading");
-    setError(new URLSearchParams(location.search).has("error"));
     platformApi("/capabilities")
       .then((c) => {
-        if (alive)
-          setAvailability(
-            c.mode && c.mode !== "normal" ? "paused" : c.authMode === "google-only" && c.configured
+        if (!alive) return;
+        setAvailability(
+          c.mode && c.mode !== "normal"
+            ? "paused"
+            : c.authMode === "google-only" && c.configured
               ? "ready"
               : "unconfigured",
-          );
+        );
       })
-      .catch(() => {
-        if (alive) setAvailability("error");
-      });
+      .catch(() => alive && setAvailability("error"));
     return () => {
       alive = false;
     };
   }, [attempt]);
+
+  // Google refuses to render its consent screen inside an iframe (e.g. an
+  // embedded preview), so open the same page in a real tab instead.
+  const newTabHref =
+    typeof window === "undefined" ? "/auth/login" : window.location.href;
+
   return (
-    <section className={className}>
-      <h2>Continue with Google</h2>
+    <section className={className} aria-labelledby="google-signin-title">
+      <h2 id="google-signin-title">Continue with Google</h2>
       <p>
-        Use the same Google account to sign up or sign in. There are no OneBrain
-        passwords. Your local canvas is not uploaded automatically.
+        One button for new and returning users — there are no OneBrain
+        passwords. Signing in never uploads what is already on this device.
       </p>
-      {error && (
-        <p role="alert">
-          Google sign-in was not completed. It may have expired, been cancelled,
-          or require operator configuration. Try again; legacy accounts need a
-          reviewed identity migration.
+      {errorText && (
+        <p role="alert" className="auth-error">
+          {errorText}
         </p>
       )}
-      <form
-        method="post"
-        action="/api/auth/google/start"
-        onSubmit={() => setBusy(true)}
-      >
-        <button
-          className="ops-primary"
-          disabled={availability !== "ready" || busy}
+      {embedded && availability === "ready" ? (
+        <a
+          className="ops-primary auth-button"
+          href={newTabHref}
+          target="_blank"
+          rel="noopener noreferrer"
         >
-          {busy ? "Opening Google…" : "Continue with Google"}
-        </button>
-      </form>
+          Open sign-in in a new tab
+        </a>
+      ) : (
+        <form
+          method="post"
+          action="/api/auth/google/start"
+          onSubmit={() => setBusy(true)}
+        >
+          <input type="hidden" name="next" value={returnTo} />
+          <button
+            type="submit"
+            className="ops-primary auth-button"
+            disabled={availability !== "ready" || busy}
+            aria-busy={busy}
+          >
+            {busy ? "Opening Google…" : "Continue with Google"}
+          </button>
+        </form>
+      )}
       {availability === "loading" ? (
         <p role="status">Checking Google sign-in…</p>
       ) : availability === "error" ? (
@@ -64,31 +102,42 @@ export function GoogleSignIn({
             Google sign-in availability could not be checked. Check your
             connection and try again.
           </p>
-          <button onClick={() => setAttempt((n) => n + 1)}>
+          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
             Retry Google availability
           </button>
         </>
       ) : availability === "paused" ? (
-        <p role="status">Server sign-in is temporarily paused to preserve capacity. Device-local capture is still available.</p>
-      ) : availability === "unconfigured" ? (
         <p role="status">
-          Google sign-in needs operator setup. Follow docs/GOOGLE-AUTH-SETUP.md.
-          Device-local capture still works without an account.
+          Sign-in is paused for a moment while the server is busy. Everything on
+          this device keeps working.
+        </p>
+      ) : availability === "unconfigured" ? (
+        <>
+          <p role="status">
+            Google sign-in isn’t switched on for this site yet. You can keep
+            using OneBrain on this device without an account.
+          </p>
+          <details className="auth-operator">
+            <summary>Running this site? How to turn it on</summary>
+            <p>
+              Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and the redirect URL on
+              the platform API, and connect the frontend to it (PLATFORM_API
+              binding or PLATFORM_API_URL). Full steps:
+              docs/GOOGLE-AUTH-SETUP.md.
+            </p>
+          </details>
+        </>
+      ) : embedded ? (
+        <p>
+          This page is inside a preview frame, and Google doesn’t allow sign-in
+          there — the button opens it in a normal tab.
         </p>
       ) : (
         <p>
-          Only basic identity is requested: name, email and Google account ID.
-          Calendar, Gmail and Sheets permissions require separate explicit
-          consent.
+          Only your name, email and Google account ID are requested. Calendar,
+          Gmail and Sheets each ask separately, only if you connect them.
         </p>
       )}
-      <p>
-        <a href="/auth/login" target="_blank" rel="noopener noreferrer">
-          Open sign-in in a separate tab
-        </a>{" "}
-        when using an embedded preview.
-      </p>
-      <a href="/">Continue with device-local capture</a>
     </section>
   );
 }

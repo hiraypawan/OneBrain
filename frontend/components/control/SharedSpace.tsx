@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { GoogleSignIn } from "@/components/GoogleSignIn";
+import { loginHref } from "@/lib/auth-return";
 import { useAssistantStore } from "@/store/assistant";
 import {
   ACTION_EXAMPLES,
@@ -233,7 +233,7 @@ export default function Operations() {
           <button onClick={()=>setBootstrapAttempt(n=>n+1)}>Retry shared connection</button>
         </section>
       ) : !user ? (
-        <GoogleSignIn />
+        <SignInEntry className="ops-card ops-auth" next="/control?panel=shared" why="Shared spaces live on the server, so they need a Google account. Your device-local notes stay private and are never uploaded automatically." />
       ) : (
         <>
           <section className="ops-workspaces">
@@ -1662,4 +1662,16 @@ function FinanceSummary({ records }: { records: SharedRecord[] }) {
       </small>
     </section>
   ) : null;
+}
+
+function SignInEntry({ next, className, why }: { next: string; className: string; why: string }) {
+  return (
+    <section className={className}>
+      <h2>Sign in with Google</h2>
+      <p>{why}</p>
+      <a className="ops-primary settings-action" href={loginHref(next)}>
+        Sign in with Google
+      </a>
+    </section>
+  );
 }

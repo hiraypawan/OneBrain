@@ -5,6 +5,7 @@
 // preference and this page can never drift from it.
 
 import Link from 'next/link';
+import { loginHref } from '@/lib/auth-return';
 import { useAssistantStore } from '@/store/assistant';
 import { useFeaturesStore } from '@/store/features';
 import { plainMoney } from '@/lib/track';
@@ -79,7 +80,7 @@ export function YouTab() {
               account-wide plan.
             </p>
           )}
-          <Link prefetch={false} href="/auth/login">
+          <Link prefetch={false} href={authenticated ? '/control?panel=account' : loginHref('/you')}>
             {authenticated ? 'Manage sign-in' : 'Sign in with Google'} →
           </Link>
         </Card>

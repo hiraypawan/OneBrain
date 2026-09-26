@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAssistantStore } from "@/store/assistant";
-import { GoogleSignIn } from "@/components/GoogleSignIn";
+import { loginHref } from "@/lib/auth-return";
 import { SettingsShell } from "./SettingsShell";
 type Account = { id: string; email: string; displayName?: string };
 export function AccountSettings() {
@@ -156,7 +156,7 @@ export function AccountSettings() {
           </section>
         </>
       ) : (
-        <GoogleSignIn className="settings-card" />
+        <SignInEntry className="settings-card auth-entry" next="/control?panel=account" why="Keep your plan and shared spaces on every device. Everything on this device keeps working without an account." />
       )}
       <section className="settings-card">
         <h2>Local is separate from shared</h2>
@@ -175,5 +175,17 @@ export function AccountSettings() {
         </div>
       </section>
     </SettingsShell>
+  );
+}
+
+function SignInEntry({ next, className, why }: { next: string; className: string; why: string }) {
+  return (
+    <section className={className}>
+      <h2>Sign in with Google</h2>
+      <p>{why}</p>
+      <a className="ops-primary settings-action" href={loginHref(next)}>
+        Sign in with Google
+      </a>
+    </section>
   );
 }
