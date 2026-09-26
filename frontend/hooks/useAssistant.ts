@@ -72,7 +72,7 @@ import {
   shouldIgnoreTranscript,
 } from "@/lib/voiceprint";
 import { normalizeHinglish } from "@/lib/transliterate";
-import { parseVoiceCommand, parseMediaCommand, type VoiceCommand } from "@/lib/commands";
+import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/commands";
 import { useMediaStore } from "@/store/media";
 import { parseReminderIntent } from "@/lib/reminders";
 
@@ -80,6 +80,7 @@ export interface ChatExtra {
   profile?: string;
   recall?: string;
   verbosity?: string;
+  language?: string;
 }
 
 async function fetchChat(
@@ -1034,14 +1035,15 @@ export function useAssistant() {
         } catch {}
       }
       const tail = full
-        .slice(-12)
+        .slice(-21)
         .map((m) => ({ role: m.role, content: m.content }));
-      const history = fitHistory(tail);
+      const history = fitHistory(tail, 2500);
       const generation = sessionGenerationRef.current;
       const answer = await fetchChat(transcript, history, st.apiKey, {
         profile,
         recall,
         verbosity: st.settings.verbosity,
+        language: st.settings.language,
       });
       if (sessionGenerationRef.current !== generation) return;
       store.addMessage("assistant", answer, envelopeLine || undefined);
@@ -1071,7 +1073,7 @@ export function useAssistant() {
       lastActivityRef.current = Date.now();
       if (!text.trim()) return;
       // Stop commands always remain available, even while a request is running.
-      if (/^(pause|pause session|pause listening)$/i.test(text.trim())) {
+      if (isPauseCommand(text)) {
         controlsRef.current.stopActive();useAssistantStore.getState().setCurrentStatus('paused');return;
       }
       if (parseVoiceCommand(text) === "stop") {

@@ -51,7 +51,7 @@ export async function askGemini(
   opts?: { system?: string; maxTokens?: number }
 ): Promise<{ text?: string; error?: string }> {
   const contents = [
-    ...(history || []).slice(-10).map((m) => ({
+    ...(history || []).slice(-20).map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     })),
@@ -128,7 +128,7 @@ export async function askGemini(
 // like temperature or system roles get rejected), so everything goes inline.
 export function foldPrompt(message: string, history: ChatHistory[], system?: string): string {
   const lines = [system || SYSTEM];
-  for (const m of (history || []).slice(-6)) {
+  for (const m of (history || []).slice(-12)) {
     lines.push(`${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`);
   }
   lines.push(`User: ${message}`);

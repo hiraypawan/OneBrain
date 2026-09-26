@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildSystem, askGemini, askPollinations, fallback, verbosityBudget } from '@/lib/gemini';
+import { askGemini, askPollinations, fallback, verbosityBudget } from '@/lib/gemini';
+import { buildTurnPrompt, normalizeHistory } from '@/lib/prompt';
 import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
 import type { ChatHistory } from '@/lib/gemini';
 import { looksFactual, fetchWikipedia } from '@/lib/knowledge';
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
     input = await readJsonBody(req);
     if (typeof input.message !== 'string' || !input.message.trim() || input.message.length > 8000)
       throw new RequestBodyError('Message must contain 1–8000 characters.', 400);
-    for (const [field, limit] of [['userKey', 256], ['profile', 12000], ['recall', 12000]] as const) {
+    for (const [field, limit] of [['userKey', 256], ['profile', 12000], ['recall', 12000], ['language', 16], ['facts', 4000]] as const) {
       if (input[field] !== undefined && (typeof input[field] !== 'string' || (input[field] as string).length > limit))
         throw new RequestBodyError(`Invalid ${field}.`, 400);
     }
@@ -28,19 +29,26 @@ export async function POST(req: NextRequest) {
 
   // Explicit user key, keyless community API, then offline fallback.
   // Never spend host keys or silently overflow into a paid provider.
-  // Memory-aware system: clock + verbosity + who they are + relevant past chats.
-  const sysParts = systemOverride ? [systemOverride] : [buildSystem()];
-  if (!systemOverride) {
-    sysParts.push(verbosity === 'long' ? 'Give fuller explanations when asked.' : 'Be concise: short spoken answers.');
-    if (profile) sysParts.push(profile);
-    if (recall) sysParts.push(recall);
+  // Same prompt builder as the browser path (lib/prompt.ts): clock, how to
+  // understand voice turns, reply language, length, who they are, live facts.
+  let facts = typeof input.facts === 'string' ? input.facts : '';
+  if (!systemOverride && !facts) {
+    try {
+      if (looksFactual(message)) facts = (await fetchWikipedia(message))?.text || '';
+    } catch (e) {
+      console.error('Wikipedia failed:', e);
+    }
   }
-  const system = sysParts.join('\n\n');
+  const prompt = systemOverride
+    ? { system: systemOverride, history: normalizeHistory(history, message) }
+    : buildTurnPrompt({ message, history, profile, recall, verbosity, language: input.language as string | undefined, facts });
+  const system = prompt.system;
+  const turnHistory = prompt.history;
   const maxTokens = verbosityBudget(verbosity);
   const geminiKey = userKey;
   let keyBlame: string | null = null;
   if (geminiKey) {
-    const res = await askGemini(geminiKey, message, history || [], { system, maxTokens });
+    const res = await askGemini(geminiKey, message, turnHistory, { system, maxTokens });
     if (res.text) return NextResponse.json({ answer: res.text, provider: 'gemini' });
     // Do not write provider errors or user credentials into server logs.
     if (userKey && /api key|not valid|permission|quota|exceed/i.test(res.error || '')) {
@@ -48,18 +56,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Keyless community API: works with zero setup. Tried after keyed
-  // providers so a user's own key (better quality) always wins when present.
-  // Live facts first for factual questions (fresh > training cutoff).
-  try {
-    if (!systemOverride && looksFactual(message)) {
-      const wiki = await fetchWikipedia(message);
-      if (wiki?.text) return NextResponse.json({ answer: wiki.text, provider: 'wikipedia' });
-    }
-  } catch (e) {
-    console.error('Wikipedia failed:', e);
-  }
-  const free = await askPollinations(message, history || [], system);
+  // Keyless community API: works with zero setup, after the user's own key.
+  const free = await askPollinations(message, turnHistory, system);
   if (free.text) return NextResponse.json({ answer: free.text, provider: 'pollinations' });
   console.error('Pollinations failed:', free.error);
 
@@ -70,5 +68,6 @@ export async function POST(req: NextRequest) {
       provider: 'key-error',
     });
   }
+  if (facts) return NextResponse.json({ answer: facts, provider: 'wikipedia' });
   return NextResponse.json({ answer: fallback(message), provider: 'offline' });
 }
