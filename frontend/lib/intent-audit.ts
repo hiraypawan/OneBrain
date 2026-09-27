@@ -45,6 +45,7 @@ export type RouteKind =
   | 'email'
   | 'log-repair' // rewrite the last log's amount
   | 'log-delete' // remove the last log
+  | 'log-undo' // take back the last voice edit
   | 'log-query' // deterministic answer from the device log
   | 'track' // Track navigation, budget set/read
   | 'todo'
@@ -164,6 +165,7 @@ export async function resetAuditState(): Promise<void> {
     stories: [],
     emailDrafts: [],
     pendingIntent: null,
+    undoable: null,
     trackGoals: { ...DEFAULT_TRACK_GOALS },
   });
   useAssistantStore.setState({
@@ -185,6 +187,7 @@ export async function resetAuditState(): Promise<void> {
     nightNotes: [],
     stories: [],
     pendingIntent: null,
+    undoable: null,
   });
 }
 
@@ -193,6 +196,10 @@ function classifyFeatureTurn(turn: FeatureTurn): { kind: RouteKind; detail: stri
   const meta = turn.messages[0]?.meta || '';
   const text = turn.messages[0]?.text || turn.speak || '';
   const short = text.replace(/\s+/g, ' ').slice(0, 72);
+  // Meta first: the clock and the timer both answer in plain text (and the
+  // timer borrows the workout card), so the card alone cannot tell them apart.
+  if (/^Clock/.test(meta)) return { kind: 'clock', detail: short };
+  if (/^Timer/.test(meta)) return { kind: 'timer', detail: short };
   if (!card) return classifyTextReply(text);
   switch (card.kind) {
     case 'fitness':
@@ -253,6 +260,11 @@ function classifyFeatureTurn(turn: FeatureTurn): { kind: RouteKind; detail: stri
 function classifyTextReply(text: string): { kind: RouteKind; detail: string } {
   const short = text.replace(/\s+/g, ' ').slice(0, 72);
   if (/^Fixed — last log is now/.test(short)) return { kind: 'log-repair', detail: short };
+  if (/^I could not change anything/.test(short)) return { kind: 'log-repair', detail: short };
+  if (/^Deleted —/.test(short)) return { kind: 'log-delete', detail: short };
+  if (/^There is nothing logged yet/.test(short)) return { kind: 'log-delete', detail: short };
+  if (/^Undone —/.test(short)) return { kind: 'log-undo', detail: short };
+  if (/^Nothing to undo yet/.test(short)) return { kind: 'log-undo', detail: short };
   if (/^You have not asked anything/.test(short)) return { kind: 'recall', detail: short };
   return { kind: 'message', detail: short };
 }
@@ -441,57 +453,16 @@ export const NIGHT_AUDIT_PHRASES: AuditPhrase[] = [
  * fixing one fails the suite until the row is deleted from this list — the
  * list can only shrink. Audit findings in brackets.
  */
-export const KNOWN_MISROUTES: Record<string, RouteKind> = {
-  'what is the date today': 'fitness-log', //            I1 "ate" inside "date"
-  "what's the date today": 'fitness-log', //             I1
-  'what is today’s date and time': 'fitness-log', //     I1
-  'what day is it today': 'ai', //                       I19 no deterministic clock
-  'what time is it': 'ai', //                            I19
-  'aaj ka din kaunsa hai': 'ai', //                      I19
-  'aaj ki date kya hai': 'fitness-log', //               I1
-  'create a task to call mom': 'fitness-log', //         I1 "ate" inside "create"
-  'update my profile name': 'fitness-log', //            I1
-  'I will be late today': 'fitness-log', //              I1
-  'generate a plan for my week': 'fitness-log', //       I1
-  'translate this sentence for me': 'fitness-log', //    I1
-  'how do I sleep better at night': 'fitness-log', //    I1 + I2 ("do" = 2)
-  'let us do 20 pushups': 'fitness-log', //              I2 logs “2 Pushups”, the 20 is lost
-  'I spent no time on this': 'fitness-log', //           I2 logs ₹9 expense
-  'what should I do to lose weight fast': 'log-query', //I11
-  'I spent 2 hours on the report': 'log-query', //       I11 ("report" as a question word)
-  'this is a different problem': 'brief', //             I5 "rent" inside "different"
-  'my parents are coming tomorrow': 'brief', //          I5 "rent" inside "parents"
-  'semi final match kab hai': 'brief', //                I5 "emi" inside "semi"
-  'remind me why we did it this way': 'brief', //        I5
-  'what does this remind you of': 'brief', //            I5
-  'aage batao': 'story', //                              I7
-  'continue explaining the last point': 'story', //      I7
-  'aur sunao': 'media', //                               I7
-  'revise my note about the meeting': 'persona', //      I6
-  'padhai karni hai aaj': 'persona', //                  I6
-  'placement of the button is wrong': 'plan', //         I6 (persona branch, then its plan gate)
-  'business idea soch raha hun': 'plan', //              I6
-  'what is the suicide rate in india': 'night-note', //  I8 (saved as a worry, at 10:30am)
-  'news about self harm laws': 'night-note', //          I8
-  'track my order status': 'track', //                   I12
-  'the last meeting was on monday': 'recall', //         I13
-  'yeh phone best hai kya': 'research', //               I14
-  'start the timer for 5 minutes': 'ai', //              I20
-  'set a timer of 10 minutes': 'ai', //                  I20
-  'timer chalu karo': 'workout-session', //              I15
-  'remind me to buy 2 things': 'reminder', //            I9 (saves 02:00)
-  'call mom at 5 pm': 'ai', //                           I9 gap
-  'open my expenses this month': 'log-query', //         D1
-  'close my day': 'local-answer', //                     D2
-};
+export const KNOWN_MISROUTES: Record<string, RouteKind> = {};
+// EMPTY as of the Phase 2 intent fixes (2026-09-27): all 41 rows recorded here
+// — findings I1-I20 and D1-D4 in docs/AUDIT-2026-09-27-VOICE-AND-INTENT.md —
+// route correctly now. Anything added back is a fresh regression, and the audit
+// fails until it is fixed or recorded here.
 
 /** The night-hours rows, pinned with a fake clock by the test. */
-export const KNOWN_NIGHT_MISROUTES: Record<string, RouteKind> = {
-  'main soch raha tha ki movie dekhein': 'night-note', // I10
-  // I10b: the night keyword list has “tension hai” but not “tension ho rahi”,
-  // so the one hour a person most needs the night note is the hour it misses.
-  'kal exam hai tension ho rahi hai': 'ai',
-};
+export const KNOWN_NIGHT_MISROUTES: Record<string, RouteKind> = {};
+// EMPTY: both recorded night rows (I10, I10b) are fixed — the night gate now
+// needs an emotion in the sentence, and "tension ho rahi hai" is one.
 
 export interface AuditRow {
   /** Stable ratchet key: the phrase, or `seed → phrase` for the scenario table. */
@@ -530,20 +501,14 @@ export const REPAIR_SCENARIOS: AuditScenario[] = [
   { seed: 'kharcha 200 chai', text: 'it was 500 not 200', expect: 'log-repair' },
   { seed: '2 roti khayi', text: 'actually 4 roti', expect: 'log-repair' },
   { seed: 'kharcha 200 chai', text: 'aaj ka kharcha 500 tha', expect: 'log-repair' },
-  { seed: 'kharcha 200 chai', text: 'undo that', expect: 'log-delete' },
+  { seed: 'kharcha 200 chai', text: 'undo that', expect: 'log-undo' },
 ];
 
 /** Ratchet for the seeded table. Keyed `seed → phrase`. */
-export const KNOWN_REPAIR_MISROUTES: Record<string, RouteKind> = {
-  'kharcha 200 chai → change 5': 'log-repair',
-  'kharcha 200 chai → yeh galat hai 2 baar bolna pada': 'log-repair',
-  '2 roti khayi → pichla entry hata do': 'log-repair',
-  '6 ghante soya → not 6, it was 8': 'ai',
-  'kharcha 200 chai → it was 500 not 200': 'ai',
-  '2 roti khayi → actually 4 roti': 'ai',
-  'kharcha 200 chai → aaj ka kharcha 500 tha': 'log-query',
-  'kharcha 200 chai → undo that': 'ai',
-};
+export const KNOWN_REPAIR_MISROUTES: Record<string, RouteKind> = {};
+// EMPTY: every recorded correction row (I3, I4) is fixed. Repairs now have to
+// point at the last row, "delete" and "undo" are their own routes, and a repair
+// only rewrites a log made in the last ten minutes.
 
 export interface AuditReport {
   rows: AuditRow[];

@@ -1,8 +1,17 @@
 // Shared spoken-number parser: English + Hindi/Hinglish number words.
 // Used by fitness logging, email slot-fill, timers and money parsing.
-// Pure + tested. Ambiguity note: "saath" (7) vs "sath" (60) — transcripts
-// rarely distinguish them, so callers confirm ambiguous values in the UI
-// and a "change last log to N" repair command always exists.
+// Pure + tested.
+//
+// Ambiguity is handled here rather than by every caller (audit finding I2).
+// Some Romanised Hindi number words are also ordinary words — `do` (2) is the
+// English verb "do", `no` (9) is "no", `so` (100) is "so", `tin` (3) is a can,
+// `bara` (12) is Hindi for "big", `tera` (13) is "your", `sath`/`saath`
+// (60/7) is "together". Reading those as numbers wrote data nobody said:
+// "let us do 20 pushups" logged 2 pushups and "I spent no time on this"
+// logged a ₹9 expense. An ambiguous word now only counts when the sentence
+// confirms it — a unit or count noun beside it ("do roti", "tin baar",
+// "sath minute") or another number word ("do sau pachaas"). A written digit
+// always beats a word, and the earliest confirmed mention still wins.
 
 const SMALL: Record<string, number> = {
   zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
@@ -42,11 +51,67 @@ const SCALE: Record<string, number> = {
 };
 
 function tokenize(text: string): string[] {
+  // Digits are kept as tokens: they are not number WORDS (wordsToNumber rejects
+  // them) but they do occupy a slot, which is what stops "do 20 pushups" from
+  // reading `do` as confirmed by `pushups`.
   return String(text || '')
     .toLowerCase()
     .replace(/-/g, ' ')
-    .split(/[^a-z]+/)
+    .split(/[^a-z0-9]+/)
     .filter(Boolean);
+}
+
+/**
+ * Number words that are also ordinary words. Each entry says what else the word
+ * means, because the reason matters when someone adds one back.
+ */
+const AMBIGUOUS: Record<string, string> = {
+  do: 'English verb "do"',
+  no: 'English "no"',
+  so: 'English "so"',
+  tin: 'English "tin" (a can)',
+  bees: 'English "bees"',
+  tees: 'English "tees"',
+  bara: 'Hindi "big"',
+  tera: 'Hindi "your"',
+  teri: 'Hindi "your"',
+  sath: 'Hindi "together"',
+  saath: 'Hindi "together/with"',
+};
+
+/**
+ * Does the sentence confirm this ambiguous word as a number? Only when the next
+ * token continues the number ("do sau"), names a unit ("do roti", "sath
+ * minute"), or the previous token is a unit ("roti do").
+ */
+function isConfirmedNumberWord(tokens: string[], i: number): boolean {
+  const next = tokens[i + 1];
+  if (next) {
+    if (next in SMALL || next in SCALE) return true;
+    if (isCountUnit(next)) return true;
+  }
+  const prev = tokens[i - 1];
+  return !!prev && isCountUnit(prev);
+}
+
+/** The first run of number words that really means a number, or null. */
+function firstNumberRun(
+  tokens: string[],
+  from: number,
+  allowAmbiguous = false,
+): { start: number; end: number; value: number } | null {
+  for (let i = from; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (!(tok in SMALL) && !(tok in SCALE)) continue;
+    if (tok in AMBIGUOUS && !allowAmbiguous && !isConfirmedNumberWord(tokens, i)) continue;
+    for (let j = Math.min(tokens.length, i + 6); j > i; j--) {
+      // Words later in the run sit next to number words by definition, so only
+      // the FIRST word of a run has to be confirmed.
+      const v = wordsToNumber(tokens.slice(i, j));
+      if (v !== null) return { start: i, end: j, value: v };
+    }
+  }
+  return null;
 }
 
 /** Evaluate a run of number words ("do sau pachaas" -> 250). Null if none. */
@@ -76,6 +141,8 @@ export function wordsToNumber(words: string[]): number | null {
   return total + current;
 }
 
+import { isCountUnit } from './intent-guard';
+
 export interface FoundNumber {
   value: number;
   /** Character offset where the match starts (digits) or -1 (words). */
@@ -89,25 +156,24 @@ export interface FoundNumber {
  * Digits win over words at the same position. Returns null when nothing
  * numeric is present. Fractions/decimals in digits ("2.5", "1,000") work.
  */
-export function findNumber(text: string): FoundNumber | null {
+export interface FindNumberOptions {
+  /**
+   * Accept an ambiguous Hindi number word ("saath" = 7, or "together") with no
+   * unit beside it. Only for sentences that explicitly ask for a number — a
+   * repair command naming the last log — where the frame is the context.
+   */
+  allowAmbiguous?: boolean;
+}
+
+export function findNumber(text: string, opts: FindNumberOptions = {}): FoundNumber | null {
   const t = String(text || '');
   const digit = t.match(/\d[\d,]*(?:\.\d+)?/);
-  // Word scan: longest run of number-words.
+  // Word scan: the first confirmed run of number words.
   const tokens = tokenize(t);
-  let best: { value: number; raw: string } | null = null;
-  for (let i = 0; i < tokens.length; i++) {
-    for (let j = Math.min(tokens.length, i + 6); j > i; j--) {
-      const slice = tokens.slice(i, j);
-      const v = wordsToNumber(slice);
-      if (v !== null) {
-        best = { value: v, raw: slice.join(' ') };
-        i = j - 1;
-        break;
-      }
-    }
-    if (best && i >= tokens.length) break;
-    if (best) break;
-  }
+  const run = firstNumberRun(tokens, 0, !!opts.allowAmbiguous);
+  const best = run
+    ? { value: run.value, raw: tokens.slice(run.start, run.end).join(' ') }
+    : null;
   if (digit) {
     const raw = digit[0];
     const value = Number(raw.replace(/,/g, ''));
@@ -147,17 +213,10 @@ export function findAllNumbers(text: string): number[] {
   const wordHits: { index: number; value: number }[] = [];
   let i = 0;
   while (i < tokens.length) {
-    let matched = false;
-    for (let j = Math.min(tokens.length, i + 6); j > i; j--) {
-      const v = wordsToNumber(tokens.slice(i, j));
-      if (v !== null) {
-        wordHits.push({ index: i, value: v });
-        i = j;
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) i++;
+    const run = firstNumberRun(tokens, i);
+    if (!run) break;
+    wordHits.push({ index: run.start, value: run.value });
+    i = run.end;
   }
   // Interleave by approximate position: digit char index vs token index.
   // Good enough for short voice commands; callers use order, not offsets.

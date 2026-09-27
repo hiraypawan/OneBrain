@@ -91,51 +91,51 @@ function checkRatchet(rows: AuditRow[], known: Record<string, RouteKind>, label:
 describe('intent routing — everyday phrases', () => {
   it('the whole table (snapshot: any routing change shows up as a diff)', () => {
     expect(renderTable(day.rows)).toMatchInlineSnapshot(`
-      "known-broken | what is the date today | expect=clock | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
-      known-broken | what's the date today | expect=clock | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
-      known-broken | what is today’s date and time | expect=clock | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
-      known-broken | what day is it today | expect=clock | got=ai | fell through to the AI chain
-      known-broken | what time is it | expect=clock | got=ai | fell through to the AI chain
-      known-broken | aaj ka din kaunsa hai | expect=clock | got=ai | fell through to the AI chain
-      known-broken | aaj ki date kya hai | expect=clock | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
-      known-broken | create a task to call mom | expect=capture-draft | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
+      "ok | what is the date today | expect=clock | got=clock | Today is Sunday, 27 September 2026.
+      ok | what's the date today | expect=clock | got=clock | Today is Sunday, 27 September 2026.
+      ok | what is today’s date and time | expect=clock | got=clock | Today is Sunday, 27 September 2026.
+      ok | what day is it today | expect=clock | got=clock | Today is Sunday, 27 September 2026.
+      ok | what time is it | expect=clock | got=clock | It is 10:30 am.
+      ok | aaj ka din kaunsa hai | expect=clock | got=clock | Today is Sunday, 27 September 2026.
+      ok | aaj ki date kya hai | expect=clock | got=clock | Today is Sunday, 27 September 2026.
+      ok | create a task to call mom | expect=capture-draft | got=capture-draft | call mom
       ok | task: call mom | expect=capture-draft | got=capture-draft | call mom
       ok | note: buy milk | expect=capture-draft | got=capture-draft | buy milk
-      known-broken | update my profile name | expect=ai | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
-      known-broken | I will be late today | expect=ai | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
-      known-broken | generate a plan for my week | expect=ai | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
-      known-broken | translate this sentence for me | expect=ai | got=fitness-log | writes=wrote log food "Meal logged" | food "Meal logged"
+      ok | update my profile name | expect=ai | got=ai | fell through to the AI chain
+      ok | I will be late today | expect=ai | got=ai | fell through to the AI chain
+      ok | generate a plan for my week | expect=ai | got=ai | fell through to the AI chain
+      ok | translate this sentence for me | expect=ai | got=ai | fell through to the AI chain
       ok | what is the price of rice today | expect=ai | got=ai | fell through to the AI chain
       ok | great job on the report | expect=ai | got=ai | fell through to the AI chain
-      known-broken | how do I sleep better at night | expect=ai | got=fitness-log | writes=wrote log sleep "Slept 2 hrs" | sleep "Slept 2 hrs"
-      known-broken | let us do 20 pushups | expect=ai | got=fitness-log | writes=wrote log workout "2 Pushups" | workout "2 Pushups"
-      known-broken | I spent no time on this | expect=ai | got=fitness-log | writes=wrote log expense "Spent ₹9 — I no time on this" ₹9 | expense "Spent ₹9 — I no time on this"
-      known-broken | what should I do to lose weight fast | expect=ai | got=log-query | No fitness entries logged today yet. Say “kharc…
-      known-broken | I spent 2 hours on the report | expect=ai | got=log-query | No expenses logged today yet. Say “kharcha 200 …
-      known-broken | this is a different problem | expect=ai | got=brief | money guard (0 dues)
-      known-broken | my parents are coming tomorrow | expect=ai | got=brief | money guard (0 dues)
-      known-broken | semi final match kab hai | expect=ai | got=brief | money guard (0 dues)
-      known-broken | remind me why we did it this way | expect=ai | got=brief | money guard (0 dues)
-      known-broken | what does this remind you of | expect=ai | got=brief | money guard (0 dues)
-      known-broken | aage batao | expect=ai | got=story | writes=created story thread, story mode -> on | "Jungle Doston ki Kahani" episode
-      known-broken | continue explaining the last point | expect=ai | got=story | writes=created story thread, story mode -> on | "Jungle Doston ki Kahani" episode
-      known-broken | aur sunao | expect=ai | got=media | play "aur"
-      known-broken | revise my note about the meeting | expect=ai | got=persona | writes=persona -> study-buddy | entered study-buddy
-      known-broken | padhai karni hai aaj | expect=ai | got=persona | writes=persona -> study-buddy | entered study-buddy
-      known-broken | placement of the button is wrong | expect=ai | got=plan | persona:interview-coach
-      known-broken | business idea soch raha hun | expect=ai | got=plan | persona:startup-mentor
-      known-broken | what is the suicide rate in india | expect=ai | got=night-note | writes=saved night note | saved (worry)
-      known-broken | news about self harm laws | expect=ai | got=night-note | writes=saved night note | saved (worry)
-      known-broken | track my order status | expect=ai | got=track | Track · expenses · expenses/month
-      known-broken | the last meeting was on monday | expect=ai | got=recall | Monday, 21 September
-      known-broken | yeh phone best hai kya | expect=ai | got=research | "yeh phone best hai kya"
+      ok | how do I sleep better at night | expect=ai | got=ai | fell through to the AI chain
+      ok | let us do 20 pushups | expect=ai | got=ai | fell through to the AI chain
+      ok | I spent no time on this | expect=ai | got=ai | fell through to the AI chain
+      ok | what should I do to lose weight fast | expect=ai | got=ai | fell through to the AI chain
+      ok | I spent 2 hours on the report | expect=ai | got=ai | fell through to the AI chain
+      ok | this is a different problem | expect=ai | got=ai | fell through to the AI chain
+      ok | my parents are coming tomorrow | expect=ai | got=ai | fell through to the AI chain
+      ok | semi final match kab hai | expect=ai | got=ai | fell through to the AI chain
+      ok | remind me why we did it this way | expect=ai | got=ai | fell through to the AI chain
+      ok | what does this remind you of | expect=ai | got=ai | fell through to the AI chain
+      ok | aage batao | expect=ai | got=ai | fell through to the AI chain
+      ok | continue explaining the last point | expect=ai | got=ai | fell through to the AI chain
+      ok | aur sunao | expect=ai | got=ai | fell through to the AI chain
+      ok | revise my note about the meeting | expect=ai | got=ai | fell through to the AI chain
+      ok | padhai karni hai aaj | expect=ai | got=ai | fell through to the AI chain
+      ok | placement of the button is wrong | expect=ai | got=ai | fell through to the AI chain
+      ok | business idea soch raha hun | expect=ai | got=ai | fell through to the AI chain
+      ok | what is the suicide rate in india | expect=ai | got=ai | fell through to the AI chain
+      ok | news about self harm laws | expect=ai | got=ai | fell through to the AI chain
+      ok | track my order status | expect=ai | got=ai | fell through to the AI chain
+      ok | the last meeting was on monday | expect=ai | got=ai | fell through to the AI chain
+      ok | yeh phone best hai kya | expect=ai | got=ai | fell through to the AI chain
       ok | what is under the sea | expect=ai | got=ai | fell through to the AI chain
       ok | main soch raha tha ki movie dekhein | expect=ai | got=ai | fell through to the AI chain
-      known-broken | start the timer for 5 minutes | expect=timer | got=ai | fell through to the AI chain
-      known-broken | set a timer of 10 minutes | expect=timer | got=ai | fell through to the AI chain
-      known-broken | timer chalu karo | expect=timer | got=workout-session | writes=workout -> seven-minute | 7-Minute Workout shuru! 12 rounds. Awaz par cha…
-      known-broken | remind me to buy 2 things | expect=ai | got=reminder | "Buy 2 things" @ 02:00 2026-09-28
-      known-broken | call mom at 5 pm | expect=reminder | got=ai | fell through to the AI chain
+      ok | start the timer for 5 minutes | expect=timer | got=timer | writes=workout -> timer-300 | Timer set for 5 min. I will speak up when it is…
+      ok | set a timer of 10 minutes | expect=timer | got=timer | writes=workout -> timer-600 | Timer set for 10 min. I will speak up when it i…
+      ok | timer chalu karo | expect=timer | got=timer | Kitne minute ka timer? Bolo “5 minute ka timer”…
+      ok | remind me to buy 2 things | expect=ai | got=ai | fell through to the AI chain
+      ok | call mom at 5 pm | expect=reminder | got=reminder | "Call mom" @ 17:00 2026-09-27
       ok | remind me to pay rent at 9am tomorrow | expect=reminder | got=reminder | "Pay rent" @ 09:00 2026-09-28
       ok | kharcha 200 chai | expect=fitness-log | got=fitness-log | writes=wrote log expense "Spent ₹200 — chai" ₹200 | expense "Spent ₹200 — chai"
       ok | 2 roti khayi | expect=fitness-log | got=fitness-log | writes=wrote log food "2 Roti" | food "2 Roti"
@@ -148,7 +148,7 @@ describe('intent routing — everyday phrases', () => {
       ok | how much did I spend this week | expect=log-query | got=log-query | No expenses logged for this week yet. Say “khar…
       ok | how much time did I spend yesterday | expect=log-query | got=log-query | No expenses logged for Saturday, 26 September y…
       ok | how do I track my expenses | expect=track | got=track | Track · expenses · expenses/month
-      known-broken | open my expenses this month | expect=track | got=log-query | No expenses logged for this month yet. Say “kha…
+      ok | open my expenses this month | expect=track | got=track | Track · expenses · expenses/month
       ok | fitness summary | expect=fitness-summary | got=fitness-summary | Today: 0 workouts (none yet) · 0 kcal ≈ from 0 …
       ok | show my open tasks | expect=todo | got=todo | Your To-Do list is empty. Say “task: renew the …
       ok | what is the current status of my task | expect=todo | got=todo | Your To-Do list is empty. Say “task: renew the …
@@ -156,7 +156,7 @@ describe('intent routing — everyday phrases', () => {
       ok | what is my budget this month | expect=track | got=track | Budget · expenses/month
       ok | open track | expect=track | got=track | Track · expenses · expenses/month
       ok | morning brief | expect=brief | got=brief | Morning brief
-      known-broken | close my day | expect=brief | got=local-answer | 0 open tasks, 0 overdue. No tasks recorded. Bas…
+      ok | close my day | expect=brief | got=brief | Close my day
       ok | follow ups | expect=brief | got=brief | follow-up radar
       ok | money due | expect=brief | got=brief | money guard (0 dues)
       ok | what did I ask yesterday | expect=recall | got=recall | You have not asked anything yet in this convers…
@@ -226,16 +226,16 @@ describe('intent routing — everyday phrases', () => {
 describe('intent routing — after a log exists (the “fix the last entry” branch)', () => {
   it('the whole table (snapshot)', () => {
     expect(renderTable(repair)).toMatchInlineSnapshot(`
-      "ok | kharcha 200 chai → wrong, it was 10 | expect=log-repair | got=log-repair | writes=overwrote last log -> expense "Spent ₹10 — chai" ₹10 | Fixed — last log is now Spent ₹10 — chai.
-      ok | 2 roti khayi → nahi maine 3 roti khayi | expect=log-repair | got=log-repair | writes=overwrote last log -> food "3 Roti" | Fixed — last log is now 3 Roti.
-      known-broken | kharcha 200 chai → change 5 | expect=ai | got=log-repair | writes=overwrote last log -> expense "Spent ₹5 — chai" ₹5 | Fixed — last log is now Spent ₹5 — chai.
-      known-broken | kharcha 200 chai → yeh galat hai 2 baar bolna pada | expect=ai | got=log-repair | writes=overwrote last log -> expense "Spent ₹2 — chai" ₹2 | Fixed — last log is now Spent ₹2 — chai.
-      known-broken | 2 roti khayi → pichla entry hata do | expect=log-delete | got=log-repair | Fixed — last log is now 2 Roti.
-      known-broken | 6 ghante soya → not 6, it was 8 | expect=log-repair | got=ai | fell through to the AI chain
-      known-broken | kharcha 200 chai → it was 500 not 200 | expect=log-repair | got=ai | fell through to the AI chain
-      known-broken | 2 roti khayi → actually 4 roti | expect=log-repair | got=ai | fell through to the AI chain
-      known-broken | kharcha 200 chai → aaj ka kharcha 500 tha | expect=log-repair | got=log-query | expenses/day · 💸 Spending: ₹200 across 1 item …
-      known-broken | kharcha 200 chai → undo that | expect=log-delete | got=ai | fell through to the AI chain"
+      "ok | kharcha 200 chai → wrong, it was 10 | expect=log-repair | got=log-repair | writes=overwrote last log -> expense "Spent ₹10 — chai" ₹10 | Fixed — last log is now Spent ₹10 — chai. Say u…
+      ok | 2 roti khayi → nahi maine 3 roti khayi | expect=log-repair | got=log-repair | writes=overwrote last log -> food "3 Roti" | Fixed — last log is now 3 Roti. Say undo if tha…
+      ok | kharcha 200 chai → change 5 | expect=ai | got=ai | fell through to the AI chain
+      ok | kharcha 200 chai → yeh galat hai 2 baar bolna pada | expect=ai | got=ai | fell through to the AI chain
+      ok | 2 roti khayi → pichla entry hata do | expect=log-delete | got=log-delete | Deleted — "2 Roti" is gone. Say undo to put it …
+      ok | 6 ghante soya → not 6, it was 8 | expect=log-repair | got=log-repair | writes=overwrote last log -> sleep "Slept 8 hrs" | Fixed — last log is now Slept 8 hrs. Say undo i…
+      ok | kharcha 200 chai → it was 500 not 200 | expect=log-repair | got=log-repair | writes=overwrote last log -> expense "Spent ₹500 — chai" ₹500 | Fixed — last log is now Spent ₹500 — chai. Say …
+      ok | 2 roti khayi → actually 4 roti | expect=log-repair | got=log-repair | writes=overwrote last log -> food "4 Roti" | Fixed — last log is now 4 Roti. Say undo if tha…
+      ok | kharcha 200 chai → aaj ka kharcha 500 tha | expect=log-repair | got=log-repair | writes=overwrote last log -> expense "Spent ₹500 — chai" ₹500 | Fixed — last log is now Spent ₹500 — chai. Say …
+      ok | kharcha 200 chai → undo that | expect=log-undo | got=log-undo | Undone — I dropped "Spent ₹200 — chai". Nothing…"
     `);
   });
 
@@ -253,9 +253,9 @@ describe('intent routing — after a log exists (the “fix the last entry” br
 describe('intent routing — hour-dependent (night gate)', () => {
   it('the whole table (snapshot)', () => {
     expect(renderTable(night)).toMatchInlineSnapshot(`
-      "known-broken | main soch raha tha ki movie dekhein | expect=ai | got=night-note | writes=saved night note | saved (vent)
+      "ok | main soch raha tha ki movie dekhein | expect=ai | got=ai | fell through to the AI chain
       ok | neend nahi aa rahi | expect=night-note | got=night-note | writes=saved night note | saved (worry)
-      known-broken | kal exam hai tension ho rahi hai | expect=night-note | got=ai | fell through to the AI chain"
+      ok | kal exam hai tension ho rahi hai | expect=night-note | got=night-note | writes=saved night note | saved (worry)"
     `);
   });
 
@@ -284,14 +284,14 @@ describe('audit summary', () => {
       nightBroken: night.filter((r) => !r.ok).length,
     }).toMatchInlineSnapshot(`
       {
-        "correct": 34,
-        "destructive": 19,
-        "misrouted": 41,
+        "correct": 75,
+        "destructive": 0,
+        "misrouted": 0,
         "night": 3,
-        "nightBroken": 2,
+        "nightBroken": 0,
         "phrases": 75,
         "seeded": 10,
-        "seededBroken": 8,
+        "seededBroken": 0,
       }
     `);
   });

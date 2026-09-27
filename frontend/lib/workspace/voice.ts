@@ -15,7 +15,9 @@ export function interpretLocal(text: string, items: BrainItem[]): LocalIntent {
   const calc = safeCalculation(clean);
   if (calc !== null) return { type: "answer", text: calc };
   if (
-    /^(what am i forgetting|what(?:'s| is) my day|close my day|start my workday)[?.!]?$/i.test(
+    // "close my day" belongs to the day-close brief, which compiles sections
+    // (done today, overdue, promises, money) instead of a one-line count.
+    /^(what am i forgetting|what(?:'s| is) my day|start my workday)[?.!]?$/i.test(
       clean,
     )
   )
@@ -48,6 +50,18 @@ export function interpretLocal(text: string, items: BrainItem[]): LocalIntent {
     )
   ) {
     return { type: "draft", drafts: [draftCapture(clean)] };
+  }
+  // The sentence people actually say: "create a task to call mom". The prefix
+  // form above stays the reliable one; this only adds the natural phrasing, and
+  // it still lands as a DRAFT the user confirms — nothing is filed silently.
+  const natural = clean.match(
+    /^(?:create|add|make|write|banao|banana|likho|likh do|save)\s+(?:a\s+|an\s+|ek\s+)?(task|todo|to-?do|note|idea|kaam)\b\s*(?:to\s+|for\s+|about\s+|ki\s+|[:\-]\s*)?(.+)$/i,
+  );
+  if (natural && natural[2].trim().length >= 2) {
+    return {
+      type: "draft",
+      drafts: [draftCapture(`${natural[1].toLowerCase()}: ${natural[2].trim()}`)],
+    };
   }
   return null;
 }

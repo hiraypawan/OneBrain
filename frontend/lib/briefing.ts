@@ -4,6 +4,7 @@
 // night notes. Pure + tested.
 
 import { parseDateRef } from './timetravel';
+import { hasPhrase, hasWord } from './intent-guard';
 
 export interface Commitment {
   id: string;
@@ -57,8 +58,15 @@ export function detectBriefIntent(text: string): BriefIntent {
   if (/(follow.?ups?|pending (hai|kaam|hai kya)|kis.?ko (jawab|reply)|waiting on me|meri taraf se)/.test(t) &&
       !/^(remind|yaad)/.test(t))
     return 'followups';
-  if (/(money (due|pending|guard)|paise (dene|bharne)|bills? (due|pending)|kharcha (hisab|kitna)|emi|rent|recharge).*(batao|dikhao|kya|list)?/.test(t) ||
-      /^(bills|dues|udhaar|udhar|dena hai)/.test(t))
+  // Whole words only. Unanchored `emi`/`rent` matched "diffe*rent*", "s*emi*
+  // final", "pa*rent*s", "r*emi*nd me" and answered all of them with the money
+  // guard (audit findings I5, I16).
+  if (
+    hasPhrase(t, 'money due', 'money pending', 'money guard', 'paise dene', 'paise bharne',
+      'bill due', 'bills due', 'bill pending', 'bills pending', 'kharcha hisab', 'kharcha kitna',
+      'kitna dena', 'dena hai', 'dena padega') ||
+    hasWord(t, 'emi', 'rent', 'recharge', 'udhaar', 'udhar', 'dues', 'bills', 'bill')
+  )
     return 'money';
   return null;
 }

@@ -124,6 +124,8 @@ export interface StorySession {
 
 export interface WorkoutRun {
   preset: WorkoutPreset;
+  /** A plain countdown ("timer 5 minute ka"). Never logged as a workout. */
+  isTimer?: boolean;
   schedule: CueSchedule;
   startedAt: number;
   pausedAccum: number; // ms spent paused
@@ -139,6 +141,17 @@ function uuid(): string {
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 }
+
+/**
+ * One voice-written change that "undo" can take back. One level deep — the
+ * newest edit wins — because a voice conversation corrects the thing it just
+ * said, not something from last week.
+ */
+export type Undoable =
+  | { kind: 'log-added'; log: FitnessLog }
+  | { kind: 'log-repaired'; before: FitnessLog; after: FitnessLog }
+  | { kind: 'log-deleted'; log: FitnessLog }
+  | { kind: 'night-note'; note: NightNote };
 
 interface FeaturesState {
   ready: boolean;
@@ -181,7 +194,14 @@ interface FeaturesState {
   fitnessLogs: FitnessLog[];
   logFitness: (l: Omit<FitnessLog, 'id' | 'createdAt' | 'source'>, source?: FitnessLog['source']) => FitnessLog;
   removeFitnessLog: (id: string) => void;
-  repairLastLog: (value: number) => FitnessLog | null;
+  repairLastLog: (value: number, withinMs?: number) => FitnessLog | null;
+  /** Remove the newest log row (voice: "delete the last one"). */
+  deleteLastLog: () => FitnessLog | null;
+  /** The last voice edit, kept so "undo" can put it back. Null until one happens. */
+  undoable: Undoable | null;
+  setUndoable: (u: Undoable | null) => void;
+  /** Take back the last voice edit. Returns a line to say, or null if there is nothing to undo. */
+  undoLastEdit: () => string | null;
   /** Track-tab goals. Local preferences only — they never change what is logged. */
   trackGoals: TrackGoals;
   setTrackGoal: (patch: Partial<TrackGoals>) => void;
@@ -308,7 +328,7 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
   fitnessLogs: [],
   logFitness: (l, source = 'voice') => {
     const full: FitnessLog = { ...l, id: uuid(), createdAt: Date.now(), source };
-    set((s) => ({ fitnessLogs: [...s.fitnessLogs, full].slice(-2000) }));
+    set((s) => ({ fitnessLogs: [...s.fitnessLogs, full].slice(-2000), undoable: { kind: 'log-added', log: full } }));
     if (mem()) db.fitnessLogs.put({ ...full }).catch(() => {});
     return full;
   },
@@ -324,10 +344,17 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
   },
   pendingIntent: null,
   setPendingIntent: (pendingIntent) => set({ pendingIntent }),
-  repairLastLog: (value) => {
+  repairLastLog: (value, withinMs = 10 * 60_000) => {
     const logs = get().fitnessLogs;
-    const last = [...logs].reverse().find((l) => l.kind === 'workout' || l.kind === 'expense' || l.kind === 'water' || l.kind === 'food');
+    // Any row carrying a number can be re-numbered — sleep ("6 ghante soya" → 8)
+    // and weight included. The old kind list skipped them, so correcting a sleep
+    // log silently did nothing.
+    const last = [...logs].reverse().find((l) => typeof l.qty === 'number' && l.qty > 0);
     if (!last || last.qty === undefined) return null;
+    // A repair points at the row you just dictated. Rewriting last week's row
+    // because today's sentence happened to contain a number is how history gets
+    // edited by accident (audit finding I3).
+    if (withinMs > 0 && Date.now() - last.createdAt > withinMs) return null;
     const ratio = value / (last.qty || 1);
     const next: FitnessLog = {
       ...last,
@@ -336,14 +363,58 @@ export const useFeaturesStore = create<FeaturesState>((set, get) => ({
       calories: last.calories ? Math.round(last.calories * ratio) : last.calories,
       amount: last.amount ? value : last.amount,
     };
-    set((s) => ({ fitnessLogs: s.fitnessLogs.map((l) => (l.id === last.id ? next : l)) }));
+    set((s) => ({
+      fitnessLogs: s.fitnessLogs.map((l) => (l.id === last.id ? next : l)),
+      undoable: { kind: 'log-repaired', before: last, after: next },
+    }));
     if (mem()) db.fitnessLogs.put({ ...next }).catch(() => {});
     return next;
+  },
+  deleteLastLog: () => {
+    const logs = get().fitnessLogs;
+    const last = logs[logs.length - 1];
+    if (!last) return null;
+    set((s) => ({
+      fitnessLogs: s.fitnessLogs.filter((l) => l.id !== last.id),
+      undoable: { kind: 'log-deleted', log: last },
+    }));
+    db.fitnessLogs.delete(last.id).catch(() => {});
+    return last;
+  },
+  undoable: null,
+  setUndoable: (undoable) => set({ undoable }),
+  undoLastEdit: () => {
+    const u = get().undoable;
+    if (!u) return null;
+    if (u.kind === 'log-added') {
+      set((s) => ({ fitnessLogs: s.fitnessLogs.filter((l) => l.id !== u.log.id), undoable: null }));
+      db.fitnessLogs.delete(u.log.id).catch(() => {});
+      return `Undone — I dropped "${u.log.label}". Nothing else was touched.`;
+    }
+    if (u.kind === 'log-repaired') {
+      set((s) => ({
+        fitnessLogs: s.fitnessLogs.map((l) => (l.id === u.before.id ? u.before : l)),
+        undoable: null,
+      }));
+      db.fitnessLogs.put({ ...u.before }).catch(() => {});
+      return `Undone — that entry is back to "${u.before.label}".`;
+    }
+    if (u.kind === 'log-deleted') {
+      set((s) => ({
+        fitnessLogs: [...s.fitnessLogs, u.log].sort((a, b) => a.createdAt - b.createdAt),
+        undoable: null,
+      }));
+      db.fitnessLogs.put({ ...u.log }).catch(() => {});
+      return `Undone — "${u.log.label}" is back in your log.`;
+    }
+    set((s) => ({ nightNotes: s.nightNotes.filter((n) => n.id !== u.note.id), undoable: null }));
+    db.kv.put({ key: 'nightnotes', value: [...get().nightNotes] }).catch(() => {});
+    return 'Undone — that night note is gone.';
   },
   nightNotes: [],
   addNightNote: (text, tags) => {
     const note: NightNote = { id: uuid(), text, at: Date.now(), tags };
-    set((s) => ({ nightNotes: [...s.nightNotes, note].slice(-300) }));
+    set((s) => ({ nightNotes: [...s.nightNotes, note].slice(-300), undoable: { kind: 'night-note', note } }));
     if (mem()) db.kv.put({ key: 'nightnotes', value: [...get().nightNotes] }).catch(() => {});
     return note;
   },

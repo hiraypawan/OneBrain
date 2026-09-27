@@ -32,13 +32,16 @@ export type StoryIntent =
   | { action: 'exit' }
   | null;
 
-export function detectStoryIntent(text: string): StoryIntent {
+export function detectStoryIntent(text: string, storyActive = false): StoryIntent {
   const t = String(text || '').toLowerCase().trim();
   if (/^(story (mode )?(band|off|stop|exit)|kahani band|bas kahani|good ?night)/.test(t))
     return { action: 'exit' };
   if (/(nayi kahani|nai kahani|new story|dusri kahani|another story|different story)/.test(t))
     return { action: 'new' };
-  if (/(aage sunao|continue|phir kya hua|next part|aage batao|aur sunao)/.test(t))
+  // "aage batao", "aur sunao", "continue" only mean "next episode" while a story
+  // is actually open. Outside story mode they are ordinary conversation, and
+  // acting on them invented a thread and flipped story mode on (audit I6/I7).
+  if (storyActive && /(aage sunao|phir kya hua|next part|aage batao|aur sunao|^continue$|continue (the )?(story|kahani)|kahani aage|^(aage|aur)\b)/.test(t))
     return { action: 'continue' };
   if (/(kahani sunao|story sunao|kissa sunao|story mode|kahani batao|bedtime story)/.test(t))
     return { action: 'enter' };

@@ -53,6 +53,12 @@ export function WorkoutRunner() {
       if (elapsed >= run.schedule.totalSec + 1 && !finishing.current) {
         finishing.current = true;
         const mins = Math.max(1, Math.round(run.schedule.totalSec / 60));
+        // A plain countdown is not training: logging it would put a workout on
+        // the timeline the user never did.
+        if (run.isTimer) {
+          f.setWorkout({ ...run, finished: true });
+          return;
+        }
         f.logFitness(
           { kind: 'workout', label: `${run.preset.name} (${run.preset.rounds.length} rounds)`, qty: mins, unit: 'mins' },
           'workout',

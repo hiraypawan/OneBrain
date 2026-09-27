@@ -28,8 +28,10 @@ export function detectResearchIntent(text: string): string | null {
   // Suffix form: "EV scooters under 1.5L research karo" -> query BEFORE the verb.
   const suf = t.match(/^(.+?)\s+(research karo|par research|ki research|compare karo|ka comparison|research)\.?$/i);
   if (suf && suf[1].trim().length >= 3) return cleanupQuery(suf[1].trim());
-  // "EV scooters under 1.5L batao" style: topic + under/below + research-ish verb
-  const m2 = t.match(/(under|below|comparison|vs|best|top \d+|kaunsa (le|best)|review)/i);
+  // "EV scooters under 1.5L batao" style: a shopping/comparison frame plus a
+  // research-ish verb. Bare `best`/`kaunsa` used to be enough, so "yeh phone
+  // best hai kya" (a casual opinion question) opened a research brief.
+  const m2 = t.match(/((under|below)\s*[\d₹$]|comparison|compare|\bvs\.?\b|top \d+|kaunsa (le|best|kharid|kharidoon|lo)|review|alternatives?|options|which is better|kaun (better|achha))/i);
   if (m2 && t.length > 15 && t.length < 200 && /(batao|dikhao|suggest|recommend|options|kaunsa|kya)/i.test(t)) {
     return cleanupQuery(t);
   }

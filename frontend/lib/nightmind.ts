@@ -40,8 +40,27 @@ export function isNightHour(now: Date = new Date()): boolean {
 // Self-harm / crisis language (EN + Roman Hindi). Supportive, never clinical.
 const DISTRESS_RE = /(suicide|khudkushi|khud khushi|kill myself|end my life|marna chahta|marna chahti|mar jana|jeene ka mann nahi|jeena nahi|no reason to live|self[\s-]?harm|khud ko nuksan)/i;
 
+/** The speaker talking about their own state, not a topic. */
+const FIRST_PERSON_RE =
+  /\b(main|mai|mein|mujhe|muje|mujhko|mera|meri|mere|hum|i|my|i'm|im|myself)\b/i;
+/** Verbs of intent/state that carry the meaning even without a pronoun. */
+const OWN_STATE_RE =
+  /(chahta|chahti|chahtaa|raha hun|rahi hun|raha hoon|rahi hoon|lag raha|mann nahi|soch (raha|rahi|loonga|lunga|lungi)|kar (loonga|lunga|lungi|raha|rahi)|marna (hai|chaht)|nuksan (pahuncha|kar))/i;
+/**
+ * The same words in an informational sentence: a statistic, a law, a news item,
+ * a film. Answering those with a helpline script — and saving them as a night
+ * note — is wrong and alarmist (audit finding I8).
+ */
+const TOPIC_RE =
+  /\b(rate|rates|statistics|stats|statistic|data|news|article|law|laws|kanoon|case|cases|study|studies|report|percentage|history|meaning|matlab|definition|film|movie|book|novel|documentary|series|episode|debate|essay|project|kitne log|how many|why do people|reasons)\b/i;
+
 export function distressCheck(text: string): boolean {
-  return DISTRESS_RE.test(String(text || ''));
+  const t = String(text || '');
+  if (!DISTRESS_RE.test(t)) return false;
+  // Own state wins over topic words: "I read the suicide rate and now I want to
+  // die" is a crisis even though it mentions a statistic.
+  if (FIRST_PERSON_RE.test(t) || OWN_STATE_RE.test(t)) return true;
+  return false;
 }
 
 export const SUPPORTIVE_REPLY =

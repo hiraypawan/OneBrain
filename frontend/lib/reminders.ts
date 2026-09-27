@@ -46,6 +46,17 @@ export interface ReminderIntent {
 
 const REMIND_RE = /(remind me|remind|yaad dila|yaad dilao|yaad dilana)\b/i;
 
+/**
+ * "call mom at 5 pm" / "pay rent at 9" — an action bound to a clock time is a
+ * reminder even without the word "remind" (audit finding I9).
+ */
+const ACTION_AT_TIME =
+  /^(call|phone|dial|text|message|whatsapp|mail|pay|bharo|bharana|dena|nikalna|jana|jaana|leave|reach|pahunch)\b[\s\S]*\b(at|par|ko)\s+\d{1,2}(\s*:\s*\d{2})?\s*(am|pm|baje)?/i;
+
+/** Units that make a number a quantity, not a clock reading. */
+const COUNTED_UNIT =
+  /^\s*(things?|items?|roti|glass|cup|plate|bottle|litre|liter|kg|kilo|gram|rs\.?|rupees?|rupay|paisa|paise|log|people|baar|times?|dafa|minutes?|mins?|hours?|hrs?|ghanta|ghante|days?|din|weeks?|months?|kms?)\b/i;
+
 function pad2(n: number): string {
   return `${n}`.padStart(2, '0');
 }
@@ -63,7 +74,7 @@ function dayKey(d: Date): string {
 // is not a reminder request at all.
 export function parseReminderIntent(text: string, now: Date = new Date()): ReminderIntent | null {
   const t = String(text || '');
-  if (!REMIND_RE.test(t)) return null;
+  if (!REMIND_RE.test(t) && !ACTION_AT_TIME.test(t)) return null;
   const lower = t.toLowerCase();
 
   // Relative: "in 10 minutes", "2 ghante me", "10 min me"
@@ -81,9 +92,25 @@ export function parseReminderIntent(text: string, now: Date = new Date()): Remin
     }
   }
 
-  // Absolute: "6pm", "18:30", "9 baje", "subah 9 baje", "kal 9 baje"
-  const tm = lower.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  // Absolute: "6pm", "18:30", "9 baje", "subah 9 baje", "kal 9 baje".
+  // A bare number only counts as a clock time when the sentence marks it as one
+  // (am/pm, "baje", a colon, "at", or a daypart word). The old match took any
+  // number, so "remind me to buy 2 things" became a reminder at 02:00 tomorrow
+  // — a time invented out of a quantity (audit finding I9).
+  const periodFirst = /subah|morning/.test(lower) ? 'morning'
+    : /dopahar|dopaher|afternoon/.test(lower) ? 'afternoon'
+    : /shaam|sham|evening/.test(lower) ? 'evening'
+    : /raat|rat|night/.test(lower) ? 'night' : null;
+  const tm =
+    lower.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/) ||
+    lower.match(/(\d{1,2}):(\d{2})\b/) ||
+    lower.match(/\b(?:at|par|ko)\s+(\d{1,2})(?::(\d{2}))?\b/) ||
+    lower.match(/(\d{1,2})\s*(?:baje|bajhe|o'?clock)\b/) ||
+    (periodFirst ? lower.match(/(\d{1,2})(?::(\d{2}))?\b/) : null);
   if (!tm) return null;
+  if (tm.index === undefined) return null;
+  if (!/(am|pm|baje|bajhe|o'?clock|:)/i.test(tm[0]) &&
+      COUNTED_UNIT.test(lower.slice(tm.index + tm[0].length))) return null;
   let h = Number(tm[1]);
   const min = tm[2] ? Number(tm[2]) : 0;
   if (h > 23 || min > 59 || (tm[3] && (h < 1 || h > 12))) return null;

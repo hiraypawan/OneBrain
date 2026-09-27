@@ -13,10 +13,21 @@ const thread = (over: Partial<StoryThread> = {}): StoryThread => ({
 describe('detectStoryIntent', () => {
   it('detects story commands', () => {
     expect(detectStoryIntent('kahani sunao')).toEqual({ action: 'enter' });
-    expect(detectStoryIntent('aage sunao')).toEqual({ action: 'continue' });
+    expect(detectStoryIntent('aage sunao', true)).toEqual({ action: 'continue' });
     expect(detectStoryIntent('nayi kahani')).toEqual({ action: 'new' });
     expect(detectStoryIntent('kahani band')).toEqual({ action: 'exit' });
     expect(detectStoryIntent('mausam kaisa hai')).toBeNull();
+  });
+
+  // Audit findings I6/I7: with no story open, "tell me more" is conversation.
+  // Acting on it invented a thread and flipped story mode on for the session.
+  it('does not open a story from a plain "tell me more"', () => {
+    expect(detectStoryIntent('aage sunao')).toBeNull();
+    expect(detectStoryIntent('aur sunao')).toBeNull();
+    expect(detectStoryIntent('aage batao')).toBeNull();
+    expect(detectStoryIntent('continue explaining the last point')).toBeNull();
+    expect(detectStoryIntent('continue explaining the last point', true)).toBeNull();
+    expect(detectStoryIntent('continue the story', true)).toEqual({ action: 'continue' });
   });
 });
 

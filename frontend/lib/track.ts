@@ -828,6 +828,11 @@ const RANGE_WORDS: [RegExp, TrackRangeKind][] = [
 export function parseTrackCommand(text: string, logs?: FitnessLog[], now = new Date()): TrackCommand | null {
   const t = normalizeText(text);
   if (!t) return null;
+  // "track my order status" is a courier question. `track` on its own used to
+  // open the money/fitness Track tab and answer with an expense lens — a
+  // confident answer to a different question (audit finding I12).
+  if (/\b(order|orders|parcel|delivery|shipment|courier|package|consignment|awb|tracking (id|number)|train|flight|bus|seat)\b/.test(t))
+    return null;
   const budgetSet = t.match(
     /^(?:set|make|rakh do|rakh|update|badal|change)(?:\s+my)?(?:\s+(?:monthly|month))?(?:\s+budget)?\s*(?:budget|limit)\s*(?:to|ko|ka|mein|me|=)?\s*(?:₹|\$|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)/,
   ) || t.match(/^(?:monthly\s+)?budget\s*(?:ko|to|=)?\s*(?:₹|\$|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(?:karo|kar do|rakh do|set karo|record)?$/);

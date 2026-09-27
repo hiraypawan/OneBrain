@@ -2,7 +2,7 @@
 // speaks cues through the existing TTS engine and auto-logs the finished
 // workout to the fitness timeline. Pure schedule generation + tested.
 
-import { findAllNumbers } from './numbers';
+import { findAllNumbers, findNumber } from './numbers';
 
 export interface WorkoutRound {
   label: string;
@@ -58,6 +58,35 @@ export const PRESETS: WorkoutPreset[] = [
   },
 ];
 
+/**
+ * Minutes asked for in a plain timer phrase. 0 means "no length was given" —
+ * the caller then asks instead of guessing (audit finding I20).
+ */
+export function timerMinutes(text: string): number {
+  const t = String(text || '').toLowerCase();
+  if (/(aadha|aadhe|half)\s*(an\s+)?(ghant|hour)/.test(t)) return 30;
+  if (/(dedh|one and a half)\s*(ghant|hour)/.test(t)) return 90;
+  const n = findNumber(t);
+  if (!n || !(n.value > 0)) return 0;
+  if (/\b(min|mins|minute|minutes)\b/.test(t)) return n.value;
+  if (/\b(sec|secs|second|seconds)\b/.test(t)) return n.value / 60;
+  if (/\b(hour|hours|hr|hrs|ghanta|ghante|ghanto)\b/.test(t)) return n.value * 60;
+  return n.value; // "timer 5 ka" — minutes is the everyday shorthand
+}
+
+/** A plain countdown. Reuses the workout runner so cues and the card work. */
+export function timerPreset(minutes: number): WorkoutPreset | null {
+  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 180) return null;
+  const secs = Math.max(5, Math.round(minutes * 60));
+  const label = secs % 60 === 0 ? `${secs / 60} min` : `${secs} sec`;
+  return {
+    id: `timer-${secs}`,
+    name: `Timer ${label}`,
+    nameHi: `Timer ${label}`,
+    rounds: [{ label: 'Timer', labelHi: 'Timer', seconds: secs, restAfter: 0 }],
+  };
+}
+
 export function customPreset(workSec: number, restSec: number, rounds: number, label = 'Work'): WorkoutPreset | null {
   if (![workSec, restSec, rounds].every((n) => Number.isFinite(n) && n > 0)) return null;
   if (workSec > 600 || restSec > 300 || rounds > 30) return null;
@@ -77,6 +106,8 @@ export function customPreset(workSec: number, restSec: number, rounds: number, l
 export type WorkoutIntent =
   | { kind: 'preset'; id: string }
   | { kind: 'custom'; workSec: number; restSec: number; rounds: number }
+  /** minutes = 0 when the phrase asked for a timer without saying how long. */
+  | { kind: 'timer'; minutes: number }
   | { kind: 'control'; action: 'pause' | 'resume' | 'skip' | 'stop' | 'status' }
   | null;
 
@@ -91,6 +122,18 @@ export function detectWorkoutIntent(text: string): WorkoutIntent {
     return { kind: 'control', action: 'skip' };
   if (/(stop|band karo|khatam|finish).*(workout|timer|exercise)/.test(t) || /^(stop workout|workout band)$/.test(t.trim()))
     return { kind: 'control', action: 'stop' };
+  // A plain countdown is not a training session: "timer chalu karo" used to
+  // start the 7-minute workout, 12 rounds and all (audit finding I20).
+  // "set a timer" uses `set` as a verb, so the training sense has to be checked
+  // as a word pair, not as a bare `sets?`.
+  const trainingSense =
+    /(workout|exercise|kasrat|hiit|tabata)/.test(t) ||
+    /\brounds?\b/.test(t) ||
+    /\d+\s*(sets?|rounds?)\b/.test(t) ||
+    /\bsets? of\b/.test(t);
+  if (/(timer|countdown)/.test(t) && !trainingSense) {
+    return { kind: 'timer', minutes: timerMinutes(t) };
+  }
   if (!/(workout|tabata|hiit|timer|exercise|kasrat|shuru karo|start|rounds?|sets?|sec(ond)?s?|rest)/.test(t)) return null;
   if (/tabata/.test(t)) return { kind: 'preset', id: 'tabata' };
   if (/desi|dand|baithak/.test(t)) return { kind: 'preset', id: 'desi-express' };
@@ -120,7 +163,7 @@ export interface CueSchedule {
 }
 
 /** Precompute every spoken cue. Countdowns only for rounds >= 10s. */
-export function buildCues(preset: WorkoutPreset): CueSchedule {
+export function buildCues(preset: WorkoutPreset, doneText?: string): CueSchedule {
   const cues: Cue[] = [];
   let at = 0;
   cues.push({ atSec: 0, text: `${preset.name}. Taiyaar? 3, 2, 1, GO!`, kind: 'start' });
@@ -149,7 +192,11 @@ export function buildCues(preset: WorkoutPreset): CueSchedule {
       cues.push({ atSec: at, text: 'Done! Next up!', kind: 'rest' });
     }
   });
-  cues.push({ atSec: at, text: 'Workout complete! Kya baat hai! Logging it to your fitness timeline.', kind: 'done' });
+  cues.push({
+    atSec: at,
+    text: doneText || 'Workout complete! Kya baat hai! Logging it to your fitness timeline.',
+    kind: 'done',
+  });
   return { cues: cues.sort((a, b) => a.atSec - b.atSec), totalSec: at };
 }
 

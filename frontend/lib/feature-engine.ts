@@ -17,7 +17,8 @@ import {
 } from './email';
 import {
   parseFitnessLog, resolveAmbiguous, dayTotals, dayKey, computeStreaks,
-  recoveryLine, spokenConfirm, detectLogRepair, formatLogLine, type FitnessLog,
+  recoveryLine, spokenConfirm, detectLogRepair, detectLogDelete, isUndoPhrase,
+  formatLogLine, type FitnessLog,
 } from './fitness';
 import {
   parseTrackCommand, plainMoney, rangeFor, expenseView, budgetStatus, trackHref,
@@ -30,8 +31,10 @@ import { INTENT_HINTS, type IntentHint } from './intents';
 import { buildTodoList, speakTodoSummary, todoCounts } from './todo';
 import type { Suggestion } from './fuzzy';
 import {
-  detectWorkoutIntent, presetById, customPreset, buildCues, PRESETS,
+  detectWorkoutIntent, presetById, customPreset, buildCues, timerPreset, PRESETS,
 } from './workout';
+import { answerClock, detectClockAsk } from './clock';
+import { hasPhrase, isPlanOrRequest, isQuestion, mentionsMeasureUnit } from './intent-guard';
 import {
   detectResearchIntent, planEntitySearches, parseSynthesis, ungroundedBrief,
   RESEARCH_SYSTEM, type ResearchSource,
@@ -246,6 +249,18 @@ export async function handleFeatureTurn(
     };
   }
 
+  // 1b. The clock. "What is the date today" is answered from the device, never
+  //     handed to a model, and never mistaken for a log (audit finding I19).
+  const clockAsk = detectClockAsk(text);
+  if (clockAsk) {
+    const a = answerClock(clockAsk);
+    return {
+      messages: [{ text: a.speak, meta: 'Clock · device time and date, offline' }],
+      speak: a.speak,
+      card: { kind: 'message', title: a.title, body: a.body },
+    };
+  }
+
   // 2. Workout controls + start.
   const wIntent = detectWorkoutIntent(text);
   if (wIntent) {
@@ -279,6 +294,35 @@ export async function handleFeatureTurn(
         return { messages: [{ text: 'Skipped ahead!' }], speak: nextGo ? nextGo.text : 'Almost done!' };
       }
       return null;
+    }
+    // A plain countdown. It runs on the same runner as a workout (so the cues
+    // and the card work) but it is never logged as training.
+    if (wIntent.kind === 'timer') {
+      if (!wIntent.minutes) {
+        const msg = 'Kitne minute ka timer? Bolo “5 minute ka timer” ya “timer for 10 minutes”.';
+        return { messages: [{ text: msg, meta: 'Timer · needs a length' }], speak: msg };
+      }
+      const preset = timerPreset(wIntent.minutes);
+      if (!preset) {
+        const msg = `That timer is longer than I can count — I do up to 3 hours. ${Math.round(wIntent.minutes)} minutes did not fit.`;
+        return { messages: [{ text: msg, meta: 'Timer · out of range' }], speak: msg };
+      }
+      if (run && !run.finished) {
+        const msg = 'A timer is already running. Say “stop workout” to end it, then set a new one.';
+        return { messages: [{ text: msg, meta: 'Timer · busy' }], speak: msg };
+      }
+      const length = preset.name.replace(/^Timer\s*/, '');
+      const schedule = buildCues(preset, `Time up! ${length} ho gaye.`);
+      f.setWorkout({
+        preset, schedule, startedAt: Date.now(), pausedAccum: 0, pausedAt: null,
+        spokenCues: 0, finished: false, isTimer: true,
+      });
+      const msg = `Timer set for ${length}. I will speak up when it is over — say “stop workout” to end it early.`;
+      return {
+        messages: [{ text: msg, meta: `Timer · ${length} · counted on this device` }],
+        speak: msg,
+        card: { kind: 'workout' },
+      };
     }
     // start
     if (run && !run.finished) {
@@ -353,14 +397,40 @@ export async function handleFeatureTurn(
     return { messages: [{ text: msg }], speak: msg };
   }
 
-  // 4. Fitness: repair / ambiguous resolution / log / summary.
+  // 4. Fitness: undo / delete / repair / ambiguous resolution / log / summary.
+  // Undo and delete come first: they are the escape hatches for a wrong log, and
+  // a correction sentence often contains a number that would otherwise be read
+  // as a fresh entry (audit findings I3, I4).
+  if (isUndoPhrase(text)) {
+    const undone = f.undoLastEdit();
+    const msg = undone || 'Nothing to undo yet — I have not changed a log or a note in this session.';
+    return { messages: [{ text: msg, meta: undone ? 'Undo · one step back' : undefined }], speak: msg };
+  }
+  if (detectLogDelete(text)) {
+    const removed = f.deleteLastLog();
+    const msg = removed
+      ? `Deleted — "${removed.label}" is gone. Say undo to put it back.`
+      : 'There is nothing logged yet, so there is no last entry to delete.';
+    return { messages: [{ text: msg, meta: 'Delete · last log' }], speak: msg };
+  }
   const repair = detectLogRepair(text);
   if (repair !== null) {
     const fixed = f.repairLastLog(repair);
     if (fixed) {
-      const msg = `Fixed — last log is now ${fixed.label}.`;
-      return { messages: [{ text: msg }], speak: msg };
+      const msg = `Fixed — last log is now ${fixed.label}. Say undo if that was not what you meant.`;
+      return { messages: [{ text: msg, meta: 'Repair · last log' }], speak: msg };
     }
+    // The repair was clear but there is no recent row to apply it to. Say so
+    // instead of falling through to the AI and pretending nothing happened.
+    const rows = f.fitnessLogs;
+    const newest = [...rows].reverse().find((l) => typeof l.qty === 'number' && l.qty > 0);
+    const why = !newest
+      ? 'there is no log with a number on it yet'
+      : Date.now() - newest.createdAt > 10 * 60_000
+        ? 'the last log is older than ten minutes, and I only rewrite what you just said'
+        : 'I could not apply that number';
+    const msg = `I could not change anything — ${why}. Say the correction right after the log and I will fix it.`;
+    return { messages: [{ text: msg, meta: 'Repair · nothing to change' }], speak: msg };
   }
   if (f.card?.kind === 'fitness-ambiguous') {
     const resolved = resolveAmbiguous(f.card.value, text);
@@ -470,8 +540,8 @@ export async function handleFeatureTurn(
   }
 
   // 7. Story mode.
-  const sIntent = detectStoryIntent(text);
   const storySes = useFeaturesStore.getState().story;
+  const sIntent = detectStoryIntent(text, !!storySes);
   if (sIntent?.action === 'exit') {
     if (!storySes) return null;
     f.setStory(null);
@@ -498,7 +568,15 @@ export async function handleFeatureTurn(
       card: { kind: 'digest', digest },
     };
   }
-  if (detectNightIntent(text) || (isNightHour() && /(neend nahi|sapna aaya|soch raha|soch rahi|tension hai|mann (bhari|udaas))/.test(text.toLowerCase()) && text.length > 12)) {
+  // Late-night capture needs an emotion in the sentence, not just a wandering
+  // thought: "main soch raha tha ki movie dekhein" is a plan, and filing it as a
+  // night note made the morning digest full of noise (audit finding I10).
+  const nightLower = text.toLowerCase();
+  const nightFeeling = hasPhrase(nightLower,
+    'neend nahi', 'sapna aaya', 'tension', 'tension hai', 'tension ho rahi', 'tension ho raha',
+    'mann bhari', 'mann udaas', 'dar lag', 'darr lag', 'ghabra', 'udaas hun', 'udaas hoon',
+    'ro raha', 'ro rahi', 'akela', 'akeli', 'pareshan', 'bechain', 'fikar', 'dar lag raha');
+  if (detectNightIntent(text) || (isNightHour() && !isQuestion(text) && nightFeeling && text.length > 12)) {
     const clean = text.replace(/^(night note|raat note|sapna)[:\s]*/i, '').trim() || text;
     const tags = classifyNightNote(clean);
     const note = f.addNightNote(clean.slice(0, 500), tags);
@@ -791,8 +869,11 @@ const FITNESS_RANGE_WORDS =
   /(expense|expenses|kharch|kharcha|kharche|spend|spent|spending|payment|food|khana|meal|diet|calorie|workout|exercise|kasrat|sleep|neend|water|paani|weight|vazan|health|fitness)/i;
 const FITNESS_RANGE_DATES =
   /(yesterday|today|kal\b|aaj|parso|day before yesterday|this week|last week|hafte|hafta|this month|last month|mahina)/i;
+/** Words that actually ask something, as opposed to words that merely show up
+ *  in a statement about a log ("…on the report"). */
+const RANGE_QUESTION_WORDS = /(what|how much|kitna|kitne|kya|kab|when|show|batao|dikhao)/i;
 const FITNESS_RANGE_QUESTIONS =
-  /(what|how much|kitna|kitne|kya|kab|when|show|batao|dikhao|total|hisab|hisaab|summary|report|yaad|savings|bache)/i;
+  /(total|hisab|hisaab|summary|report|savings|bache|yaad)/i;
 
 /** Is this a QUESTION about logged fitness/food/expense data (vs a new log)?
  *  Needs a fitness word plus either a date word ("yesterday expenses") or a
@@ -801,7 +882,18 @@ const FITNESS_RANGE_QUESTIONS =
 export function detectFitnessRangeQuery(text: string): boolean {
   const t = String(text || '').toLowerCase();
   if (!FITNESS_RANGE_WORDS.test(t)) return false;
+  // "open my expenses this month" wants the Track screen, not a spoken count
+  // (audit finding I12). The open verbs belong to parseTrackCommand.
+  if (/^(open|kholo|launch|track|dikhao track)\b/.test(t.trim())) return false;
+  // Advice and planning questions are not reads of the log: answering "what
+  // should I do to lose weight fast" with "no fitness entries logged today" is a
+  // non-sequitur (audit finding I11).
+  if (isPlanOrRequest(t)) return false;
   if (FITNESS_RANGE_DATES.test(t)) return true;
+  if (RANGE_QUESTION_WORDS.test(t)) return true;
+  // A measured statement is a log, not a query: "I spent 2 hours on the report"
+  // used to trigger the read because `report` was in the question list.
+  if (mentionsMeasureUnit(t)) return false;
   return FITNESS_RANGE_QUESTIONS.test(t);
 }
 

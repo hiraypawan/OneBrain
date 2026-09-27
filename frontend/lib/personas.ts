@@ -61,7 +61,9 @@ export const PERSONAS: Persona[] = [
     nameHi: 'Interview coach',
     tagline: 'HR + technical mock rounds',
     free: false,
-    triggers: /(job interview|interview coach|hr round|technical round|placement|naukri interview)/i,
+    // Bare `placement` matched "placement of the button is wrong" and flipped the
+    // app into interview-coach mode (audit finding I15). Require the job sense.
+    triggers: /(job interview|interview coach|hr round|technical round|placement (interview|prep|preparation|practice|drive|season|cell|offer|letter|talks?)|naukri interview|placement ke liye)/i,
     system:
       'You are a job interview coach. Rules: 1) Ask which role/company first if unknown. ' +
       '2) Run realistic rounds: introduce, one question, feedback with a model answer outline. ' +
@@ -73,7 +75,9 @@ export const PERSONAS: Persona[] = [
     nameHi: 'Startup mentor',
     tagline: 'Blunt business feedback',
     free: false,
-    triggers: /(startup mentor|business (mentor|advice|idea)|pitch practice|founder coach)/i,
+    // "business idea soch raha hun" is a thought, not a request for a mentor:
+    // entering a mode silently changes every later answer.
+    triggers: /(startup mentor|business (mentor|advice|coach|guide|model discuss)|pitch practice|founder coach|business idea (par|pe|per|discuss|bat|baat|mentor|advice|chahiye|evaluate))/i,
     system:
       'You are a blunt startup mentor. Rules: 1) Challenge weak assumptions with numbers: market, cost, distribution. ' +
       '2) Every answer ends with ONE concrete next action for this week. 3) No motivational fluff. ' +
@@ -85,7 +89,9 @@ export const PERSONAS: Persona[] = [
     nameHi: 'Study buddy',
     tagline: 'Quizzes you till you remember',
     free: true,
-    triggers: /(study buddy|quiz me|test me|padhai|revise|yaad karao|sawal poocho)/i,
+    // Bare `padhai`/`revise` caught "revise my note about the meeting" and
+    // "padhai karni hai aaj" — statements, not requests for a study partner.
+    triggers: /(study buddy|quiz me|test me|yaad karao|sawal poocho|padhai (mein|me|karo|karao|help|buddy|partner|plan)|revise (karao|karo|with me|karna hai|my (syllabus|notes|lessons) (with me|for))|padhane (baithe|baitheho))/i,
     system:
       'You are a friendly Study Buddy. Rules: 1) Ask what topic/chapter first if unknown. ' +
       '2) Quiz one question at a time; on wrong answers explain in 2 lines with a memory trick, then re-ask later. ' +

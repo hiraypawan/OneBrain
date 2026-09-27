@@ -3,6 +3,8 @@
 // summaries over messages + saved records. Pure + tested. No inference of
 // identity or external facts — only the user's own stored history.
 
+import { isQuestion } from './intent-guard';
+
 export interface DateRange {
   start: number; // inclusive ms
   end: number; // exclusive ms
@@ -167,7 +169,13 @@ export function detectRecallIntent(text: string): RecallIntent {
   if (/(what did (i|we) (decide|agree)|hamne kya (decide|tay|faisla)|decisions? (did|have) (i|we)|faisla kya)/.test(t))
     return 'decisions';
   if (/^(what did i|maine kya).*(ask|poo?cha|say|kaha)/.test(t)) return 'lastAsked';
-  if (/(when did i|kab (maine|hamne)|i asked|maine (kya )?poo?cha|last.*(tuesday|monday|wednesday|thursday|friday|saturday|sunday|somvar|mangalvar|budhvar|guruwar|shukravar|shanivar|ravivaar)|yesterday.*(kya|what|poo?cha|ask)|kal maine)/.test(t))
+  // Recall is about the speaker's OWN past words. "the last meeting was on
+  // monday" is a statement that merely contains a weekday, and answering it with
+  // a date from the transcript is a non-sequitur (audit finding I13).
+  const aboutMyself =
+    /(what did|when did|did (i|we)|kya (maine|hamne)|kab (maine|hamne)|maine|hamne|i asked|i said|i meant|we asked|we said|meri baat|mujhe yaad|yaad hai)/.test(t) ||
+    isQuestion(t);
+  if (aboutMyself && /(when did i|kab (maine|hamne)|i asked|maine (kya )?poo?cha|last.*(tuesday|monday|wednesday|thursday|friday|saturday|sunday|somvar|mangalvar|budhvar|guruwar|shukravar|shanivar|ravivaar)|yesterday.*(kya|what|poo?cha|ask)|kal maine)/.test(t))
     return 'day';
   return null;
 }

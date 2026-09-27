@@ -135,6 +135,9 @@ export function parseMediaCommand(text: string): MediaAction | null {
     .replace(/\s+(song|songs|gaana|gana|music|video|podcast)$/i, '')
     .trim();
   if (query.length < 2) return null;
+  // "aur sunao" / "aage sunao" mean "tell me more", not "play a song called
+  // aur" (audit finding I?). A bare continuation word is never a title.
+  if (/^(aur|aage|or|more|thoda|kuch|phir|fir|wapas|again|thoda aur|kuch aur|aur kuch|some more)$/.test(query)) return null;
 
   // Kind hints so "play a song" never returns a podcast.
   const has = (re: RegExp) => re.test(t);
