@@ -102,6 +102,20 @@ async function fetchChat(
   return detailed.text;
 }
 
+// How long we wait for the speech engine to confirm a start() before deciding
+// it never came up. Long enough for a cold cloud handshake on a slow network.
+const RECOG_START_TIMEOUT_MS = 8000;
+// Three engine "no-speech" timeouts in a row is not silence any more: the mic
+// is usually muted, blocked, or pointed at a device that is no longer there.
+const NO_SPEECH_NOTICE_AFTER = 3;
+const NO_SPEECH_NOTICE =
+  "Nothing is being heard. Check the mic is not muted or in use by another app — or tap Stop, then Start talking again.";
+const DEAF_SESSION_NOTICE =
+  "Mic is on but nothing is being heard — tap Stop, then Start talking again.";
+// Proactive history is kept per person; before anyone signs in it is kept for
+// the device, and becoming identified is not a change of person.
+const DEVICE_HISTORY_KEY = "proactive-history:device";
+
 export function useAssistant() {
   const store = useAssistantStore();
   const lastActivityRef = useRef(Date.now());
@@ -132,7 +146,10 @@ export function useAssistant() {
   const [capturePreview, setCapturePreview] = useState<CaptureDraft[] | null>(
     null,
   );
-  const historyKey = `proactive-history:${store.user?.id || "device"}`;
+  const historyKey = store.user?.id
+    ? `proactive-history:${store.user.id}`
+    : DEVICE_HISTORY_KEY;
+  const historyKeyRef = useRef(historyKey);
   const persistProactive = useCallback(() => {
     if (useAssistantStore.getState().settings.memoryEnabled) {
       void db.kv
@@ -142,15 +159,31 @@ export function useAssistant() {
   }, [historyKey]);
   useEffect(() => {
     let cancelled = false;
-    if (sessionOwnedRef.current || processingRef.current || speakingRef.current)
-      controlsRef.current.stopActive();
-    else sessionGenerationRef.current += 1;
-    pendingSharedRef.current=null;setSharedPreview(null);
-    pendingCaptureRef.current=null;setCapturePreview(null);
+    const previous = historyKeyRef.current;
+    historyKeyRef.current = historyKey;
+    // Signing in must not kill a live session. "device" -> a real user id is
+    // the same person becoming identifiable, and this effect used to stop the
+    // mic mid-conversation the moment the auth callback landed (audit finding
+    // V4). Only a genuine identity change — a different account, or signing
+    // out — ends the session and clears what belonged to the previous person.
+    const becameIdentified =
+      previous === DEVICE_HISTORY_KEY && historyKey !== DEVICE_HISTORY_KEY;
+    if (previous !== historyKey && !becameIdentified) {
+      if (
+        sessionOwnedRef.current ||
+        processingRef.current ||
+        speakingRef.current
+      )
+        controlsRef.current.stopActive();
+      else sessionGenerationRef.current += 1;
+      pendingSharedRef.current=null;setSharedPreview(null);
+      pendingCaptureRef.current=null;setCapturePreview(null);
+      historyRef.current = { ...EMPTY_PROACTIVE_HISTORY, seen: [] };
+      pendingProactiveRef.current = null;
+      setProactiveInvitation(null);
+    }
+    // Whoever we are now, this key's history is being (re)loaded below.
     historyReadyRef.current = false;
-    historyRef.current = { ...EMPTY_PROACTIVE_HISTORY, seen: [] };
-    pendingProactiveRef.current = null;
-    setProactiveInvitation(null);
     db.kv
       .get(historyKey)
       .then((row) => {
@@ -176,14 +209,39 @@ export function useAssistant() {
   // Set while a stop() is in flight so onend knows to bring the mic back.
   const restartAfterEndRef = useRef(false);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True once the engine has accepted start(), until onend/onerror says
+  // otherwise. Kept so a rebuild can tell "already running" from "never came
+  // up", and so the deaf-session watchdog has something honest to check.
+  const recogRunningRef = useRef(false);
+  // Filled in as soon as startRecognition exists: resumeListening is declared
+  // far above it, and after a mic handover there may be no recognizer left to
+  // resume — the resume then has to build one instead of doing nothing.
+  const startRecognitionRef = useRef<() => boolean>(() => false);
+  // Deaf-session watchdog (see startRecognition).
+  const watchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const watchdogTriedRef = useRef(false);
+  // Consecutive engine "no-speech" timeouts, and the language we fell back to
+  // after "language-not-supported". Both reset when a new session starts.
+  const noSpeechRef = useRef(0);
+  const recogLangFallbackRef = useRef<string | null>(null);
 
   // Resume listening on the current recognizer. Chrome throws
   // InvalidStateError ("already started") when start() races the previous
   // stop(); in that case we ask for a restart once onend arrives instead of
   // silently swallowing the error and leaving the session deaf.
   const resumeListening = useCallback(() => {
+    const st = useAssistantStore.getState();
+    // Only the live session owns the mic, and never while we are talking or
+    // still working on a reply — starting then would let the mic hear us.
+    if (!st.isActive || speakingRef.current || processingRef.current) return;
     const recog = recogRef.current;
-    if (!recog) return;
+    if (!recog) {
+      // A device handover or a watchdog rebuild tore the recognizer down.
+      // Building a new one is the whole point: returning quietly here is how a
+      // session ended up showing "listening" while hearing nothing.
+      startRecognitionRef.current();
+      return;
+    }
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
@@ -201,6 +259,10 @@ export function useAssistant() {
   const wakeLockRef = useRef<any>(null);
   const retryRef = useRef(0);
   const speakingRef = useRef(false);
+  // Which speak() call currently owns speakingRef. Without the token, an older
+  // reply finishing late could release the flag while a newer one is still
+  // talking, letting the mic hear our own voice (audit finding V5).
+  const speakingTokenRef = useRef(0);
   const speechRequestRef = useRef(0);
   const cancelSpeechRef = useRef<() => void>(() => {});
   const expectingRef = useRef(false); // true only while we genuinely want mic input
@@ -300,6 +362,7 @@ export function useAssistant() {
       store.logBgEvent("tts-start", clean.slice(0, 50));
       // Pause listening while WE talk: the mic must not hear our own reply,
       // background songs, or YouTube playing during the answer.
+      const speakingToken = ++speakingTokenRef.current;
       speakingRef.current = true;
       try {
         recogRef.current?.stop();
@@ -515,7 +578,9 @@ export function useAssistant() {
       } finally {
         if (current()) {
           cancelSpeechRef.current = () => {};
-          speakingRef.current = false;
+          // Only the call that claimed the flag releases it.
+          if (speakingTokenRef.current === speakingToken)
+            speakingRef.current = false;
           lastActivityRef.current = Date.now();
           const st = useAssistantStore.getState();
           st.logBgEvent("tts-end");
@@ -1122,6 +1187,377 @@ export function useAssistant() {
     [processTranscript, resumeListening],
   );
 
+  // Stop and detach the recognizer we built, and clear its watchdog.
+  //
+  // Detaching the handlers FIRST matters: engines fire onend asynchronously
+  // after stop(), and a teardown that leaves them attached lets the dying
+  // recognizer restart itself or clear state that now belongs to the next one.
+  const teardownRecognition = useCallback(() => {
+    if (watchdogTimerRef.current) {
+      clearTimeout(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
+    }
+    // watchdogTriedRef is deliberately NOT cleared here: a rebuild is exactly
+    // when the budget must survive, or an engine that never starts would be
+    // rebuilt every 8 seconds forever and the user would never be told.
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    restartAfterEndRef.current = false;
+    const recog = recogRef.current;
+    recogRef.current = null;
+    recognitionReadyRef.current = false;
+    recogRunningRef.current = false;
+    try {
+      collectorRef.current?.reset();
+    } catch {}
+    collectorRef.current = null;
+    if (!recog) return;
+    try {
+      recog.onresult = null;
+      recog.onerror = null;
+      recog.onend = null;
+      recog.onstart = null;
+      recog.onspeechstart = null;
+      recog.onspeechend = null;
+    } catch {}
+    // Stop it: an un-stopped recognizer keeps the microphone hot after the
+    // person pressed Stop, which is the one thing a mic indicator must not lie
+    // about.
+    try {
+      recog.stop();
+    } catch {
+      try {
+        recog.abort();
+      } catch {}
+    }
+  }, []);
+
+  // Build (or rebuild) the recognizer for the CURRENT settings and the CURRENT
+  // session generation, then start it. Returns false when this browser has no
+  // speech engine at all.
+  //
+  // This used to live inline in startActive, so nothing else could ever bring
+  // the recognizer back: acquireMic dropped recogRef, every callback then
+  // failed its `recogRef.current !== recog` identity guard, and the session sat
+  // on "listening" while hearing nothing — one tap on "Start talking" after a
+  // device change appeared to do nothing, and the person had to press Stop and
+  // Start again (audit finding V1).
+  const startRecognition = useCallback((): boolean => {
+    const settings = useAssistantStore.getState().settings;
+    const SR =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SR) return false;
+    const generation = sessionGenerationRef.current;
+    const current = () => generation === sessionGenerationRef.current;
+    // Drop whatever we built before this one. An orphaned recognizer keeps the
+    // mic hot and its results are ignored by the guards below.
+    teardownRecognition();
+    const recog = new SR();
+    const recogLang: Record<string, string> = {
+      hinglish: "hi-IN",
+      marathi: "mr-IN",
+    };
+    recog.lang =
+      recogLangFallbackRef.current ||
+      recogLang[settings.language] ||
+      settings.language ||
+      "en-IN";
+    recog.continuous = true;
+    recog.interimResults = true;
+    recog.onstart = () => {
+      if (!current() || recogRef.current !== recog) return;
+      recognitionReadyRef.current = true;
+      recogRunningRef.current = true;
+      // The engine came up, so stop checking — and let a later miss have its
+      // own single rebuild.
+      if (watchdogTimerRef.current) {
+        clearTimeout(watchdogTimerRef.current);
+        watchdogTimerRef.current = null;
+      }
+      watchdogTriedRef.current = false;
+    };
+    recog.onspeechstart = () => {
+      if (!current() || recogRef.current !== recog) return;
+      lastActivityRef.current = Date.now();
+    };
+    recog.onspeechend = () => {
+      if (!current() || recogRef.current !== recog) return;
+      lastActivityRef.current = Date.now();
+    };
+    // One turn = everything said until the person actually stops
+    // (silenceMs of quiet), not the first breath pause. Then stop
+    // capturing (no hearing our own reply), process, speak, resume.
+    const collector = createUtteranceAssembler({
+      silenceMs: settings.endOfSpeechMs,
+      onAccept: (text, confidence) => {
+        if (!current() || recogRef.current !== recog) return;
+        expectingRef.current = false;
+        restartAfterEndRef.current = false;
+        // A final landed: the live caption has done its job.
+        try {
+          useAssistantStore.getState().setLiveTranscript(null);
+        } catch {}
+        try {
+          recog.stop();
+        } catch {}
+        // Roman-script transcript: the AI understands "time kya hai" far
+        // better than mixed-script guesses, and chat shows one clean
+        // script. Confidence travels along so stranger voices can be
+        // gated precisely (undefined = engine gave no score).
+        const cleaned = prepareVoiceInput(
+          normalizeHinglish(text),
+          useAssistantStore.getState().settings,
+        );
+        if (cleaned === null) {
+          // Wake phrase armed and not heard: keep listening quietly.
+          useAssistantStore
+            .getState()
+            .logBgEvent("heard-ignored", text.slice(0, 60));
+          expectingRef.current = true;
+          resumeListening();
+          return;
+        }
+        void handleTranscript(cleaned, confidence);
+      },
+    });
+    collectorRef.current = collector;
+    recog.onresult = (e: any) => {
+      if (!current() || recogRef.current !== recog) return;
+      lastActivityRef.current = Date.now();
+      // We are hearing again: start the no-speech count over and withdraw the
+      // "nothing is being heard" notice if it was ours.
+      noSpeechRef.current = 0;
+      try {
+        if (useAssistantStore.getState().micNotice === NO_SPEECH_NOTICE)
+          useAssistantStore.getState().setMicNotice(null);
+      } catch {}
+      // Walk every new result: continuous mode can deliver several per
+      // event, and an interim followed by a final in the same batch.
+      const results = e?.results;
+      if (!results?.length) return;
+      const from = Math.max(0, Number(e.resultIndex) || 0);
+      // Newest interim wording in this batch, for the live caption.
+      // Finals clear it (onAccept); interims keep the user informed.
+      let interim: string | null = null;
+      for (let i = from; i < results.length; i++) {
+        const res = results[i];
+        const alt = res?.[0];
+        if (!alt) continue;
+        if (!res.isFinal && alt.transcript && String(alt.transcript).trim()) {
+          interim = String(alt.transcript).trim();
+        }
+        const outcome = collector.push({
+          isFinal: !!res.isFinal,
+          transcript: alt.transcript || "",
+          confidence: alt.confidence,
+        });
+        if (outcome === "noise")
+          useAssistantStore
+            .getState()
+            .logBgEvent(
+              "recog-noise",
+              `${String(alt.transcript || "").slice(0, 40)} @${Number(alt.confidence).toFixed(2)}`,
+            );
+        // A turn was sent (Send now / cap): later entries belong to the next turn.
+        if (expectingRef.current === false) break;
+      }
+      void interim;
+      // Still listening: show the WHOLE turn so far, not just the last phrase.
+      const heard = collector.preview();
+      if (expectingRef.current && heard) {
+        try {
+          useAssistantStore.getState().setLiveTranscript(heard);
+        } catch {}
+      }
+    };
+    recog.onerror = (e: any) => {
+      if (!current() || recogRef.current !== recog) return;
+      const err = e?.error || "";
+      recognitionReadyRef.current = false;
+      useAssistantStore.getState().logBgEvent("recog-error", err);
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        expectingRef.current = false;
+        collector.reset();
+        useAssistantStore.getState().setCurrentStatus("error");
+        useAssistantStore
+          .getState()
+          .setMicNotice(
+            "Mic permission blocked — address bar ke lock icon se Allow karo.",
+          );
+      } else if (err === "audio-capture") {
+        useAssistantStore
+          .getState()
+          .setMicNotice(
+            "🎤 Mic busy hai — laptop (multipoint) ya koi aur app use kar raha hai.",
+          );
+      } else if (err === "language-not-supported") {
+        // The engine has no model for the language Settings asked for (mr-IN
+        // on some Chrome builds). Say so out loud, fall back once to English
+        // (India) and keep listening — going quietly deaf is what used to
+        // happen, with the UI still claiming "listening".
+        if (!recogLangFallbackRef.current) {
+          recogLangFallbackRef.current = "en-IN";
+          useAssistantStore
+            .getState()
+            .logBgEvent("recog-error", "language-not-supported -> en-IN");
+          useAssistantStore
+            .getState()
+            .setMicNotice(
+              "This browser has no speech model for that language — listening in English (India) instead. Change it in Settings.",
+            );
+          expectingRef.current = true;
+          startRecognitionRef.current();
+          return;
+        }
+        expectingRef.current = false;
+        useAssistantStore.getState().setCurrentStatus("error");
+        useAssistantStore
+          .getState()
+          .setMicNotice(
+            "Speech recognition is unavailable in this browser. You can still type below.",
+          );
+      } else if (err === "no-speech") {
+        // Silence is normal. Three engine timeouts in a row usually means the
+        // mic is muted, blocked, or pointed at a device that is not there.
+        noSpeechRef.current += 1;
+        if (noSpeechRef.current === NO_SPEECH_NOTICE_AFTER) {
+          useAssistantStore.getState().logBgEvent("recog-error", "no-speech x3");
+          useAssistantStore.getState().setMicNotice(NO_SPEECH_NOTICE);
+        }
+      } else if (err === "aborted") {
+        // We aborted it ourselves (Stop, a rebuild, a device handover). There
+        // is nothing to tell the user; onend brings the loop back.
+      } else if (err === "network") {
+        // Chrome's recognizer is a cloud service: tell the user instead
+        // of restarting silently forever.
+        useAssistantStore
+          .getState()
+          .setMicNotice(
+            "Speech recognition needs internet — the browser could not reach its speech service. Retrying…",
+          );
+      }
+      // 'network' and the transient codes resume via onend.
+    };
+    recog.onend = () => {
+      if (!current() || recogRef.current !== recog) return;
+      recognitionReadyRef.current = false;
+      const st = useAssistantStore.getState();
+      // Android ends the session after each phrase. If the person is
+      // mid-turn, restart and keep assembling — the silence timer still
+      // sends the turn. Only flush if we are no longer allowed to listen.
+      if (collector.pending()) {
+        if (st.isActive && !speakingRef.current && !processingRef.current && expectingRef.current) {
+          st.logBgEvent("recog-end", "mid-turn restart");
+          try {
+            recog.start();
+            return;
+          } catch {
+            /* fall through: silence timer or flush below delivers it */
+          }
+          return;
+        }
+        if (collector.flush()) {
+          st.logBgEvent("recog-end", "flushed turn");
+          return;
+        }
+      }
+      // Restart while genuinely expecting input (not processing/speaking
+      // between turns), or when a start() raced this end and asked for it.
+      const want =
+        st.isActive &&
+        !speakingRef.current &&
+        !processingRef.current &&
+        (expectingRef.current || restartAfterEndRef.current);
+      st.logBgEvent("recog-end", want ? "restarting" : "paused");
+      restartAfterEndRef.current = false;
+      if (!want) return;
+      expectingRef.current = true;
+      try {
+        recog.start();
+      } catch {
+        // Some engines refuse an immediate restart (iOS Safari, Android
+        // right after 'aborted'): back off briefly, then try again.
+        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = setTimeout(() => {
+          restartTimerRef.current = null;
+          if (!current() || recogRef.current !== recog) return;
+          const now = useAssistantStore.getState();
+          if (
+            !now.isActive ||
+            speakingRef.current ||
+            processingRef.current ||
+            !expectingRef.current
+          )
+            return;
+          try {
+            recog.start();
+          } catch {
+            now.logBgEvent("recog-error", "restart failed");
+            now.setMicNotice(
+              "Listening stopped — tap Stop, then Start talking again.",
+            );
+          }
+        }, 400);
+      }
+    };
+    // Assign BEFORE start(): every callback above bails unless this is still
+    // the live recognizer, so an early onstart must not be dropped.
+    recogRef.current = recog;
+    recogRunningRef.current = false;
+    try {
+      recog.start();
+      recogRunningRef.current = true;
+    } catch {
+      // start() racing the previous stop() throws InvalidStateError in Chrome.
+      // onend restarts it (restartAfterEndRef) rather than losing the session.
+      restartAfterEndRef.current = true;
+    }
+    // Chrome can accept start() and then never come up: no onstart, no onend,
+    // no error. The UI would sit on "listening" hearing nothing forever, so we
+    // check the engine actually confirmed, rebuild once if it did not, and tell
+    // the person plainly if the rebuild does not help either.
+    if (watchdogTimerRef.current) clearTimeout(watchdogTimerRef.current);
+    watchdogTimerRef.current = setTimeout(() => {
+      watchdogTimerRef.current = null;
+      if (recogRef.current !== recog || recognitionReadyRef.current) return;
+      const s = useAssistantStore.getState();
+      if (!s.isActive) return;
+      s.logBgEvent(
+        "recog-watchdog",
+        watchdogTriedRef.current ? "still deaf after rebuild" : "engine never started",
+      );
+      if (!watchdogTriedRef.current) {
+        watchdogTriedRef.current = true;
+        expectingRef.current = true;
+        startRecognitionRef.current();
+        return;
+      }
+      s.setMicNotice(DEAF_SESSION_NOTICE);
+    }, RECOG_START_TIMEOUT_MS);
+    return true;
+  }, [handleTranscript, resumeListening, teardownRecognition]);
+  startRecognitionRef.current = startRecognition;
+
+  // Settings changed mid-session: the recognizer was built with the old
+  // language and the old end-of-speech wait, and neither can be retuned in
+  // place. Rebuild it, so switching to Marathi while listening actually gets
+  // Marathi instead of silently continuing in the old model (audit finding V6).
+  useEffect(() => {
+    recogLangFallbackRef.current = null;
+    noSpeechRef.current = 0;
+    if (!useAssistantStore.getState().isActive) return;
+    if (!recogRef.current) return; // nothing running; the next start builds fresh
+    useAssistantStore.getState().logBgEvent("recog-rebuild", "settings changed");
+    expectingRef.current = true;
+    startRecognitionRef.current();
+    // Deliberately keyed on the two settings only: startRecognition's identity
+    // moves with its dependencies, and rebuilding on every move would restart
+    // the mic mid-sentence.
+  }, [store.settings.language, store.settings.endOfSpeechMs]);
+
   const stopPitchTracking = useCallback(() => {
     try {
       if (pitchTimerRef.current) clearInterval(pitchTimerRef.current);
@@ -1237,14 +1673,10 @@ export function useAssistant() {
         request === micRequestRef.current;
       try {
         try {
-          recogRef.current = null;
-          collectorRef.current?.reset();
-          collectorRef.current = null;
-          if (restartTimerRef.current) {
-            clearTimeout(restartTimerRef.current);
-            restartTimerRef.current = null;
-          }
-          restartAfterEndRef.current = false;
+          // Stop the recognizer we have, not just forget it: dropping the ref
+          // alone left it running (mic hot after Stop) and unheard (every
+          // callback failed its identity guard) — audit finding V1.
+          teardownRecognition();
           streamRef.current?.getTracks().forEach((t) => {
             t.onended = null;
             t.onmute = null;
@@ -1307,6 +1739,23 @@ export function useAssistant() {
               useAssistantStore.getState().setMicNotice(null);
           };
         }
+        // The mic is live again. If the session is still meant to be
+        // listening, it needs a recognizer back — teardownRecognition above
+        // dropped the old one. Skipping this is what made the first tap after
+        // a device change do nothing (Bluetooth in/out, multipoint handover,
+        // iOS resume, a track that ended).
+        const afterMic = useAssistantStore.getState();
+        if (
+          afterMic.isActive &&
+          !speakingRef.current &&
+          !processingRef.current &&
+          !recogRef.current &&
+          startRecognitionRef.current()
+        )
+          afterMic.logBgEvent(
+            "recog-rebuild",
+            isRetry ? "after mic re-acquire" : "after mic acquire",
+          );
       } catch (e: any) {
         if (!current()) return;
         const stNow = useAssistantStore.getState();
@@ -1353,7 +1802,7 @@ export function useAssistant() {
         }, 2000);
       }
     },
-    [startPitchTracking, stopPitchTracking],
+    [startPitchTracking, stopPitchTracking, teardownRecognition],
   );
 
   // OS switched input/output (earbuds connected, multipoint handover, etc.)
@@ -1415,6 +1864,11 @@ export function useAssistant() {
       lastActivityRef.current = Date.now();
       sessionNudgesRef.current = 0;
       retryRef.current = 0;
+      noSpeechRef.current = 0;
+      watchdogTriedRef.current = false;
+      // A new session asks for the language Settings names again; the previous
+      // session's fallback was about that engine moment, not a new preference.
+      recogLangFallbackRef.current = null;
       useAssistantStore.getState().setMicNotice(null);
       await acquireMic(false);
       if (!current()) return;
@@ -1466,205 +1920,10 @@ export function useAssistant() {
       // 2. Speech recognition loop (Web Speech API, free + Hinglish).
       // Recognition language follows Settings so Marathi/Hindi/English each
       // get their own acoustic model instead of one wrong guess.
-      if (SR) {
-        const recog = new SR();
-        const recogLang: Record<string, string> = {
-          hinglish: "hi-IN",
-          marathi: "mr-IN",
-        };
-        recog.lang =
-          recogLang[store.settings.language] ||
-          store.settings.language ||
-          "en-IN";
-        recog.continuous = true;
-        recog.interimResults = true;
-        recog.onstart = () => {
-          if (!current() || recogRef.current !== recog) return;
-          recognitionReadyRef.current = true;
-        };
-        recog.onspeechstart = () => {
-          if (!current() || recogRef.current !== recog) return;
-          lastActivityRef.current = Date.now();
-        };
-        recog.onspeechend = () => {
-          if (!current() || recogRef.current !== recog) return;
-          lastActivityRef.current = Date.now();
-        };
-        // One turn = everything said until the person actually stops
-        // (silenceMs of quiet), not the first breath pause. Then stop
-        // capturing (no hearing our own reply), process, speak, resume.
-        const collector = createUtteranceAssembler({
-          silenceMs: store.settings.endOfSpeechMs,
-          onAccept: (text, confidence) => {
-            if (!current() || recogRef.current !== recog) return;
-            expectingRef.current = false;
-            restartAfterEndRef.current = false;
-            // A final landed: the live caption has done its job.
-            try {
-              useAssistantStore.getState().setLiveTranscript(null);
-            } catch {}
-            try {
-              recog.stop();
-            } catch {}
-            // Roman-script transcript: the AI understands "time kya hai" far
-            // better than mixed-script guesses, and chat shows one clean
-            // script. Confidence travels along so stranger voices can be
-            // gated precisely (undefined = engine gave no score).
-            const cleaned = prepareVoiceInput(
-              normalizeHinglish(text),
-              useAssistantStore.getState().settings,
-            );
-            if (cleaned === null) {
-              // Wake phrase armed and not heard: keep listening quietly.
-              useAssistantStore
-                .getState()
-                .logBgEvent("heard-ignored", text.slice(0, 60));
-              expectingRef.current = true;
-              resumeListening();
-              return;
-            }
-            void handleTranscript(cleaned, confidence);
-          },
-        });
-        collectorRef.current = collector;
-        recog.onresult = (e: any) => {
-          if (!current() || recogRef.current !== recog) return;
-          lastActivityRef.current = Date.now();
-          // Walk every new result: continuous mode can deliver several per
-          // event, and an interim followed by a final in the same batch.
-          const results = e?.results;
-          if (!results?.length) return;
-          const from = Math.max(0, Number(e.resultIndex) || 0);
-          // Newest interim wording in this batch, for the live caption.
-          // Finals clear it (onAccept); interims keep the user informed.
-          let interim: string | null = null;
-          for (let i = from; i < results.length; i++) {
-            const res = results[i];
-            const alt = res?.[0];
-            if (!alt) continue;
-            if (!res.isFinal && alt.transcript && String(alt.transcript).trim()) {
-              interim = String(alt.transcript).trim();
-            }
-            const outcome = collector.push({
-              isFinal: !!res.isFinal,
-              transcript: alt.transcript || "",
-              confidence: alt.confidence,
-            });
-            if (outcome === "noise")
-              useAssistantStore
-                .getState()
-                .logBgEvent(
-                  "recog-noise",
-                  `${String(alt.transcript || "").slice(0, 40)} @${Number(alt.confidence).toFixed(2)}`,
-                );
-            // A turn was sent (Send now / cap): later entries belong to the next turn.
-            if (expectingRef.current === false) break;
-          }
-          void interim;
-          // Still listening: show the WHOLE turn so far, not just the last phrase.
-          const heard = collector.preview();
-          if (expectingRef.current && heard) {
-            try {
-              useAssistantStore.getState().setLiveTranscript(heard);
-            } catch {}
-          }
-        };
-        recog.onerror = (e: any) => {
-          if (!current() || recogRef.current !== recog) return;
-          const err = e?.error || "";
-          recognitionReadyRef.current = false;
-          useAssistantStore.getState().logBgEvent("recog-error", err);
-          if (err === "not-allowed" || err === "service-not-allowed") {
-            expectingRef.current = false;
-            collector.reset();
-            useAssistantStore.getState().setCurrentStatus("error");
-            useAssistantStore
-              .getState()
-              .setMicNotice(
-                "Mic permission blocked — address bar ke lock icon se Allow karo.",
-              );
-          } else if (err === "audio-capture") {
-            useAssistantStore
-              .getState()
-              .setMicNotice(
-                "🎤 Mic busy hai — laptop (multipoint) ya koi aur app use kar raha hai.",
-              );
-          } else if (err === "network") {
-            // Chrome's recognizer is a cloud service: tell the user instead
-            // of restarting silently forever.
-            useAssistantStore
-              .getState()
-              .setMicNotice(
-                "Speech recognition needs internet — the browser could not reach its speech service. Retrying…",
-              );
-          }
-          // 'no-speech' / 'aborted' / 'network' — loop resumes via onend.
-        };
-        recog.onend = () => {
-          if (!current() || recogRef.current !== recog) return;
-          recognitionReadyRef.current = false;
-          const st = useAssistantStore.getState();
-          // Android ends the session after each phrase. If the person is
-          // mid-turn, restart and keep assembling — the silence timer still
-          // sends the turn. Only flush if we are no longer allowed to listen.
-          if (collector.pending()) {
-            if (st.isActive && !speakingRef.current && !processingRef.current && expectingRef.current) {
-              st.logBgEvent("recog-end", "mid-turn restart");
-              try {
-                recog.start();
-                return;
-              } catch {
-                /* fall through: silence timer or flush below delivers it */
-              }
-              return;
-            }
-            if (collector.flush()) {
-              st.logBgEvent("recog-end", "flushed turn");
-              return;
-            }
-          }
-          // Restart while genuinely expecting input (not processing/speaking
-          // between turns), or when a start() raced this end and asked for it.
-          const want =
-            st.isActive &&
-            !speakingRef.current &&
-            !processingRef.current &&
-            (expectingRef.current || restartAfterEndRef.current);
-          st.logBgEvent("recog-end", want ? "restarting" : "paused");
-          restartAfterEndRef.current = false;
-          if (!want) return;
-          expectingRef.current = true;
-          try {
-            recog.start();
-          } catch {
-            // Some engines refuse an immediate restart (iOS Safari, Android
-            // right after 'aborted'): back off briefly, then try again.
-            if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-            restartTimerRef.current = setTimeout(() => {
-              restartTimerRef.current = null;
-              if (!current() || recogRef.current !== recog) return;
-              const now = useAssistantStore.getState();
-              if (
-                !now.isActive ||
-                speakingRef.current ||
-                processingRef.current ||
-                !expectingRef.current
-              )
-                return;
-              try {
-                recog.start();
-              } catch {
-                now.logBgEvent("recog-error", "restart failed");
-                now.setMicNotice(
-                  "Listening stopped — tap Stop, then Start talking again.",
-                );
-              }
-            }, 400);
-          }
-        };
-        recogRef.current = recog;
-        recog.start();
-      }
+      if (!startRecognition())
+        throw new Error(
+          "Speech recognition is unavailable in this browser. You can still type below.",
+        );
     } catch (error) {
       if (current()) {
         controlsRef.current.stopActive();
@@ -1675,7 +1934,7 @@ export function useAssistant() {
     }
   }, [
     store,
-    handleTranscript,
+    startRecognition,
     startSilentLoop,
     setupMediaSession,
     acquireMic,
@@ -1765,17 +2024,17 @@ export function useAssistant() {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
-    collectorRef.current?.reset();
-    collectorRef.current = null;
+    // Stops and detaches the recognizer, clears the collector and the
+    // watchdog. Stopping matters: after a device handover the live recognizer
+    // was no longer in recogRef, so Stop left it running and the mic stayed
+    // hot with nothing listening to it.
+    teardownRecognition();
     queuedTurnRef.current = null;
     try {
       useAssistantStore.getState().setLiveTranscript(null);
     } catch {}
     stopPitchTracking();
     void dismissActiveNotification();
-    try {
-      recogRef.current?.stop();
-    } catch {}
     streamRef.current?.getTracks().forEach((t) => t.stop());
     try {
       oscRef.current?.stop();
@@ -1796,7 +2055,7 @@ export function useAssistant() {
     store.setIsActive(false);
     store.setCurrentStatus("idle");
     store.setMicNotice(null);
-  }, [store, handleDevices, stopPitchTracking]);
+  }, [store, handleDevices, stopPitchTracking, teardownRecognition]);
 
   useEffect(() => {
     const timer = setInterval(() => {
