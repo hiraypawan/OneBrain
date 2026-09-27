@@ -1,108 +1,13 @@
-import { test, expect, type Page } from "@playwright/test";
-import { stubSpeechService } from "./audio-stub";
+import { test, expect } from "@playwright/test";
+import { mockVoice } from "./voice-stub";
 
 // End-to-end voice turn: speech result -> answer -> spoken reply -> mic back.
-// The recognizer mock behaves like real engines do, which is what the old
-// mocks never covered:
-//  * Android Chrome flags results `isFinal` with `confidence: 0`;
-//  * `stop()` fires `onend` asynchronously and a start() racing it throws
-//    InvalidStateError ("already started") — exactly like Chrome;
-//  * speechSynthesis fires onstart/onend.
+// The recognizer mock lives in ./voice-stub so every voice spec drives the same
+// engine double (and the same devicechange-reachable mediaDevices).
 test.beforeEach(async ({ page }) => {
   await page.route("https://js.puter.com/**", (route) => route.abort());
   await page.goto("/");
 });
-
-async function mockVoice(page: Page) {
-  await stubSpeechService(page);
-  await page.evaluate(() => {
-    const w = window as any;
-    const track = {
-      readyState: "live",
-      muted: false,
-      stop() {
-        this.readyState = "ended";
-      },
-      onended: null,
-      onmute: null,
-      onunmute: null,
-    };
-    Object.defineProperty(navigator, "mediaDevices", {
-      configurable: true,
-      value: {
-        getUserMedia: async () => ({
-          getAudioTracks: () => [track],
-          getTracks: () => [track],
-        }),
-        addEventListener() {},
-        removeEventListener() {},
-        enumerateDevices: async () => [],
-      },
-    });
-    Object.defineProperty(navigator, "wakeLock", {
-      configurable: true,
-      value: { request: async () => ({ release: async () => {} }) },
-    });
-    w.__starts = 0;
-    w.__stops = 0;
-    class Recognition {
-      running = false;
-      onstart: any;
-      onend: any;
-      onerror: any;
-      onresult: any;
-      onspeechstart: any;
-      onspeechend: any;
-      constructor() {
-        w.__testRecognition = this;
-      }
-      start() {
-        if (this.running)
-          throw new DOMException("recognition has already started", "InvalidStateError");
-        this.running = true;
-        w.__starts++;
-        setTimeout(() => this.onstart?.(), 0);
-      }
-      stop() {
-        if (!this.running) return;
-        w.__stops++;
-        this.running = false;
-        setTimeout(() => this.onend?.(), 20);
-      }
-      abort() {
-        this.stop();
-      }
-      // Emit one SpeechRecognitionEvent-shaped batch.
-      emit(entries: Array<{ text: string; isFinal: boolean; confidence: number }>, resultIndex = 0) {
-        const results: any = entries.map((e) => {
-          const r: any = [{ transcript: e.text, confidence: e.confidence }];
-          r.isFinal = e.isFinal;
-          return r;
-        });
-        this.onresult?.({ resultIndex, results });
-      }
-    }
-    w.SpeechRecognition = Recognition;
-    w.webkitSpeechRecognition = undefined;
-    w.Notification = undefined;
-    w.__spoken = [];
-    Object.defineProperty(window, "speechSynthesis", {
-      configurable: true,
-      value: {
-        speaking: false,
-        paused: false,
-        cancel() {},
-        resume() {},
-        getVoices: () => [],
-        speak(u: any) {
-          w.__spoken.push(u.text);
-          setTimeout(() => u.onstart?.(), 5);
-          setTimeout(() => u.onend?.(), 40);
-        },
-      },
-    });
-  });
-}
 
 test("Android-style confidence-0 finals produce an answer, speech and a resumed mic", async ({
   page,

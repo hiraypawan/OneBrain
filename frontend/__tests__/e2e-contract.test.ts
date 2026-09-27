@@ -30,13 +30,21 @@ const specs = specFiles.map(({ dir, file }) => ({ file, text: read(`${dir}/${fil
 
 /** All source that can render user-visible copy. */
 const SOURCE_DIRS = ['components', 'app', 'lib', 'store', 'hooks'];
+/**
+ * Files under those directories that render nothing: development tooling no
+ * screen imports. Scanning them would let a test fixture phrase (the intent
+ * audit's spoken-line table) masquerade as shipped copy and silently retire an
+ * EXTERNAL_TEXT exception that the browser suite still needs.
+ */
+const NON_UI_SOURCES = ['lib/intent-audit.ts'];
 const sourceText = (() => {
   let out = '';
   const walk = (dir: string) => {
     for (const entry of readdirSync(resolve(root, dir), { withFileTypes: true })) {
       const path = `${dir}/${entry.name}`;
       if (entry.isDirectory()) walk(path);
-      else if (/\.(ts|tsx)$/.test(entry.name)) out += `${read(path)}\n`;
+      else if (/\.(ts|tsx)$/.test(entry.name) && !NON_UI_SOURCES.includes(path))
+        out += `${read(path)}\n`;
     }
   };
   for (const dir of SOURCE_DIRS) walk(dir);
