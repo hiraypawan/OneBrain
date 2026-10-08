@@ -30,6 +30,9 @@ router.post('/export-all-data', (req, res) => {
 
 router.delete('/delete-account', (req, res) => {
   const userId = me(req);
+  // Express SQLite schema has no spaces/entitlements/Google identities. The
+  // Cloudflare worker (workers/api) is the live delete path and wipes those
+  // tables too; this host only has the five user-scoped tables below.
   run('DELETE FROM messages WHERE user_id = ?', userId);
   run('DELETE FROM conversations WHERE user_id = ?', userId);
   run('DELETE FROM user_memory WHERE user_id = ?', userId);

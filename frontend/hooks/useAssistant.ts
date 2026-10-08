@@ -50,6 +50,7 @@ import {
   activeSinkId,
   playSpeechBlob,
   primeAudioOutputOnGesture,
+  signalSpeechPlayback,
   startOutputRouting,
   stopSpeechPlayback,
 } from "@/lib/audio";
@@ -71,10 +72,38 @@ import {
   isDifferentSpeaker,
   shouldIgnoreTranscript,
 } from "@/lib/voiceprint";
+import {
+  classifyEnvironment,
+  effectiveEndOfSpeechMs,
+  environmentChanged,
+  environmentTuning,
+  ownerRequiredHere,
+  resetNoiseFloor,
+  rmsOf,
+  updateNoiseFloor,
+  type EnvironmentClass,
+  type NoiseFloorState,
+} from "@/lib/environment";
+import {
+  classifyWhileSpeaking,
+  isProgressStale,
+  isResumeRequest,
+  recordInterruption,
+  resumeOffer,
+  resumePlan,
+} from "@/lib/barge-in";
 import { normalizeHinglish } from "@/lib/transliterate";
 import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/commands";
 import { useMediaStore } from "@/store/media";
 import { parseReminderIntent } from "@/lib/reminders";
+
+/** Options for speak(): where this speech sits inside the whole reply. */
+export interface SpeakOptions {
+  /** Char offset inside `origin` where this speech begins (used by resume). */
+  spokenBefore?: number;
+  /** The full reply this speech belongs to; progress is measured against it. */
+  origin?: string;
+}
 
 export interface ChatExtra {
   profile?: string;
@@ -204,16 +233,31 @@ export function useAssistant() {
   const speechRequestRef = useRef(0);
   const cancelSpeechRef = useRef<() => void>(() => {});
   const expectingRef = useRef(false); // true only while we genuinely want mic input
+  // Environment + interruption state (lib/environment.ts, lib/barge-in.ts).
+  // The noise floor is smoothed across frames; the microphone is the same
+  // stream used for pitch, so this costs no extra permission or battery.
+  const noiseRef = useRef<NoiseFloorState>(resetNoiseFloor());
+  const envRef = useRef<EnvironmentClass | null>(null);
+  // Characters of the reply currently being spoken that have actually been
+  // heard, measured in chunk boundaries — the resume point on interruption.
+  const spokenCharsRef = useRef(0);
+  const speechOriginRef = useRef("");
+  const spokenBeforeRef = useRef(0);
+  const bargeInRef = useRef(false);
   // Breaks the callback cycle (transcript -> command -> start/stop -> transcript):
   // cross-calls go through this ref, filled in after all callbacks exist.
   const controlsRef = useRef<{
     stopActive: () => void;
     startActive: () => Promise<void>;
-    speak: (t: string) => Promise<void>;
+    speak: (t: string, opts?: SpeakOptions) => Promise<void>;
+    resumeSpeech: () => Promise<boolean>;
+    interruptSpeech: (reason: string) => unknown;
   }>({
     stopActive: () => {},
     startActive: async () => {},
     speak: async () => {},
+    resumeSpeech: async () => false,
+    interruptSpeech: () => null,
   });
   const analyserRef = useRef<AnalyserNode | null>(null);
   const pitchWinRef = useRef<Array<{ t: number; hz: number }>>([]);
@@ -272,7 +316,7 @@ export function useAssistant() {
   }, []);
 
   const speak = useCallback(
-    async (text: string) => {
+    async (text: string, opts?: SpeakOptions) => {
       cancelSpeechRef.current();
       const speechRequest = ++speechRequestRef.current;
       const speechGeneration = sessionGenerationRef.current;
@@ -298,12 +342,33 @@ export function useAssistant() {
       if (!clean) return;
       store.setCurrentStatus("speaking");
       store.logBgEvent("tts-start", clean.slice(0, 50));
+      // Progress is measured against the ORIGINAL reply, so an interruption at
+      // any point can be resumed without repeating what was already heard.
+      const origin = opts?.origin && opts.origin.length >= clean.length ? opts.origin : clean;
+      const spokenBefore = Math.max(0, Math.min(origin.length, Math.trunc(opts?.spokenBefore ?? 0)));
+      speechOriginRef.current = origin;
+      spokenBeforeRef.current = spokenBefore;
+      spokenCharsRef.current = 0;
       // Pause listening while WE talk: the mic must not hear our own reply,
-      // background songs, or YouTube playing during the answer.
+      // background songs, or YouTube playing during the answer. With barge-in
+      // on, the recognizer stays open for interruption phrases only — see the
+      // onresult handler — which is what lets the user talk over a long answer
+      // and have it continue where it stopped.
       speakingRef.current = true;
+      // One duck for the WHOLE reply: the chunked player is told not to
+      // announce per chunk, so music resumes once, after the last sentence,
+      // instead of blipping back between chunks.
+      let duckAnnounced = false;
       try {
-        recogRef.current?.stop();
+        signalSpeechPlayback("start");
+        duckAnnounced = true;
       } catch {}
+      bargeInRef.current = useAssistantStore.getState().settings.bargeIn !== false;
+      if (!bargeInRef.current) {
+        try {
+          recogRef.current?.stop();
+        } catch {}
+      }
       cancelSpeechRef.current = () => {
         stopSpeechPlayback();
         try {
@@ -350,6 +415,7 @@ export function useAssistant() {
           const playback = await playSpeechBlob(audio.blob, {
             sinkId: sink,
             text: clean,
+            announce: false,
           });
           if (!current() || useAssistantStore.getState().settings.silentMode) {
             playback?.stop();
@@ -374,6 +440,7 @@ export function useAssistant() {
             audioStoppedEarly = true;
             break;
           }
+          spokenCharsRef.current += chunk.length;
         }
         if (spokenBlobs.length) {
           lastReplyRef.current = { blobs: spokenBlobs, text: clean };
@@ -488,6 +555,9 @@ export function useAssistant() {
           registerCancel: (cancel) => {
             cancelSpeechRef.current = cancel;
           },
+          onProgress: (chars) => {
+            spokenCharsRef.current = chars;
+          },
           onEvent: (event, detail) => {
             if (event !== "error" && event !== "stalled") return;
             useAssistantStore
@@ -513,9 +583,26 @@ export function useAssistant() {
           );
         }
       } finally {
+        if (duckAnnounced) {
+          try {
+            signalSpeechPlayback("end");
+          } catch {}
+        }
         if (current()) {
           cancelSpeechRef.current = () => {};
           speakingRef.current = false;
+          bargeInRef.current = false;
+          // The whole reply was delivered: there is nothing left to resume.
+          // A cut-short reply keeps its progress point so "continue" finishes it.
+          if (spokenBefore + spokenCharsRef.current >= origin.length) {
+            speechOriginRef.current = "";
+            useAssistantStore.getState().setSpeechProgress(null);
+          } else if (spokenCharsRef.current > 0) {
+            const progress = recordInterruption(origin, spokenBefore + spokenCharsRef.current, Date.now());
+            useAssistantStore.getState().setSpeechProgress(progress);
+            const offer = resumeOffer(progress);
+            if (offer) useAssistantStore.getState().setVoiceNotice(offer);
+          }
           lastActivityRef.current = Date.now();
           const st = useAssistantStore.getState();
           st.logBgEvent("tts-end");
@@ -531,6 +618,48 @@ export function useAssistant() {
   );
 
   /**
+   * Stop the spoken answer and remember exactly how much of it was heard, so
+   * "continue" can finish it instead of repeating it from the start.
+   */
+  const interruptSpeech = useCallback((reason: string) => {
+    cancelSpeechRef.current();
+    stopSpeechPlayback();
+    try {
+      window.speechSynthesis?.cancel();
+    } catch {}
+    speakingRef.current = false;
+    bargeInRef.current = false;
+    const origin = speechOriginRef.current;
+    if (!origin) return null;
+    const st = useAssistantStore.getState();
+    const progress = recordInterruption(
+      origin,
+      spokenBeforeRef.current + spokenCharsRef.current,
+      Date.now(),
+    );
+    speechOriginRef.current = "";
+    st.setSpeechProgress(progress);
+    st.logBgEvent(
+      "speech-interrupted",
+      progress ? `${reason} · ${Math.round((progress.spokenChars / origin.length) * 100)}%` : reason,
+    );
+    const offer = resumeOffer(progress);
+    if (offer) st.setVoiceNotice(offer);
+    return progress;
+  }, []);
+
+  /** Speak the part of the last answer that was never heard. */
+  const resumeSpeech = useCallback(async (): Promise<boolean> => {
+    const progress = useAssistantStore.getState().speechProgress;
+    if (!progress || isProgressStale(progress, Date.now())) return false;
+    const plan = resumePlan(progress);
+    if (!plan) return false;
+    useAssistantStore.getState().logBgEvent("speech-resume", plan.text.slice(0, 40));
+    await speak(plan.text, { spokenBefore: plan.offset, origin: progress.text });
+    return true;
+  }, [speak]);
+
+  /**
    * Replay the last spoken answer from cached audio. Called from a real tap,
    * so a browser that blocked programmatic playback (iOS/Safari) will play it.
    */
@@ -541,16 +670,21 @@ export function useAssistant() {
     const sink = activeSinkId(useAssistantStore.getState().speakerDeviceId);
     useAssistantStore.getState().logBgEvent("tts-replay", last.text.slice(0, 40));
     let ok = true;
-    for (const blob of last.blobs) {
-      const playback = await playSpeechBlob(blob, { sinkId: sink, text: last.text });
-      if (!playback) {
-        ok = false;
-        break;
+    signalSpeechPlayback('start');
+    try {
+      for (const blob of last.blobs) {
+        const playback = await playSpeechBlob(blob, { sinkId: sink, text: last.text, announce: false });
+        if (!playback) {
+          ok = false;
+          break;
+        }
+        cancelSpeechRef.current = () => playback.stop();
+        ok = await playback.ended;
+        cancelSpeechRef.current = () => {};
+        if (!ok) break;
       }
-      cancelSpeechRef.current = () => playback.stop();
-      ok = await playback.ended;
-      cancelSpeechRef.current = () => {};
-      if (!ok) break;
+    } finally {
+      signalSpeechPlayback('end');
     }
     if (!ok) {
       useAssistantStore
@@ -636,6 +770,7 @@ export function useAssistant() {
         return;
       }
       if (cmd === "new") {
+        st.setSpeechProgress(null);
         st.newConversation();
         const msg = "Nayi chat shuru ho gayi. Bolo, kya baat karein?";
         st.addMessage("assistant", msg);
@@ -676,28 +811,42 @@ export function useAssistant() {
       // Proof-of-hearing first: every accepted utterance is timestamped, so a
       // screen-off session can later prove what it heard and when.
       useAssistantStore.getState().logBgEvent("heard", transcript.slice(0, 60));
-      // 1. Exact voice commands drive the session — never sent to the AI.
+      // 1. "Continue where you stopped" finishes the interrupted answer rather
+      //    than asking the model the same thing again. A bare "continue" with
+      //    nothing to resume falls through to the session control below.
+      const carried = useAssistantStore.getState().speechProgress;
+      if (isResumeRequest(transcript) && carried && !isProgressStale(carried, Date.now())) {
+        const resumed = await controlsRef.current.resumeSpeech();
+        if (resumed) return;
+      }
+      // 2. Exact voice commands drive the session — never sent to the AI.
       //    (Commands always work, even for voices that would otherwise be gated.)
       const cmd = parseVoiceCommand(transcript);
       if (cmd) {
         await runVoiceCommand(cmd);
         return;
       }
-      // 2. Who spoke? Strangers are filtered BEFORE any AI call, so a nearby
-      //    call/TV never becomes an "answer" to the owner.
+      // 3. Who spoke? Strangers are filtered BEFORE any AI call, so a nearby
+      //    call/TV never becomes an "answer" to the owner. The room decides how
+      //    strict that filter is: a loud place answers the enrolled voice only.
       const { meta, hz } = utteranceMeta();
       const stGate = useAssistantStore.getState();
+      const tuning = environmentTuning(stGate.micEnvironment ?? "home");
+      const strictHere = ownerRequiredHere(tuning, stGate.voiceBaseline, !!stGate.settings.ownerOnly);
       const verdict = shouldIgnoreTranscript({
         baselineHz: stGate.voiceBaseline,
         heardHz: hz,
         confidence,
-        ownerOnly: !!stGate.settings.ownerOnly,
+        ownerOnly: strictHere,
+        tuning,
       });
       if (verdict !== "answer") {
         stGate.addMessage("user", transcript, meta);
         if (verdict === "drop-notice") {
           stGate.setMicNotice(
-            "Ignored — not your enrolled voice (strict mode ON). Turn it off in Settings to hear everyone.",
+            strictHere && !stGate.settings.ownerOnly
+              ? "Ignored — this room is loud and that was not your enrolled voice. Enroll or turn off the room filter in Settings → Voice."
+              : "Ignored — not your enrolled voice (strict mode ON). Turn it off in Settings to hear everyone.",
           );
         }
         store.setCurrentStatus("listening");
@@ -1153,6 +1302,20 @@ export function useAssistant() {
           if (!st.isActive || st.currentStatus !== "listening") return;
           const buf = new Float32Array(analyser.fftSize);
           analyser.getFloatTimeDomainData(buf);
+          // Environment recognition: the same frame that carries a voice also
+          // carries the room. Track the sustained floor and tell the app when
+          // the surroundings change (see lib/environment.ts for the rules).
+          noiseRef.current = updateNoiseFloor(noiseRef.current, rmsOf(buf));
+          const env = classifyEnvironment(noiseRef.current.floor ?? 0);
+          if (environmentChanged(envRef.current, env)) {
+            envRef.current = env;
+            try {
+              useAssistantStore.getState().setMicEnvironment(env);
+              useAssistantStore
+                .getState()
+                .logBgEvent("environment", `${env} · floor ${(noiseRef.current.floor ?? 0).toFixed(4)}`);
+            } catch {}
+          }
           const hz = detectPitch(buf, ctx.sampleRate);
           if (hz != null) {
             pitchWinRef.current.push({ t: Date.now(), hz });
@@ -1415,6 +1578,10 @@ export function useAssistant() {
       lastActivityRef.current = Date.now();
       sessionNudgesRef.current = 0;
       retryRef.current = 0;
+      // A new session re-measures the room; yesterday's noise is not today's.
+      noiseRef.current = resetNoiseFloor();
+      envRef.current = null;
+      useAssistantStore.getState().setMicEnvironment(null);
       useAssistantStore.getState().setMicNotice(null);
       await acquireMic(false);
       if (!current()) return;
@@ -1494,9 +1661,18 @@ export function useAssistant() {
         // (silenceMs of quiet), not the first breath pause. Then stop
         // capturing (no hearing our own reply), process, speak, resume.
         const collector = createUtteranceAssembler({
-          silenceMs: store.settings.endOfSpeechMs,
+          // The room decides how long a pause may be before a turn is sent: a
+          // noisy kitchen needs a longer wait so sentences are not cut in half,
+          // a quiet room lets the same setting answer sooner.
+          silenceMs: effectiveEndOfSpeechMs(
+            store.settings.endOfSpeechMs,
+            environmentTuning(useAssistantStore.getState().micEnvironment ?? "home"),
+          ),
           onAccept: (text, confidence) => {
             if (!current() || recogRef.current !== recog) return;
+            // Never let a turn start while the assistant is talking: with
+            // barge-in on, speech during playback is handled explicitly above.
+            if (speakingRef.current) return;
             expectingRef.current = false;
             restartAfterEndRef.current = false;
             // A final landed: the live caption has done its job.
@@ -1542,8 +1718,51 @@ export function useAssistant() {
             const res = results[i];
             const alt = res?.[0];
             if (!alt) continue;
-            if (!res.isFinal && alt.transcript && String(alt.transcript).trim()) {
-              interim = String(alt.transcript).trim();
+            // Talking over the reply. The microphone is still open, so the
+            // assistant can hear its own voice — only interruption phrases are
+            // accepted here, and nothing heard while speaking ever reaches the
+            // turn collector (that is what keeps a barge-in from becoming a
+            // phantom question).
+            if (speakingRef.current && bargeInRef.current) {
+              const heard = String(alt.transcript || "").trim();
+              if (!heard) continue;
+              if (!res.isFinal) {
+                try {
+                  useAssistantStore.getState().setLiveTranscript(heard);
+                } catch {}
+                continue;
+              }
+              const action = classifyWhileSpeaking(heard);
+              const store = useAssistantStore.getState();
+              if (action === "ignore") {
+                store.logBgEvent("barge-ignored", heard.slice(0, 40));
+                try {
+                  store.setLiveTranscript(null);
+                } catch {}
+                continue;
+              }
+              store.logBgEvent("barge-in", `${action} · ${heard.slice(0, 40)}`);
+              try {
+                store.setLiveTranscript(null);
+              } catch {}
+              if (action === "end-session") {
+                controlsRef.current.stopActive();
+                return;
+              }
+              if (action === "stop-speaking") {
+                // Stop the audio, keep the point reached, and hand the mic
+                // straight back to the person who interrupted.
+                bargeInRef.current = false;
+                controlsRef.current.interruptSpeech("user-interrupt");
+                store.setCurrentStatus("listening");
+                expectingRef.current = true;
+                restartAfterEndRef.current = true;
+                resumeListening();
+                continue;
+              }
+              // "resume" while already speaking: nothing to do — the answer is
+              // still playing, and re-starting it would repeat words.
+              continue;
             }
             const outcome = collector.push({
               isFinal: !!res.isFinal,
@@ -1756,9 +1975,15 @@ export function useAssistant() {
       navigator.mediaDevices.removeEventListener("devicechange", handleDevices);
     } catch {}
     speechRequestRef.current += 1;
-    cancelSpeechRef.current();
+    // Keep how much of the answer was heard before stopping, so the session can
+    // be resumed with "continue" without repeating the whole reply.
+    const stopped = interruptSpeech("session-stop");
     cancelSpeechRef.current = () => {};
     speakingRef.current = false;
+    if (stopped) {
+      // The session ended: offer the rest again when listening restarts.
+      expectingRef.current = false;
+    }
     expectingRef.current = false;
     restartAfterEndRef.current = false;
     if (restartTimerRef.current) {
@@ -1917,7 +2142,7 @@ export function useAssistant() {
   const sendNow = useCallback(() => collectorRef.current?.sendNow() ?? false, []);
 
   // Fill the cross-call ref now that every callback exists.
-  controlsRef.current = { stopActive, startActive, speak };
+  controlsRef.current = { stopActive, startActive, speak, resumeSpeech, interruptSpeech };
 
   return {
     proactiveInvitation,
@@ -1927,6 +2152,18 @@ export function useAssistant() {
     startActive,
     stopActive,
     speak,
+    resumeSpeech,
+    /** Stop the spoken reply by hand and keep the point it reached. */
+    stopSpeaking: () => {
+      const progress = interruptSpeech("button-stop");
+      const st = useAssistantStore.getState();
+      st.setCurrentStatus(st.isActive ? "listening" : "idle");
+      if (st.isActive) {
+        expectingRef.current = true;
+        resumeListening();
+      }
+      return progress;
+    },
     replayLastReply,
     hasReplay,
     handleTranscript,

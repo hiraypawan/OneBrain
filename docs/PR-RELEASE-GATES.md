@@ -25,7 +25,7 @@ A draft PR blocks normal merging until marked ready, but it does not replace bra
 - [ ] Configure Google OAuth privately and verify real consent/sign-out/account isolation on the actual HTTPS app origin.
 - [ ] Back up existing D1 data and approve the Google-only cutover. Existing unlinked email accounts need an operator-reviewed identity migration; no automatic email linking is allowed.
 - [ ] Test live authorized connectors, real devices, deployment infrastructure and remaining security/privacy controls.
-- [ ] Resolve or explicitly risk-review development dependency findings and independent application-security findings.
+- [ ] Resolve or explicitly risk-review development dependency findings and independent application-security findings. CI gates on `npm audit --omit=dev`. Tailwind 3’s `braces`/`micromatch` chain has no patched 3.x release (npm’s only “fix” is the Tailwind 4 major); that risk is accepted until a reviewed Tailwind 4 migration. Production advisories must stay at zero.
 - [ ] Confirm GitHub Actions **Deploy to Cloudflare** published the OpenNext Worker (not a static `PAGES_EXPORT` site) and that Google OAuth secrets/callback match the live origin.
 - [ ] Keep the remaining requirements in `IMPLEMENTATION-STATUS.md` open. SSO/SAML login is superseded by the owner's Google-only authentication instruction; enterprise administration, broader workflows, billing and other unfinished software are not completed by this PR. Server-side entitlements (plan + quota ledger, operator-minted keys) now exist, but **no billing, checkout, invoice, renewal or conversion reporting** is implemented or implied.
 

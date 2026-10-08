@@ -79,11 +79,45 @@ export function isDifferentSpeaker(baselineHz: number | null, heardHz: number | 
   return pitchSimilarity(baselineHz, heardHz) < 0.5;
 }
 
+/**
+ * Add one enrollment round to the stored baseline.
+ *
+ * The baseline used to be "whatever the last enrollment measured", so a
+ * single husky reading (a cold, a noisy room) permanently moved the owner's
+ * profile. Learning blends the new median towards the old one, so repeated
+ * enrollment converges on the owner's real range instead of chasing a sample.
+ */
+export function learnBaseline(
+  previousHz: number | null,
+  samples: number[],
+  opts: { weight?: number } = {},
+): number | null {
+  const med = median(samples.filter((hz) => Number.isFinite(hz) && hz > 0));
+  if (med == null) return previousHz;
+  if (previousHz == null || !Number.isFinite(previousHz) || previousHz <= 0) return med;
+  const weight = Math.min(0.9, Math.max(0.1, opts.weight ?? 0.35));
+  return previousHz + (med - previousHz) * weight;
+}
+
 export type IgnoreVerdict = 'answer' | 'drop-notice' | 'drop-silent';
+
+/**
+ * Environment-aware gate, supplied by lib/environment.ts. When it is absent the
+ * original behaviour is kept exactly, so older callers and tests do not move.
+ */
+export interface VoiceGateTuning {
+  /** Real confidences below this are bleed/noise. */
+  minConfidence?: number;
+  /** Pitch similarity below which a voice is "not the owner". */
+  ownerTolerance?: number;
+  /** Loud-room rule: only an enrolled voice is answered. */
+  requireOwnerVoice?: boolean;
+}
 
 // Decide BEFORE calling the AI: should this transcript get a reply?
 // - No pitch info, or matches owner -> answer.
-// - Stranger + strict mode ON -> drop with a notice (user opted in).
+// - Stranger + strict mode ON (or a loud room with a known baseline) -> drop
+//   with a notice.
 // - Stranger + low confidence -> drop silently (TV, other calls, passersby).
 // - Stranger but confident -> answer anyway (better helpful than mute),
 //   tagged so the user sees why. "Not you" undo covers the rest.
@@ -92,11 +126,19 @@ export function shouldIgnoreTranscript(opts: {
   heardHz: number | null;
   confidence?: number;
   ownerOnly: boolean;
+  tuning?: VoiceGateTuning;
 }): IgnoreVerdict {
-  const { baselineHz, heardHz, confidence, ownerOnly } = opts;
-  if (!isDifferentSpeaker(baselineHz, heardHz)) return 'answer';
-  if (ownerOnly) return 'drop-notice';
-  if (typeof confidence === 'number' && confidence < 0.6) return 'drop-silent';
+  const { baselineHz, heardHz, confidence, ownerOnly, tuning } = opts;
+  const tolerance = tuning?.ownerTolerance ?? 0.5;
+  const different =
+    baselineHz != null && heardHz != null
+      ? pitchSimilarity(baselineHz, heardHz) < tolerance
+      : false;
+  if (!different) return 'answer';
+  const strict = ownerOnly || (tuning?.requireOwnerVoice === true && baselineHz != null);
+  if (strict) return 'drop-notice';
+  const floor = tuning?.minConfidence ?? 0.6;
+  if (typeof confidence === 'number' && confidence < floor) return 'drop-silent';
   return 'answer';
 }
 

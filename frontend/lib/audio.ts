@@ -579,15 +579,66 @@ export interface SpeechPlayback {
  */
 export const SPEECH_DUCK_EVENT = 'onebrain-speech-duck';
 
-export function signalSpeechPlayback(state: 'start' | 'end'): void {
+/**
+ * How many speech players currently own the output.
+ *
+ * A reply is spoken in chunks, and every chunk announces itself. Without
+ * counting, each chunk's "start" paused the music and each chunk's "end"
+ * resumed it — so a long answer let the song blip back for a moment between
+ * chunks. The music now stays down from the first chunk to the last.
+ */
+let speechOwners = 0;
+let duckSafetyTimer: ReturnType<typeof setTimeout> | null = null;
+const DUCK_SAFETY_MS = 90_000;
+
+function dispatchDuck(state: 'start' | 'end') {
   try {
     if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
     window.dispatchEvent(new CustomEvent(SPEECH_DUCK_EVENT, { detail: { state } }));
   } catch {}
 }
 
-function publishMediaSession(text: string) {
-  signalSpeechPlayback('start');
+export function speechDuckingDepth(): number {
+  return speechOwners;
+}
+
+export function signalSpeechPlayback(state: 'start' | 'end'): void {
+  if (state === 'start') {
+    speechOwners += 1;
+    // A crash that never reports the end must not mute the music forever.
+    if (duckSafetyTimer) clearTimeout(duckSafetyTimer);
+    duckSafetyTimer = setTimeout(() => {
+      duckSafetyTimer = null;
+      if (speechOwners > 0) {
+        speechOwners = 0;
+        dispatchDuck('end');
+      }
+    }, DUCK_SAFETY_MS);
+    if (speechOwners === 1) dispatchDuck('start');
+    return;
+  }
+  if (speechOwners <= 0) return;
+  speechOwners -= 1;
+  if (speechOwners === 0) {
+    if (duckSafetyTimer) {
+      clearTimeout(duckSafetyTimer);
+      duckSafetyTimer = null;
+    }
+    dispatchDuck('end');
+  }
+}
+
+/** Test hook: forget any in-flight speech ownership. */
+export function resetSpeechDucking(): void {
+  speechOwners = 0;
+  if (duckSafetyTimer) {
+    clearTimeout(duckSafetyTimer);
+    duckSafetyTimer = null;
+  }
+}
+
+function publishMediaSession(text: string, announce = true) {
+  if (announce) signalSpeechPlayback('start');
   try {
     if (typeof navigator === 'undefined') return;
     const ms: any = (navigator as any).mediaSession;
@@ -598,8 +649,8 @@ function publishMediaSession(text: string) {
   } catch {}
 }
 
-function clearMediaSession() {
-  signalSpeechPlayback('end');
+function clearMediaSession(announce = true) {
+  if (announce) signalSpeechPlayback('end');
   try {
     const ms: any = (navigator as any).mediaSession;
     if (ms) ms.playbackState = 'none';
@@ -613,8 +664,12 @@ function clearMediaSession() {
  */
 export async function playSpeechBlob(
   blob: Blob,
-  opts: { sinkId?: string | null; text?: string } = {},
+  opts: { sinkId?: string | null; text?: string; announce?: boolean } = {},
 ): Promise<SpeechPlayback | null> {
+  // `announce: false` is for callers that speak several blobs as ONE reply:
+  // they own the ducking for the whole reply, so the music does not blip back
+  // on between chunks.
+  const announce = opts.announce !== false;
   const el = speechAudioElement();
   if (!el || !blob || blob.size < 500) return null;
   stopSpeechPlayback();
@@ -639,7 +694,7 @@ export async function playSpeechBlob(
       if (r && typeof r.then === 'function') await r.catch(() => {});
     } catch {}
   }
-  publishMediaSession(opts.text || '');
+  publishMediaSession(opts.text || '', announce);
 
   let settle: (ok: boolean) => void = () => {};
   let settled = false;
@@ -651,7 +706,7 @@ export async function playSpeechBlob(
       el.onended = null;
       el.onerror = null;
       el.onpause = null;
-      clearMediaSession();
+      clearMediaSession(announce);
       resolve(ok);
     };
   });

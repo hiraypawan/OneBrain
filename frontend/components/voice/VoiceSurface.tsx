@@ -13,6 +13,7 @@ import { useFeaturesStore } from '@/store/features';
 import { unlockAudioOutput } from '@/lib/audio';
 import { FeatureCards, FeatureHint } from '@/components/features/FeatureCards';
 import { Icon } from '@/components/ui/Icon';
+import { environmentTuning } from '@/lib/environment';
 import { INTENT_HINTS } from '@/lib/intents';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -116,6 +117,11 @@ export function VoiceSurface() {
           <span className={listening ? 'status-dot active' : 'status-dot'} />
           {status}
         </p>
+        {listening && state.micEnvironment && (
+          <p className="voice-environment" data-testid="voice-environment">
+            {environmentTuning(state.micEnvironment).label} · {environmentTuning(state.micEnvironment).advice}
+          </p>
+        )}
         <button
           className="voice-primary"
           data-testid={listening ? 'stop-button' : 'active-button'}
@@ -154,12 +160,27 @@ export function VoiceSurface() {
           >
             {state.settings.silentMode ? '◌ Silent mode is on — tap to unmute' : '◌ Voice replies active — tap to mute'}
           </button>
+          {state.speechProgress && (
+            <button
+              className="text-button resume-answer"
+              data-testid="resume-answer"
+              onClick={() => void assistant.resumeSpeech()}
+            >
+              Continue where it stopped
+            </button>
+          )}
+          {listening && assistant.currentStatus === 'speaking' && (
+            <button className="text-button" onClick={() => assistant.stopSpeaking()}>
+              Stop and let me talk
+            </button>
+          )}
           {assistant.hasReplay && (
             <button className="text-button" onClick={() => void assistant.replayLastReply()}>Say that again</button>
           )}
         </div>
         <p className="voice-privacy">
-          Nothing is recorded until you press start. Speech is transcribed by your
+          Nothing is recorded until you press start. Say “stop” while I am speaking to
+          interrupt me, then “continue” to hear the rest. Speech is transcribed by your
           browser and only the words you send reach an AI.
         </p>
       </section>
