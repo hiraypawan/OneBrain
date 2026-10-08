@@ -3,6 +3,8 @@ import { defaultSettings, normalizeSettings } from '../lib/settings';
 import type { AssistantStatus, Conversation, Message, Reminder, User, UserSettings } from '@/lib/types';
 import { db, getRecentMessages, deleteConversationLocal, clearAllLocal } from '@/lib/db';
 import type { BgState, BgEvent } from '@/lib/background';
+import type { EnvironmentClass } from '@/lib/environment';
+import type { SpeechProgress } from '@/lib/barge-in';
 import { pushBgEvent } from '@/lib/background';
 
 interface AssistantState {
@@ -47,6 +49,18 @@ interface AssistantState {
   /** Rolling-summary policy state: how many messages were folded, and when. */
   summaryState: { mark: number; at: number | null };
   setSummaryState: (s: { mark: number; at: number | null }) => void;
+  /**
+   * What the microphone is sitting in (lib/environment.ts). Session-only:
+   * the room the user was in yesterday is not a fact about today.
+   */
+  micEnvironment: EnvironmentClass | null;
+  setMicEnvironment: (env: EnvironmentClass | null) => void;
+  /**
+   * How much of the last reply was actually heard, when it was cut short.
+   * Lets "continue" finish the answer instead of repeating it from the start.
+   */
+  speechProgress: SpeechProgress | null;
+  setSpeechProgress: (progress: SpeechProgress | null) => void;
   micDeviceId: string | null;
   setMicDeviceId: (id: string | null) => void;
   speakerDeviceId: string | null;
@@ -162,6 +176,10 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   },
   voiceBaseline: null,
   setVoiceBaseline: (voiceBaseline) => set({ voiceBaseline }),
+  micEnvironment: null,
+  setMicEnvironment: (micEnvironment) => set({ micEnvironment }),
+  speechProgress: null,
+  setSpeechProgress: (speechProgress) => set({ speechProgress }),
   bgState: 'foreground',
   setBgState: (bgState) => set({ bgState }),
   bgLog: [],

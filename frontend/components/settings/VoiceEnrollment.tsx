@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useAssistantStore } from "@/store/assistant";
-import { detectPitch, median } from "@/lib/voiceprint";
+import { detectPitch, learnBaseline, rangeFromPitch } from "@/lib/voiceprint";
 import { micConstraints } from "@/lib/audio";
 // Deliberately does not mount the conversation engine or request audio on render.
 export function VoiceEnrollment() {
@@ -53,13 +53,17 @@ export function VoiceEnrollment() {
         const pitch = detectPitch(buffer, context.sampleRate);
         if (pitch !== null) pitches.push(pitch);
       }
-      const hz = median(pitches);
+      // Re-enrolling no longer overwrites the profile with one sample: the new
+      // reading is blended into the stored baseline, so a husky morning or a
+      // noisy room cannot permanently move the owner's range.
+      const hz = learnBaseline(voiceBaseline, pitches);
       if (hz === null)
         setMessage("No clear voice detected. Try again somewhere quiet.");
       else {
         setVoiceBaseline(Math.round(hz));
+        const range = rangeFromPitch(hz);
         setMessage(
-          `Pitch baseline saved at approximately ${Math.round(hz)} Hz. This is not identity verification.`,
+          `Voice profile saved at approximately ${Math.round(hz)} Hz${range === "unknown" ? "" : ` (${range} range)`}. Enroll again any time to make it steadier. This is not identity verification.`,
         );
       }
     } catch {
@@ -84,6 +88,9 @@ export function VoiceEnrollment() {
         {voiceBaseline
           ? `Current baseline: approximately ${voiceBaseline} Hz.`
           : "No voice baseline enrolled."}
+        {voiceBaseline
+          ? " In a loud room only this voice is answered; everywhere else nothing changes."
+          : " Enroll once and a loud room will know to ignore the background instead of answering it."}
       </p>
       <div className="settings-actions">
         <button disabled={busy} onClick={() => void enroll()}>

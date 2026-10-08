@@ -25,10 +25,11 @@
     "miniflare": "^4.20260730.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0",
-    "wrangler": "^4.131.0"
+    "wrangler": "^4.149.0"
   },
   "overrides": {
-    "sharp": "^0.35.4",
-    "undici": "^7.29.0"
+    "sharp": "^0.35.5",
+    "undici": "^7.29.0",
+    "source-map-js": "^1.2.2"
   }
 }

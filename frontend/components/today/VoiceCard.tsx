@@ -69,10 +69,7 @@ export function VoiceCard({
         <Icon name="mic" />
       </button>
       {starting && (
-        <button
-          className="text-button cancel-start"
-          onClick={onCancelStart}
-        >
+        <button className="text-button cancel-start" onClick={onCancelStart}>
           Cancel microphone start
         </button>
       )}
@@ -83,9 +80,7 @@ export function VoiceCard({
           </button>
         )}
         <button
-          className={
-            settings.silentMode ? "text-button silent-mode-on" : "text-button"
-          }
+          className={settings.silentMode ? "text-button silent-mode-on" : "text-button"}
           aria-pressed={!!settings.silentMode}
           title={
             settings.silentMode
@@ -102,11 +97,7 @@ export function VoiceCard({
             : "◌ Voice replies active — tap to mute"}
         </button>
         {assistant.isActive && (
-          <button
-            className="text-button"
-            onClick={onPocket}
-            title="Keep listening with the screen dark to save battery"
-          >
+          <button className="text-button" onClick={onPocket} title="Keep listening with the screen dark to save battery">
             Screen off
           </button>
         )}

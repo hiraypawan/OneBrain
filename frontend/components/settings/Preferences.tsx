@@ -1,6 +1,7 @@
 "use client";
 import { useAssistantStore } from "@/store/assistant";
 import { normalizeProactive } from "@/lib/proactive";
+import { environmentTuning } from "@/lib/environment";
 export function ConversationPreferences() {
   const state = useAssistantStore(),
     prefs = normalizeProactive(state.settings.proactive);
@@ -179,10 +180,25 @@ export function VoicePreferences({
         />
       </label>
       <label>
+        Let me interrupt a spoken answer
+        <small>
+          Talk over a reply and it stops, keeps the point it reached, and hears
+          you out. Say “continue” when you want the rest. Only interruption
+          phrases are accepted while it speaks, so its own voice cannot become a
+          question.
+        </small>
+        <input
+          type="checkbox"
+          checked={state.settings.bargeIn !== false}
+          onChange={(e) => state.updateSettings({ bargeIn: e.target.checked })}
+        />
+      </label>
+      <label>
         Wait before answering
         <small>
           How long OneBrain waits after you stop talking. Longer = fewer cut-off
-          sentences; shorter = faster replies.
+          sentences; shorter = faster replies. The room adjusts this too: a noisy
+          place waits a little longer, a quiet one answers sooner.
         </small>
         <select
           value={String(state.settings.endOfSpeechMs ?? 1600)}
@@ -212,7 +228,10 @@ export function VoicePreferences({
       <p className="settings-footnote">
         Restart listening after changing language. Browser recognition may
         process audio remotely. Voice-based speaker profiles are not
-        authentication.
+        authentication.{" "}
+        {state.micEnvironment
+          ? `Right now: ${environmentTuning(state.micEnvironment).label} — ${environmentTuning(state.micEnvironment).advice}`
+          : "Open the microphone and OneBrain will say what it hears around you."}
       </p>
     </section>
   );

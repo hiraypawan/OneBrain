@@ -7,6 +7,7 @@ import {
   isDifferentSpeaker,
   shouldIgnoreTranscript,
   synthVowel,
+  learnBaseline,
 } from '../lib/voiceprint';
 
 const SR = 16000;
@@ -63,5 +64,37 @@ describe('speaker helpers', () => {
   it('computes medians for enrollment', () => {
     expect(median([120, 118, 500, 122, 119])).toBe(120);
     expect(median([])).toBeNull();
+  });
+
+  it('blends a new enrollment into the stored baseline instead of overwriting it', () => {
+    expect(learnBaseline(null, [120, 122, 118])).toBe(120);
+    expect(learnBaseline(120, [])).toBe(120);
+    const blended = learnBaseline(120, [200, 200, 200]);
+    expect(blended).toBeGreaterThan(120);
+    expect(blended).toBeLessThan(200);
+    // A single noisy sample must not jump the profile all the way to the sample.
+    expect(learnBaseline(120, [400], { weight: 0.35 })).toBeCloseTo(120 + (400 - 120) * 0.35, 5);
+  });
+
+  it('lets a loud room require the enrolled voice even when strict mode is off', () => {
+    expect(
+      shouldIgnoreTranscript({
+        baselineHz: 120,
+        heardHz: 220,
+        confidence: 0.95,
+        ownerOnly: false,
+        tuning: { requireOwnerVoice: true, ownerTolerance: 0.4, minConfidence: 0.5 },
+      }),
+    ).toBe('drop-notice');
+    // Without a baseline the room cannot pretend to know who spoke.
+    expect(
+      shouldIgnoreTranscript({
+        baselineHz: null,
+        heardHz: 220,
+        confidence: 0.95,
+        ownerOnly: false,
+        tuning: { requireOwnerVoice: true },
+      }),
+    ).toBe('answer');
   });
 });

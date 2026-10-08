@@ -32,6 +32,12 @@ export interface UserSettings {
   endOfSpeechMs?: number;
   /** Show half-finished features (Stories, Email drafts, Music) in Your space. */
   labsEnabled?: boolean;
+  /**
+   * Let you talk over a spoken reply. Only interruption phrases are accepted
+   * while it speaks (see lib/barge-in.ts), so the microphone cannot turn the
+   * assistant's own voice into a new question. On by default.
+   */
+  bargeIn?: boolean;
   memoryEnabled: boolean;
   voiceSpeed: number;
   language: string;

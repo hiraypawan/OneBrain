@@ -360,7 +360,11 @@ export function TodayView() {
         <AnswerBlock latest={latest} />
 
         <FeatureCards say={say} />
-        <FeatureHint say={say} />
+        {/* One line until you ask for it: a helper, not the point of the page. */}
+        <details className="try-strip">
+          <summary>Try one of these<Icon name="arrow" /></summary>
+          <FeatureHint say={say} />
+        </details>
 
         <footer className="home-footer">
           <p>Made for your thoughts. Not another feed.</p>

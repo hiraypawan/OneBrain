@@ -22,7 +22,7 @@
     "clsx": "^2.1.1",
     "dexie": "^4.0.8",
     "motion": "^13.2.0",
-    "next": "^15.5.25",
+    "next": "^15.5.27",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^3.6.0",
@@ -46,11 +46,13 @@
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.70.0",
     "vitest": "^4.1.11",
-    "wrangler": "^4.131.0"
+    "wrangler": "^4.149.0"
   },
   "overrides": {
     "postcss": "$postcss",
-    "sharp": "^0.35.4",
-    "undici": "^7.29.0"
+    "sharp": "^0.35.5",
+    "source-map-js": "^1.2.2",
+    "undici": "^7.29.0",
+    "proxy-addr": "^2.0.8"
   }
 }

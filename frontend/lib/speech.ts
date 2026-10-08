@@ -420,6 +420,12 @@ export interface BrowserSpeakOptions {
   /** False when a newer reply/session replaced this one. */
   isCurrent?: () => boolean;
   onEvent?: (event: BrowserSpeakOutcome | 'start', detail?: string) => void;
+  /**
+   * Cumulative characters of `chunks` actually spoken, reported after each
+   * chunk finishes. This is the resume point when the user interrupts: it only
+   * ever lands on a chunk boundary, so nothing is half-said twice.
+   */
+  onProgress?: (charsSpoken: number) => void;
   /** Handed a cancel function so the caller can abort mid-reply. */
   registerCancel?: (cancel: () => void) => void;
 }
@@ -534,6 +540,7 @@ export async function speakChunksWithBrowserVoice(
   // Music ducking: the browser voice also owns the speaker, so announce the
   // whole reply, not just the synthesized-blob path in lib/audio.ts.
   signalSpeechPlayback('start');
+  let spokenChars = 0;
   try {
     for (const chunk of chunks) {
       if (cancelled || !current()) return 'cancelled';
@@ -548,7 +555,11 @@ export async function speakChunksWithBrowserVoice(
         if (cancelled || !current()) return 'cancelled';
         outcome = await speakOne(chunk, false);
       }
-      if (outcome === 'ok') continue;
+      if (outcome === 'ok') {
+        spokenChars += chunk.length;
+        opts.onProgress?.(spokenChars);
+        continue;
+      }
       return outcome;
     }
     return 'ok';

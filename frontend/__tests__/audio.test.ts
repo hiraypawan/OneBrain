@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { micConstraints, outputSelectionSupported, listAudioDevices, diagnoseMicError, cleanDeviceLabel, defaultOutput, pickableOutputs, autoPickOutput, speakerPlan, testToneDataUrl, watchAudioDevices } from '../lib/audio';
+import { SPEECH_DUCK_EVENT, micConstraints, outputSelectionSupported, listAudioDevices, diagnoseMicError, cleanDeviceLabel, defaultOutput, pickableOutputs, autoPickOutput, speakerPlan, testToneDataUrl, watchAudioDevices } from '../lib/audio';
 
 describe('micConstraints', () => {
   it('requests echo/noise/gain control by default', () => {
@@ -156,5 +156,53 @@ describe('watchAudioDevices', () => {
     const stop = watchAudioDevices(() => {});
     expect(typeof stop).toBe('function');
     expect(() => stop()).not.toThrow();
+  });
+});
+
+describe('music ducking across a chunked spoken reply', () => {
+  it('counts overlapping speech owners so music resumes once, at the end', async () => {
+    const { signalSpeechPlayback, speechDuckingDepth, resetSpeechDucking } = await import('../lib/audio');
+    const events: string[] = [];
+    const originalWindow = (globalThis as any).window;
+    (globalThis as any).window = { dispatchEvent: (e: any) => { events.push(e?.detail?.state); return true; } };
+    (globalThis as any).CustomEvent = class {
+      detail: unknown;
+      constructor(_type: string, init?: { detail?: unknown }) { this.detail = init?.detail; }
+    };
+    try {
+      resetSpeechDucking();
+      // speak() announces once, and the browser-voice engine announces once:
+      // the nested pair must not un-duck the music in between.
+      signalSpeechPlayback('start');
+      signalSpeechPlayback('start');
+      expect(speechDuckingDepth()).toBe(2);
+      expect(events).toEqual(['start']);
+      signalSpeechPlayback('end');
+      expect(events).toEqual(['start']);
+      signalSpeechPlayback('end');
+      expect(events).toEqual(['start', 'end']);
+      expect(speechDuckingDepth()).toBe(0);
+      // An extra end (a stop that was already settled) must not go negative.
+      signalSpeechPlayback('end');
+      expect(speechDuckingDepth()).toBe(0);
+      expect(events).toEqual(['start', 'end']);
+    } finally {
+      (globalThis as any).window = originalWindow;
+      const { resetSpeechDucking } = await import('../lib/audio');
+      resetSpeechDucking();
+    }
+  });
+
+  it('keeps the chunked player quiet and lets the caller own the duck', async () => {
+    const source = (await import('node:fs')).readFileSync(
+      (await import('node:path')).resolve(__dirname, '..', 'hooks/useAssistant.ts'),
+      'utf8',
+    );
+    // The reply-level signal wraps the whole speak(), and the per-chunk player
+    // is told not to announce, which is what removes the between-chunks blip.
+    expect(source).toContain('announce: false');
+    expect(source).toContain('signalSpeechPlayback("start")');
+    expect(source).toContain('signalSpeechPlayback("end")');
+    expect(source).toContain('let duckAnnounced = false;');
   });
 });
