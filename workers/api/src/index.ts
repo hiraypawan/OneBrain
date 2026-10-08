@@ -246,7 +246,7 @@ app.get('/api/chat/history/:id', requireAuth, async (c) => {
 
 // ---------------- speech ----------------
 app.post('/api/speech/stt', optionalAuth, async (c) => {
-  return c.json({ transcript: '', note: 'Client uses browser speech recognition, which may process audio remotely. Server transcription is not implemented.' });
+  return c.json({ transcript: '', error: 'Server transcription is not enabled in the free-only build. Browser speech may process audio remotely; typing remains available.' }, 501);
 });
 
 app.post('/api/speech/tts', optionalAuth, async (c) => c.json({ fallback: true }));
@@ -275,6 +275,12 @@ app.get('/api/memory/search', requireAuth, async (c) => {
 });
 
 app.delete('/api/memory/clear-all', requireAuth, async (c) => {
+  await c.env.DB.prepare('DELETE FROM user_memory WHERE user_id = ?').bind(me(c)).run();
+  return c.json({ ok: true });
+});
+
+// Alias for the legacy Express shape (DELETE /api/memory clears all).
+app.delete('/api/memory', requireAuth, async (c) => {
   await c.env.DB.prepare('DELETE FROM user_memory WHERE user_id = ?').bind(me(c)).run();
   return c.json({ ok: true });
 });
@@ -468,9 +474,20 @@ app.post('/api/user/export-all-data', requireAuth, async (c) => {
 
 app.delete('/api/user/delete-account', requireAuth, async (c) => {
   const userId = me(c);
-  for (const t of ['messages', 'conversations', 'user_memory', 'reminders', 'reset_tokens']) {
+  // Delete spaces owned by this user first: space members/records/jobs/etc
+  // cascade from spaces, so owned workspaces do not orphan.
+  const owned: any[] = (await c.env.DB.prepare('SELECT id FROM spaces WHERE owner_id = ?').bind(userId).all()).results || [];
+  for (const s of owned) {
+    await c.env.DB.prepare('DELETE FROM spaces WHERE id = ?').bind(s.id).run();
+  }
+  for (const t of ['messages', 'conversations', 'user_memory', 'reminders', 'reset_tokens', 'platform_sessions', 'user_entitlements', 'entitlement_usage']) {
     await c.env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(userId).run();
   }
+  await c.env.DB.prepare('DELETE FROM google_identities WHERE user_id = ?').bind(userId).run();
+  await c.env.DB.prepare('DELETE FROM space_members WHERE user_id = ?').bind(userId).run();
+  await c.env.DB.prepare('DELETE FROM oauth_states WHERE user_id = ?').bind(userId).run();
+  await c.env.DB.prepare('DELETE FROM entitlement_events WHERE user_id = ?').bind(userId).run();
+  await c.env.DB.prepare('UPDATE entitlement_keys SET redeemed_by = NULL WHERE redeemed_by = ?').bind(userId).run();
   await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
   return c.json({ ok: true });
 });

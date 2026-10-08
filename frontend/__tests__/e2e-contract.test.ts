@@ -198,8 +198,8 @@ describe('platform request budget', () => {
     const onDemand = ['components/control/Plan.tsx', 'lib/entitlements.ts', 'lib/feature-engine.ts'];
     for (const spec of specs) expect(spec.text).not.toContain('fetchEntitlements');
     const callers = readdirSync(resolve(root, 'components'), { recursive: true })
-      .filter((f) => String(f).endsWith('.tsx'))
-      .map((f) => `components/${f}`)
+      .map((f) => `components/${String(f).replace(/\\/g, '/')}`)
+      .filter((f) => f.endsWith('.tsx'))
       .filter((f) => read(f).includes('fetchEntitlements'));
     expect(callers.every((f) => onDemand.includes(f)), `unexpected automatic callers: ${callers}`).toBe(true);
   });

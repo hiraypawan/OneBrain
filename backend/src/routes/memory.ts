@@ -32,6 +32,11 @@ router.get('/search', (req, res) => {
   });
 });
 
+router.delete('/clear-all', (req, res) => {
+  run('DELETE FROM user_memory WHERE user_id = ?', me(req));
+  res.json({ ok: true });
+});
+
 router.delete('/:id', (req, res) => {
   run('DELETE FROM user_memory WHERE id = ? AND user_id = ?', req.params.id, me(req));
   res.json({ ok: true });
