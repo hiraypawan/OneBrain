@@ -1946,6 +1946,35 @@ button:active:not(:disabled):not(.thought-node) {
   padding: 17px 0;
   transition: background 120ms;
 }
+/* Minimalist Space home: one-line rows, no descriptions to scan. */
+.space-continue,
+.space-browse {
+  margin: 26px 0 0;
+}
+.space-continue > h2,
+.space-browse > h2 {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ob-muted);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin: 0 0 6px;
+}
+.space-continue ul,
+.space-browse ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.control-entry.entry-min {
+  min-height: 56px;
+  padding: 10px 0;
+  gap: 13px;
+}
+.control-entry.entry-min strong {
+  font-size: 15px;
+  font-weight: 550;
+}
 .control-entry:hover {
   background: var(--ob-surface);
 }

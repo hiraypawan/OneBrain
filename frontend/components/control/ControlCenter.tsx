@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ControlContext } from "./ControlContext";
-import { CATALOG, EXTRA_PANELS, GROUPS, type ToolEntry } from "./catalog";
+import { CATALOG, EXTRA_PANELS, type ToolEntry } from "./catalog";
 import { Icon } from "../ui/Icon";
 import { searchSpace, SPACE_SEARCH_SCOPE, type SpaceHit } from "@/lib/space-search";
 import { db, getConversations } from "@/lib/db";
@@ -88,6 +88,33 @@ type SpaceRows = {
   messages: { content: string; role: string; createdAt: number }[];
 };
 
+/**
+ * Minimalist home: the last sections you opened, nothing else to scan.
+ * Session-only memory in localStorage (never uploaded); keeps at most 3.
+ */
+const RECENT_KEY = "onebrain-space-recent";
+function readRecentPanels(): string[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = window.localStorage.getItem(RECENT_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr)
+      ? arr.filter((x): x is string => typeof x === "string").slice(0, 3)
+      : [];
+  } catch {
+    return [];
+  }
+}
+function pushRecentPanel(id: string) {
+  try {
+    if (typeof window === "undefined" || !id) return;
+    const next = [id, ...readRecentPanels().filter((x) => x !== id)].slice(0, 3);
+    window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch {
+    /* a broken store never breaks navigation */
+  }
+}
+
 /** Everything the query box can search, read from the stores the user already has. */
 function useSpaceRows(active: boolean) {
   const reminders = useAssistantStore((s) => s.reminders);
@@ -146,6 +173,21 @@ export function ControlCenter() {
     Panel = Object.hasOwn(PANELS, panel) ? PANELS[panel] : undefined;
   const [query, setQuery] = useState("");
   const searching = query.trim().length >= 2;
+  // Remember the section you opened so the home can offer it back as
+  // "Continue" instead of a wall of tiles.
+  const [recents, setRecents] = useState<string[]>([]);
+  useEffect(() => {
+    setRecents(readRecentPanels());
+  }, []);
+  useEffect(() => {
+    if (panel && (Object.hasOwn(PANELS, panel) || Object.hasOwn(CATALOG_BY_ID, panel))) {
+      pushRecentPanel(panel);
+      setRecents(readRecentPanels().filter((x) => x !== panel));
+    } else if (!panel) {
+      // Back home: re-read so the section just left appears in Continue.
+      setRecents(readRecentPanels());
+    }
+  }, [panel]);
   const { rows, reminders, fitnessLogs, emailDrafts, stories } = useSpaceRows(searching);
   const labsEnabled = useAssistantStore((s) => !!s.settings.labsEnabled);
   const matches = CATALOG.filter((e) => (labsEnabled || !e.labs) &&
@@ -211,50 +253,18 @@ export function ControlCenter() {
         ) : (
           <>
             <header className="control-heading control-home-heading">
-              <span className="overline">EVERYTHING YOU SAVED, IN ONE PLACE</span>
+              <span className="overline">SPACE</span>
               <h1>Your space</h1>
               <p>
-                Four sections instead of fifteen doors. Your everyday flow is on
-                Today; the numbers of your logged life are on Track.
+                Search for anything, or pick up where you left off. Every
+                section is one tap away — nothing to scan.
               </p>
             </header>
             {panel && (
               <p role="status" className="workspace-notice">
-                That section wasn’t found. Choose a section below.
+                That section wasn’t found. Search below, or browse everything.
               </p>
             )}
-            <div className="space-shortcuts">
-              <Link prefetch={false} href="/track" className="space-shortcut">
-                <span className="entry-icon">
-                  <Icon name="fitness" />
-                </span>
-                <span>
-                  <strong>Track</strong>
-                  <small>Expenses, food, health and workouts from your own log</small>
-                </span>
-                <Icon name="arrow" />
-              </Link>
-              <Link prefetch={false} href="/voice" className="space-shortcut">
-                <span className="entry-icon">
-                  <Icon name="mic" />
-                </span>
-                <span>
-                  <strong>Voice</strong>
-                  <small>Full-screen listening, captions and answers</small>
-                </span>
-                <Icon name="arrow" />
-              </Link>
-              <Link prefetch={false} href="/you" className="space-shortcut">
-                <span className="entry-icon">
-                  <Icon name="user" />
-                </span>
-                <span>
-                  <strong>You</strong>
-                  <small>Account, plan, voice and privacy preferences</small>
-                </span>
-                <Icon name="arrow" />
-              </Link>
-            </div>
             <label className="control-search">
               <Icon name="search" />
               <input
@@ -304,32 +314,50 @@ export function ControlCenter() {
                 </p>
               </section>
             )}
-            <div className="control-groups">
-              {GROUPS.map((group) => {
-                const rows = matches.filter((e) => e.group === group);
-                return rows.length ? (
-                  <section key={group}>
-                    <h2>{group}</h2>
-                    {rows.map((e) => (
-                      <Link prefetch={false}
-                        className="control-entry"
-                        href={e.href || `/control?panel=${e.id}`}
-                        key={e.id}
-                      >
-                        <span className="entry-icon">
-                          <Icon name={e.icon} />
-                        </span>
-                        <span>
-                          <strong>{e.title}{e.labs && <em className="labs-badge">Labs</em>}</strong>
-                          <small>{e.description}</small>
-                        </span>
-                        <Icon name="arrow" />
-                      </Link>
+            {!searching && recents.length > 0 && (
+              <section className="space-continue" aria-label="Continue where you left off">
+                <h2>Continue</h2>
+                <ul>
+                  {recents
+                    .map((id) => CATALOG.find((e) => e.id === id))
+                    .filter((e): e is ToolEntry => !!e && (labsEnabled || !e.labs))
+                    .map((e) => (
+                      <li key={e.id}>
+                        <Link prefetch={false} className="control-entry entry-min" href={e.href || `/control?panel=${e.id}`}>
+                          <span className="entry-icon">
+                            <Icon name={e.icon} />
+                          </span>
+                          <span>
+                            <strong>{e.title}{e.labs && <em className="labs-badge">Labs</em>}</strong>
+                          </span>
+                          <Icon name="arrow" />
+                        </Link>
+                      </li>
                     ))}
-                  </section>
-                ) : null;
-              })}
-            </div>
+                </ul>
+              </section>
+            )}
+            <section className="space-browse" aria-label="Browse all sections">
+              <h2>{searching ? `${matches.length} result${matches.length === 1 ? "" : "s"}` : "Browse all"}</h2>
+              <ul>
+                {matches.map((e) => (
+                  <li key={e.id}>
+                    <Link prefetch={false}
+                      className="control-entry entry-min"
+                      href={e.href || `/control?panel=${e.id}`}
+                    >
+                      <span className="entry-icon">
+                        <Icon name={e.icon} />
+                      </span>
+                      <span>
+                        <strong>{e.title}{e.labs && <em className="labs-badge">Labs</em>}</strong>
+                      </span>
+                      <Icon name="arrow" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
             {!matches.length && (
               <div className="control-empty">
                 <h2>No matching tools</h2>
