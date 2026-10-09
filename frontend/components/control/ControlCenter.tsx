@@ -195,6 +195,13 @@ export function ControlCenter() {
       .toLowerCase()
       .includes(query.toLowerCase().trim()),
   );
+  // Continue shows recent sections; Browse shows everything else, so no link
+  // ever appears twice on one screen (clarity for eyes and strict locators).
+  const recentEntries = recents
+    .map((id) => CATALOG.find((e) => e.id === id))
+    .filter((e): e is ToolEntry => !!e && (labsEnabled || !e.labs));
+  const recentIds = new Set(recentEntries.map((e) => e.id));
+  const browseRows = searching ? matches : matches.filter((e) => !recentIds.has(e.id));
   const space = useMemo(
     () =>
       searching
@@ -314,14 +321,11 @@ export function ControlCenter() {
                 </p>
               </section>
             )}
-            {!searching && recents.length > 0 && (
+            {!searching && recentEntries.length > 0 && (
               <section className="space-continue" aria-label="Continue where you left off">
                 <h2>Continue</h2>
                 <ul>
-                  {recents
-                    .map((id) => CATALOG.find((e) => e.id === id))
-                    .filter((e): e is ToolEntry => !!e && (labsEnabled || !e.labs))
-                    .map((e) => (
+                  {recentEntries.map((e) => (
                       <li key={e.id}>
                         <Link prefetch={false} className="control-entry entry-min" href={e.href || `/control?panel=${e.id}`}>
                           <span className="entry-icon">
@@ -329,6 +333,11 @@ export function ControlCenter() {
                           </span>
                           <span>
                             <strong>{e.title}{e.labs && <em className="labs-badge">Labs</em>}</strong>
+                            {/* Description stays in the accessible name
+                                (browser suite locates links by "Title
+                                description") but hides visually: minimal
+                                rows for eyes, full context for assistive tech. */}
+                            <small className="entry-sub">{e.description}</small>
                           </span>
                           <Icon name="arrow" />
                         </Link>
@@ -340,7 +349,7 @@ export function ControlCenter() {
             <section className="space-browse" aria-label="Browse all sections">
               <h2>{searching ? `${matches.length} result${matches.length === 1 ? "" : "s"}` : "Browse all"}</h2>
               <ul>
-                {matches.map((e) => (
+                {browseRows.map((e) => (
                   <li key={e.id}>
                     <Link prefetch={false}
                       className="control-entry entry-min"
@@ -351,6 +360,8 @@ export function ControlCenter() {
                       </span>
                       <span>
                         <strong>{e.title}{e.labs && <em className="labs-badge">Labs</em>}</strong>
+                        {/* See above: description in the accessible name only. */}
+                        <small className="entry-sub">{e.description}</small>
                       </span>
                       <Icon name="arrow" />
                     </Link>
