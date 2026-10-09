@@ -4887,3 +4887,246 @@ html[data-ob-theme='light'] .app-header nav {
     animation: none;
   }
 }
+
+/* ================================================================
+   One-screen mobile: each tab fits its viewport like an app screen.
+   Today compresses to the fold (greeting + composer + mic); the panels
+   become swipeable pages instead of a long scroll; the footer tucks away
+   (every link in it lives on the tab bar too). Desktop untouched.
+   Layout only — copy, roles and DOM order are unchanged.
+   ================================================================ */
+@media (max-width: 767px) {
+  .today-brief .brief-product {
+    display: none;
+  }
+  /* Tuck the tagline only: preferences + space links stay tappable
+     (browser suite opens Quick preferences from here on phones). */
+  .home-footer {
+    padding: 12px 0 4px;
+    gap: 8px;
+  }
+  .home-footer p {
+    display: none;
+  }
+  .today-panels {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: min(100%, 400px);
+    grid-template-columns: none;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding: 0 14px;
+    gap: 12px;
+    margin: 0 -14px;
+    padding: 4px 14px 12px;
+  }
+  /* Fold budget part 2: tighten the wrap itself on phones. */
+  .today-wrap {
+    gap: 10px;
+  }
+  /* Fold budget part 3: mic card + footer compress (content intact). */
+  .today-screen .session-card .voice-mark {
+    height: 34px;
+    margin-bottom: 8px;
+  }
+  .today-screen .session-card h2 {
+    margin: 0 0 6px;
+    font-size: 17px;
+  }
+  .today-screen .session-card .voice-explainer {
+    margin: 0 0 10px;
+  }
+  .today-screen .session-state {
+    margin: 0 0 10px;
+  }
+  .home-footer {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 10px 0 4px;
+  }
+  .today-brief {
+    padding: 14px 0 10px;
+  }
+  .capture-composer {
+    margin-top: 12px;
+    padding: 14px 14px 10px;
+  }
+  .capture-composer form {
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .today-panels > * {
+    scroll-snap-align: start;
+    min-width: 0;
+  }
+  /* Fold budget: onboarding microcopy hides visually on phones (stays in
+     the accessibility tree); the composer keeps only input + actions. */
+  .today-input-heading,
+  .capture-steps {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .today-screen .composer-bottom {
+    display: none;
+  }
+  .capture-composer {
+    gap: 10px;
+    padding: 14px 0;
+  }
+  /* Side-by-side send row: the stacked wrap costs a full extra row.
+     Prefixed: base Today rules scope to .today-screen and would win. */
+  .today-screen .capture-composer form {
+    flex-wrap: nowrap;
+  }
+  .today-screen .capture-composer textarea {
+    flex: 1 1 0;
+  }
+  .today-screen .capture-composer {
+    padding: 12px 0 8px;
+  }
+  .today-screen .capture-composer form {
+    padding-top: 8px;
+    padding-bottom: 4px;
+  }
+  .today-screen .composer-top {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  /* The summary duplicates what the greeting + rails already say on phones;
+     ears still get it, eyes get the fold. */
+  .today-brief .brief-summary {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .today-wrap {
+    gap: 8px;
+    padding-top: 12px;
+  }
+  .app-main {
+    padding-bottom: 76px;
+  }
+  .today-wrap {
+    padding-bottom: calc(32px + env(safe-area-inset-bottom));
+  }
+  /* Mic card compresses (all controls stay visible and tappable). */
+  .today-screen .session-card {
+    margin-top: 0;
+    padding: 10px 12px;
+    gap: 0 12px;
+  }
+  /* Card title folds into the button on phones (ears still get it). */
+  .today-screen .session-card h2 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .today-screen .session-options {
+    margin-top: 2px;
+  }
+  .capture-composer textarea {
+    height: 60px;
+  }
+  .today-wrap {
+    gap: 6px;
+  }
+  /* One row of chips that scrolls sideways instead of stacking. */
+  .first-thought {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .first-thought::-webkit-scrollbar {
+    display: none;
+  }
+  .first-thought > span {
+    flex: none;
+  }
+  /* Slimmer top bar on phones (brand + account stay tappable). */
+  .app-header {
+    height: 60px;
+  }
+  /* Last-mile fold budget (touch targets untouched). */
+  .today-screen .composer-top {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+  .today-screen .composer-top select {
+    min-height: 40px;
+  }
+  .capture-composer textarea {
+    height: 56px;
+  }
+  .today-wrap {
+    gap: 4px;
+    padding-top: 10px;
+  }
+  .today-brief h1 {
+    margin-top: 0.15em;
+  }
+  .app-main {
+    padding-bottom: 68px;
+  }
+  .today-wrap {
+    padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  }
+  .first-thought {
+    margin: 8px 0 4px;
+    gap: 6px 10px;
+  }
+  .today-brief .brief-summary {
+    font-size: 0.88rem;
+    line-height: 1.45;
+    margin-top: 0.5rem;
+  }
+  /* Bottom clearance math: fixed nav ≈ 60px + device safe-area. */
+  .app-main {
+    padding-bottom: 72px;
+  }
+  .today-wrap {
+    padding-bottom: calc(32px + env(safe-area-inset-bottom));
+  }
+  .home-footer {
+    margin-top: 0;
+  }
+  /* Bottom clearance math: fixed nav ≈ 60px + device safe-area. 84px page
+     pad + 40px wrap pad clear it with room; the old 116 + 64 stacked slack. */
+  .app-main {
+    padding-bottom: 84px;
+  }
+  .today-wrap {
+    padding-bottom: calc(40px + env(safe-area-inset-bottom));
+  }
+  .today-brief {
+    margin-bottom: 4px;
+  }
+  /* Empty mount points still eat grid gaps — collapse them. */
+  .feat-wrap:empty {
+    display: none;
+  }
+  .home-footer {
+    padding: 8px 0 4px;
+  }
+}
