@@ -4,6 +4,7 @@ import { buildTurnPrompt, normalizeHistory } from '@/lib/prompt';
 import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
 import type { ChatHistory } from '@/lib/gemini';
 import { looksFactual, fetchWikipedia } from '@/lib/knowledge';
+import { looksLive, liveFacts } from '@/lib/websearch';
 
 export async function POST(req: NextRequest) {
   let input: Record<string, unknown>;
@@ -37,6 +38,15 @@ export async function POST(req: NextRequest) {
       if (looksFactual(message)) facts = (await fetchWikipedia(message))?.text || '';
     } catch (e) {
       console.error('Wikipedia failed:', e);
+    }
+    // Questions about things that change get live, keyless web sources too.
+    try {
+      if (looksLive(message)) {
+        const web = await liveFacts(message, { max: 4 });
+        if (web) facts = facts ? `${facts}\n\nLive web sources:\n${web}` : `Live web sources:\n${web}`;
+      }
+    } catch {
+      /* no live facts — the model must then say it does not know */
     }
   }
   const prompt = systemOverride

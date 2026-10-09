@@ -43,4 +43,10 @@ export const INTENT_HINTS: IntentHint[] = [
   { say: 'what is my budget this month', label: 'your budget and how the month is going' },
   { say: 'show my food diary today', label: 'today’s food diary in Track' },
   { say: 'open track', label: 'the Track tab' },
+  // Live transit and travel
+  { say: 'mumbai local status', label: 'Mumbai local line status' },
+  { say: '12951 train status', label: 'a train’s live running status' },
+  { say: 'pune metro timings', label: 'metro timings for a city' },
+  { say: 'AI101 flight status mumbai', label: 'live flight position near a city' },
+  { say: 'trains from pune to mumbai', label: 'trains between two stations' },
 ];

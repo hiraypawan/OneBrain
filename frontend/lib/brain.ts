@@ -8,6 +8,7 @@ import { askPuter } from './puter';
 import { fallback as offlineFallback } from './gemini';
 import { buildTurnPrompt, normalizeHistory } from './prompt';
 import { looksFactual, fetchWikipedia } from './knowledge';
+import { looksLive, liveFacts } from './websearch';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -54,6 +55,15 @@ export async function askBrainDetailed(
     // user's language and context — Wikipedia is no longer the reply itself.
     try {
       if (looksFactual(message)) facts = (await fetchWikipedia(message))?.text || '';
+    } catch { /* no facts */ }
+    // Anything that changes (news, prices, results, schedules) is looked up on
+    // the live web, keyless. Labelled per source so the model can say where a
+    // number came from — and so it can say "not found" instead of inventing.
+    try {
+      if (looksLive(message)) {
+        const web = await liveFacts(message);
+        if (web) facts = facts ? `${facts}\n\nLive web sources:\n${web}` : `Live web sources:\n${web}`;
+      }
     } catch { /* no facts */ }
   }
   const prompt = extra?.systemOverride

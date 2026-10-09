@@ -238,6 +238,10 @@ export function useAssistant() {
   // stream used for pitch, so this costs no extra permission or battery.
   const noiseRef = useRef<NoiseFloorState>(resetNoiseFloor());
   const envRef = useRef<EnvironmentClass | null>(null);
+  // Last moment the microphone frame carried voice energy. The recognizer
+  // drops results now and then while the person is still talking; this is how
+  // the turn assembler tells "dropped a result" from "stopped talking".
+  const lastVoiceAtRef = useRef(0);
   // Characters of the reply currently being spoken that have actually been
   // heard, measured in chunk boundaries — the resume point on interruption.
   const spokenCharsRef = useRef(0);
@@ -1281,6 +1285,9 @@ export function useAssistant() {
     } catch {}
     analyserRef.current = null;
     pitchWinRef.current = [];
+    // No frame is being read any more, so "voice energy" must not stay true
+    // and hold a turn open for nothing.
+    lastVoiceAtRef.current = 0;
   }, []);
 
   // Sample mic pitch a few times per second while listening. Feeds the
@@ -1306,6 +1313,13 @@ export function useAssistant() {
           // carries the room. Track the sustained floor and tell the app when
           // the surroundings change (see lib/environment.ts for the rules).
           noiseRef.current = updateNoiseFloor(noiseRef.current, rmsOf(buf));
+          // Voice activity, from the very same frame: energy well above the
+          // smoothed floor is the person talking. The turn assembler reads
+          // this so a dropped recognition result never ends a turn early.
+          // (rmsOf over 2048 samples costs microseconds; this tick is 250 ms.)
+          const energy = rmsOf(buf);
+          const floor = noiseRef.current.floor ?? 0;
+          if (energy > Math.max(0.015, floor * 3)) lastVoiceAtRef.current = Date.now();
           const env = classifyEnvironment(noiseRef.current.floor ?? 0);
           if (environmentChanged(envRef.current, env)) {
             envRef.current = env;
@@ -1645,29 +1659,32 @@ export function useAssistant() {
           "en-IN";
         recog.continuous = true;
         recog.interimResults = true;
-        recog.onstart = () => {
-          if (!current() || recogRef.current !== recog) return;
-          recognitionReadyRef.current = true;
-        };
         recog.onspeechstart = () => {
           if (!current() || recogRef.current !== recog) return;
           lastActivityRef.current = Date.now();
+          lastVoiceAtRef.current = Date.now();
         };
         recog.onspeechend = () => {
           if (!current() || recogRef.current !== recog) return;
           lastActivityRef.current = Date.now();
         };
-        // One turn = everything said until the person actually stops
-        // (silenceMs of quiet), not the first breath pause. Then stop
-        // capturing (no hearing our own reply), process, speak, resume.
+        // One turn = everything said until the person actually stops, not the
+        // first breath pause, not a dropped result, and not the gap while the
+        // engine restarts its session. Then stop capturing (no hearing our own
+        // reply), process, speak, resume.
         const collector = createUtteranceAssembler({
           // The room decides how long a pause may be before a turn is sent: a
           // noisy kitchen needs a longer wait so sentences are not cut in half,
-          // a quiet room lets the same setting answer sooner.
-          silenceMs: effectiveEndOfSpeechMs(
-            store.settings.endOfSpeechMs,
-            environmentTuning(useAssistantStore.getState().micEnvironment ?? "home"),
-          ),
+          // a quiet room lets the same setting answer sooner. Read live, so a
+          // room that changes mid-session changes the turns still to come.
+          silenceMs: () =>
+            effectiveEndOfSpeechMs(
+              useAssistantStore.getState().settings.endOfSpeechMs,
+              environmentTuning(useAssistantStore.getState().micEnvironment ?? "home"),
+            ),
+          // The mic frames say whether the person is still audibly talking
+          // when the recognizer goes quiet (it drops results mid-sentence).
+          speechActive: () => Date.now() - lastVoiceAtRef.current < 320,
           onAccept: (text, confidence) => {
             if (!current() || recogRef.current !== recog) return;
             // Never let a turn start while the assistant is talking: with
@@ -1703,6 +1720,13 @@ export function useAssistant() {
           },
         });
         collectorRef.current = collector;
+        recog.onstart = () => {
+          if (!current() || recogRef.current !== recog) return;
+          recognitionReadyRef.current = true;
+          // The mic is open again: normal end-of-speech timing resumes, so the
+          // restart gap is not counted as the person's silence.
+          collector.resume();
+        };
         recog.onresult = (e: any) => {
           if (!current() || recogRef.current !== recog) return;
           lastActivityRef.current = Date.now();
@@ -1827,17 +1851,22 @@ export function useAssistant() {
           // mid-turn, restart and keep assembling — the silence timer still
           // sends the turn. Only flush if we are no longer allowed to listen.
           if (collector.pending()) {
+            // The engine just went deaf. Until it is listening again this is
+            // our silence, not the person's, so it must not end the turn
+            // (this is what cut long requests down to their first words).
+            collector.pause();
             if (st.isActive && !speakingRef.current && !processingRef.current && expectingRef.current) {
               st.logBgEvent("recog-end", "mid-turn restart");
               try {
                 recog.start();
                 return;
               } catch {
-                /* fall through: silence timer or flush below delivers it */
+                // Refused (iOS Safari, Android right after 'aborted'): fall
+                // through to the backed-off restart below instead of giving up
+                // and leaving a half-heard turn in the collector.
+                st.logBgEvent("recog-error", "mid-turn restart refused");
               }
-              return;
-            }
-            if (collector.flush()) {
+            } else if (collector.flush()) {
               st.logBgEvent("recog-end", "flushed turn");
               return;
             }

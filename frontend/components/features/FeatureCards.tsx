@@ -92,6 +92,7 @@ function CardBody({ card, say }: { card: FeatureCard; say: (t: string) => void }
     case 'fitness-ambiguous': return <AmbiguousCard card={card} say={say} />;
     case 'workout': return <WorkoutCard say={say} />;
     case 'research': return <ResearchCard card={card} say={say} />;
+    case 'transit': return <TransitCard card={card} />;
     case 'recall': return <RecallCard card={card} />;
     case 'persona': return <PersonaCard card={card} say={say} />;
     case 'translator': return <TranslatorCard card={card} say={say} />;
@@ -232,6 +233,36 @@ function WorkoutCard({ say }: { say: (t: string) => void }) {
         <button className="text-button" onClick={() => say('skip')}>Skip round</button>
         <button className="text-button danger" onClick={() => say('stop workout')}>Stop</button>
       </div>
+    </div>
+  );
+}
+
+function TransitCard({ card }: { card: Extract<FeatureCard, { kind: 'transit' }> }) {
+  const r = card.result;
+  const when = new Date(r.asOf).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+  return (
+    <div>
+      <span className="eyebrow">
+        {r.kind === 'flights' ? '✈️' : r.kind === 'metro' ? '🚇' : '🚆'} {r.kind.toUpperCase()} ·{' '}
+        {r.live ? 'LIVE FEED' : 'SCHEDULE / LIVE WEB'} · AS OF {when}
+      </span>
+      <p className="feat-big">{r.title}</p>
+      <p>{r.spoken}</p>
+      {r.lines.length > 0 && <ul className="feat-list">{r.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}
+      {r.notice && <p className="feat-note">{r.notice}</p>}
+      {r.sources.length > 0 && (
+        <>
+          <h4 className="feat-h">Sources</h4>
+          <ul className="feat-list">
+            {r.sources.map((s, i) => (
+              <li key={i}>
+                <a href={s.url} target="_blank" rel="noreferrer">{s.title || s.domain || s.url} ↗</a>
+                {s.domain ? <span className="feat-note"> · {s.domain}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
