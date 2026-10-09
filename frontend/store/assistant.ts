@@ -20,6 +20,14 @@ interface AssistantState {
   settings: UserSettings;
   apiKey: string;
   setApiKey: (k: string) => void;
+  // Optional OpenAI-compatible lane (user's own OpenRouter/DeepSeek/custom
+  // key — operator cost stays $0). 'gemini' default keeps old behavior.
+  aiProvider: 'gemini' | 'openai';
+  setAiProvider: (p: 'gemini' | 'openai') => void;
+  aiBaseUrl: string;
+  setAiBaseUrl: (u: string) => void;
+  aiModel: string;
+  setAiModel: (m: string) => void;
   micNotice: string | null;
   storageNotice: string | null;
   setMicNotice: (m: string | null) => void;
@@ -91,13 +99,16 @@ const SETTINGS_KEY = 'onebrain-settings';
 // and React throws a hydration error.
 function loadPersisted(): {
   apiKey: string;
+  aiProvider: 'gemini' | 'openai';
+  aiBaseUrl: string;
+  aiModel: string;
   settings: UserSettings;
   voiceBaseline: number | null;
   micDeviceId: string | null;
   speakerDeviceId: string | null;
   storageNotice?: string | null;
 } {
-  const fallback = { apiKey: '', settings: defaultSettings, voiceBaseline: null, micDeviceId: null, speakerDeviceId: null };
+  const fallback = { apiKey: '', aiProvider: 'gemini' as const, aiBaseUrl: '', aiModel: '', settings: defaultSettings, voiceBaseline: null, micDeviceId: null, speakerDeviceId: null };
   if (typeof window === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -106,6 +117,9 @@ function loadPersisted(): {
     const dv = dev ? JSON.parse(dev) : {};
     return {
       apiKey: typeof base?.apiKey === 'string' ? base.apiKey : '',
+      aiProvider: base?.aiProvider === 'openai' ? 'openai' : 'gemini',
+      aiBaseUrl: typeof base?.aiBaseUrl === 'string' ? base.aiBaseUrl.slice(0, 120) : '',
+      aiModel: typeof base?.aiModel === 'string' ? base.aiModel.slice(0, 120) : '',
       settings: normalizeSettings(base?.settings),
       voiceBaseline: typeof base?.voiceBaseline === 'number' && Number.isFinite(base.voiceBaseline) && base.voiceBaseline > 0 ? base.voiceBaseline : null,
       micDeviceId: typeof dv?.micDeviceId === 'string' && dv.micDeviceId ? dv.micDeviceId : null,
@@ -129,6 +143,12 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   settings: defaultSettings,
   apiKey: '',
   setApiKey: (apiKey) => set({ apiKey }),
+  aiProvider: 'gemini',
+  setAiProvider: (aiProvider) => set({ aiProvider }),
+  aiBaseUrl: '',
+  setAiBaseUrl: (aiBaseUrl) => set({ aiBaseUrl }),
+  aiModel: '',
+  setAiModel: (aiModel) => set({ aiModel }),
   micNotice: null,
   storageNotice: null,
   setMicNotice: (micNotice) => set({ micNotice }),
@@ -327,7 +347,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       settings: defaultSettings, sessionSummary: null, summaryState: { mark: 0, at: null },
       messages: [], conversations: [], reminders: [], user: null,
       isAuthenticated: false, authRevision: useAssistantStore.getState().authRevision + 1, isActive: false, currentStatus: 'idle',
-      currentConversationId: `${Date.now()}`, apiKey: '', voiceBaseline: null, micNotice: null,
+      currentConversationId: `${Date.now()}`, apiKey: '', aiProvider: 'gemini', aiBaseUrl: '', aiModel: '', voiceBaseline: null, micNotice: null,
       voiceNotice: null, liveTranscript: null, lastProvider: null,
       bgLog: [], sessionStart: null,
     });
@@ -357,14 +377,29 @@ export const useAssistantStore = create<AssistantState>((set) => ({
 // Save key + settings on every change (client only).
 if (typeof window !== 'undefined') {
   useAssistantStore.subscribe((s, previous) => {
-    if (s.apiKey === previous.apiKey && s.settings === previous.settings && s.voiceBaseline === previous.voiceBaseline) return;
+    if (s.apiKey === previous.apiKey && s.aiProvider === previous.aiProvider && s.aiBaseUrl === previous.aiBaseUrl && s.aiModel === previous.aiModel && s.settings === previous.settings && s.voiceBaseline === previous.voiceBaseline) return;
     try {
       localStorage.setItem(
         SETTINGS_KEY,
-        JSON.stringify({ apiKey: s.apiKey, settings: s.settings, voiceBaseline: s.voiceBaseline })
+        JSON.stringify({ apiKey: s.apiKey, aiProvider: s.aiProvider, aiBaseUrl: s.aiBaseUrl, aiModel: s.aiModel, settings: s.settings, voiceBaseline: s.voiceBaseline })
       );
     } catch {
       useAssistantStore.setState({ storageNotice: 'Preferences could not be saved. Changes apply to this session only; check browser storage.' });
     }
   });
+}
+
+/**
+ * One object for every brain call site: the user's key plus the selected
+ * lane (Gemini default, or their own OpenAI-compatible endpoint/model).
+ * Callers spread it into ChatExtra so chat/translation/research all follow
+ * the same lane without their own provider logic.
+ */
+export function aiKeyConfig(): { provider: 'gemini' | 'openai'; baseUrl: string; model: string } {
+  const s = useAssistantStore.getState();
+  return {
+    provider: s.aiProvider === 'openai' ? 'openai' : 'gemini',
+    baseUrl: s.aiBaseUrl || '',
+    model: s.aiModel || '',
+  };
 }

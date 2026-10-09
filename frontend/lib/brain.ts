@@ -22,11 +22,15 @@ export interface ChatExtra {
   systemOverride?: string;
   /** Pro lane: longer provider timeout + skip the offline apology delay. */
   priority?: boolean;
+  /** Optional OpenAI-compatible lane (user's own key/endpoint/model). */
+  provider?: 'gemini' | 'openai';
+  baseUrl?: string;
+  model?: string;
 }
 
 export interface BrainAnswer {
   text: string;
-  /** Which provider produced the answer: wikipedia, puter, gemini, pollinations, key-error, server, offline. */
+  /** Which provider produced the answer: wikipedia, puter, gemini, openai, pollinations, key-error, server, offline. */
   provider: string;
 }
 
@@ -104,6 +108,9 @@ export async function askBrainDetailed(
           message,
           history: prompt.history,
           userKey: userKey || undefined,
+          provider: extra?.provider || undefined,
+          baseUrl: extra?.baseUrl || undefined,
+          model: extra?.model || undefined,
           profile: extra?.profile || undefined,
           recall: extra?.recall || undefined,
           verbosity: extra?.verbosity || undefined,

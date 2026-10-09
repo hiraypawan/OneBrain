@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { askGemini, askPollinations, fallback, verbosityBudget } from '@/lib/gemini';
+import { askOpenAICompatible, sanitizeBaseUrl, sanitizeModel } from '@/lib/openai-compatible';
 import { buildTurnPrompt, normalizeHistory } from '@/lib/prompt';
 import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
 import type { ChatHistory } from '@/lib/gemini';
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
     input = await readJsonBody(req);
     if (typeof input.message !== 'string' || !input.message.trim() || input.message.length > 8000)
       throw new RequestBodyError('Message must contain 1–8000 characters.', 400);
-    for (const [field, limit] of [['userKey', 256], ['profile', 12000], ['recall', 12000], ['language', 16], ['facts', 4000]] as const) {
+    for (const [field, limit] of [['userKey', 512], ['profile', 12000], ['recall', 12000], ['language', 16], ['facts', 4000], ['baseUrl', 120], ['model', 120]] as const) {
       if (input[field] !== undefined && (typeof input[field] !== 'string' || (input[field] as string).length > limit))
         throw new RequestBodyError(`Invalid ${field}.`, 400);
     }
@@ -24,6 +25,12 @@ export async function POST(req: NextRequest) {
   } catch (error) { return bodyError(error); }
   const message = input.message as string, history = (input.history || []) as ChatHistory[];
   const userKey = input.userKey as string | undefined, verbosity = input.verbosity as string | undefined;
+  // Optional OpenAI-compatible lane (user's own OpenRouter/DeepSeek/custom
+  // key — operator cost stays $0). Defaults to the Gemini lane; anything
+  // else is rejected, never guessed.
+  const provider = input.provider === 'openai' ? 'openai' : 'gemini';
+  const baseUrl = sanitizeBaseUrl(input.baseUrl);
+  const model = sanitizeModel(input.model) || (provider === 'openai' ? 'deepseek-chat' : '');
   const profile = input.profile as string | undefined, recall = input.recall as string | undefined;
   const systemOverride = typeof input.systemOverride === 'string' && input.systemOverride.length <= 12000
     ? input.systemOverride as string : undefined;
@@ -57,7 +64,17 @@ export async function POST(req: NextRequest) {
   const maxTokens = verbosityBudget(verbosity);
   const geminiKey = userKey;
   let keyBlame: string | null = null;
-  if (geminiKey) {
+  // User's OpenAI-compatible key first when selected (own quota, $0 host).
+  if (provider === 'openai' && userKey && baseUrl) {
+    const res = await askOpenAICompatible({
+      baseUrl, apiKey: userKey, model, message, history: turnHistory, system, maxTokens,
+    });
+    if (res.text) return NextResponse.json({ answer: res.text, provider: 'openai' });
+    if (/api key|not valid|permission|quota|exceed|unauthorized|forbidden|invalid/i.test(res.error || '')) {
+      keyBlame = String(res.error).slice(0, 220);
+    }
+  }
+  if (geminiKey && provider === 'gemini') {
     const res = await askGemini(geminiKey, message, turnHistory, { system, maxTokens });
     if (res.text) return NextResponse.json({ answer: res.text, provider: 'gemini' });
     // Do not write provider errors or user credentials into server logs.
@@ -73,8 +90,11 @@ export async function POST(req: NextRequest) {
 
   // Everything failed: if the user's own key was rejected, say so plainly.
   if (userKey && keyBlame) {
+    const where = provider === 'openai'
+      ? 'Settings me endpoint, model aur key dobara check karo.'
+      : 'Settings me key dobara check karo, aistudio.google.com se nayi key lekar paste karo.';
     return NextResponse.json({
-      answer: `Tumhari Gemini key kaam nahi kar rahi (${keyBlame}). Settings me key dobara check karo, aistudio.google.com se nayi key lekar paste karo.`,
+      answer: `Tumhari AI key kaam nahi kar rahi (${keyBlame}). ${where}`,
       provider: 'key-error',
     });
   }

@@ -25,7 +25,7 @@ import {
   type CaptureDraft,
 } from "@/lib/workspace/model";
 import { db } from "@/lib/db";
-import { useAssistantStore } from "@/store/assistant";
+import { aiKeyConfig, useAssistantStore } from "@/store/assistant";
 import { askBrain, askBrainDetailed } from "@/lib/brain";
 import {
   handleFeatureTurn,
@@ -1198,6 +1198,7 @@ export function useAssistant() {
         recall,
         verbosity: st.settings.verbosity,
         language: st.settings.language,
+        ...aiKeyConfig(),
       });
       if (sessionGenerationRef.current !== generation) return;
       store.addMessage("assistant", answer, envelopeLine || undefined);

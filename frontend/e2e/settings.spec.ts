@@ -158,7 +158,7 @@ test("advanced guards OAuth credentials and requests no microphone or provider o
     };
   });
   await page.goto("/settings/advanced");
-  await page.getByText("Configure a Gemini API key", { exact: true }).click();
+  await page.getByText("Configure an AI API key (optional, free tiers)", { exact: true }).click();
   await page
     .getByLabel("Gemini API key", { exact: true })
     .fill("GOCSPX-test-only-not-a-real-secret");
@@ -175,7 +175,7 @@ test("advanced guards OAuth credentials and requests no microphone or provider o
     .fill("AIza-test-only-key");
   await page.getByRole("button", { name: "Save key locally" }).click();
   await page.reload();
-  await page.getByText("Configure a Gemini API key", { exact: true }).click();
+  await page.getByText("Configure an AI API key (optional, free tiers)", { exact: true }).click();
   await expect(page.getByLabel("Gemini API key", { exact: true })).toHaveValue(
     "AIza-test-only-key",
   );

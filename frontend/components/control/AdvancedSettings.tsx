@@ -4,14 +4,22 @@ import { SettingsShell } from "@/components/settings/SettingsShell";
 import { VoiceEnrollment } from "@/components/settings/VoiceEnrollment";
 import { useAssistantStore } from "@/store/assistant";
 export default function Advanced() {
-  const { apiKey, setApiKey, settings, updateSettings } = useAssistantStore();
+  const { apiKey, setApiKey, aiProvider, setAiProvider, aiBaseUrl, setAiBaseUrl, aiModel, setAiModel, settings, updateSettings } = useAssistantStore();
   const [draft, setDraft] = useState(apiKey),
     [message, setMessage] = useState(""),
     [testing, setTesting] = useState(false),
     [enrollment, setEnrollment] = useState(false);
+  const [draftProvider, setDraftProvider] = useState<'gemini' | 'openai'>(aiProvider),
+    [draftBaseUrl, setDraftBaseUrl] = useState(aiBaseUrl),
+    [draftModel, setDraftModel] = useState(aiModel);
   useEffect(() => {
     setDraft(apiKey);
   }, [apiKey]);
+  useEffect(() => {
+    setDraftProvider(aiProvider);
+    setDraftBaseUrl(aiBaseUrl);
+    setDraftModel(aiModel);
+  }, [aiProvider, aiBaseUrl, aiModel]);
   function valid() {
     if (/GOCSPX-|apps\.googleusercontent\.com/i.test(draft)) {
       setMessage(
@@ -24,7 +32,7 @@ export default function Advanced() {
   async function testKey() {
     if (!valid()) return;
     if (!draft.trim()) {
-      setMessage("Enter an optional Gemini API key first.");
+      setMessage("Enter an optional AI API key first.");
       return;
     }
     setTesting(true);
@@ -37,14 +45,18 @@ export default function Advanced() {
           message: "Reply with only the word OK",
           history: [],
           userKey: draft.trim(),
+          provider: draftProvider,
+          baseUrl: draftBaseUrl.trim() || undefined,
+          model: draftModel.trim() || undefined,
         }),
       });
       if (!r.ok) throw new Error();
       const data = await r.json();
+      const okProvider = draftProvider === "openai" ? "openai" : "gemini";
       setMessage(
-        data.provider === "gemini"
-          ? "Gemini responded to this test. Future availability depends on provider limits."
-          : "Gemini did not confirm this key. Check the key and provider quota; a fallback response is not key validation.",
+        data.provider === okProvider
+          ? "The key responded to this test. Future availability depends on provider limits."
+          : "The key was not confirmed. Check the key, endpoint, model and provider quota; a fallback response is not key validation.",
       );
     } catch {
       setMessage(
@@ -119,15 +131,62 @@ export default function Advanced() {
           need an AI key to create an account or use local capture.
         </p>
         <details>
-          <summary>Configure a Gemini API key</summary>
+          <summary>Configure an AI API key (optional, free tiers)</summary>
           <p>
-            Use only a free-tier project with billing disabled if you want to
+            Use only free-tier keys with billing disabled if you want to
             avoid charges. Hosted APIs have quotas, not unlimited free use. This
-            browser key is sent to the app backend for Gemini requests; local
-            browser storage is not an encrypted vault.
+            browser key is sent to the app backend for AI requests; local
+            browser storage is not an encrypted vault. The operator is never
+            billed — the key and quota are yours.
           </p>
           <label>
-            Gemini API key
+            Provider
+            <select
+              value={draftProvider}
+              onChange={(e) => {
+                setDraftProvider(e.target.value === "openai" ? "openai" : "gemini");
+                setMessage("");
+              }}
+            >
+              <option value="gemini">Gemini (aistudio.google.com key)</option>
+              <option value="openai">OpenAI-compatible (OpenRouter / DeepSeek / custom)</option>
+            </select>
+          </label>
+          {draftProvider === "openai" && (
+            <>
+              <label>
+                Endpoint (https)
+                <input
+                  type="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={120}
+                  value={draftBaseUrl}
+                  onChange={(e) => {
+                    setDraftBaseUrl(e.target.value);
+                    setMessage("");
+                  }}
+                  placeholder="https://openrouter.ai/api/v1"
+                />
+              </label>
+              <label>
+                Model
+                <input
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={120}
+                  value={draftModel}
+                  onChange={(e) => {
+                    setDraftModel(e.target.value);
+                    setMessage("");
+                  }}
+                  placeholder="e.g. deepseek/deepseek-chat-v3.1:free"
+                />
+              </label>
+            </>
+          )}
+          <label>
+            {draftProvider === "openai" ? "API key for the endpoint" : "Gemini API key"}
             <input
               type="password"
               autoComplete="off"
@@ -138,7 +197,7 @@ export default function Advanced() {
                 setDraft(e.target.value);
                 setMessage("");
               }}
-              placeholder="Gemini key — not an OAuth client secret"
+              placeholder={draftProvider === "openai" ? "Endpoint key — yours, never the operator's" : "Gemini key — not an OAuth client secret"}
             />
           </label>
           <p>
@@ -152,6 +211,9 @@ export default function Advanced() {
               onClick={() => {
                 if (valid()) {
                   setApiKey(draft.trim());
+                  setAiProvider(draftProvider);
+                  setAiBaseUrl(draftBaseUrl.trim());
+                  setAiModel(draftModel.trim());
                   setMessage(
                     "Key saved on this browser. Availability has not been verified.",
                   );

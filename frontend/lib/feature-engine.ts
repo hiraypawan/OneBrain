@@ -5,7 +5,7 @@
 // stay in the hook. observeTranscript() runs for ALL turns (witness log +
 // passive commitment sniffing).
 
-import { useAssistantStore } from '@/store/assistant';
+import { aiKeyConfig, useAssistantStore } from '@/store/assistant';
 import { useWorkspaceStore } from '@/store/workspace';
 import { useFeaturesStore, type FeatureCard } from '@/store/features';
 import { askBrain, isLiveAnswer } from './brain';
@@ -1039,6 +1039,7 @@ async function translateTurn(text: string, ses: { pairId: string; startedAt: num
     const ans = await askBrain(translationPrompt(text, from, to), [], useAssistantStore.getState().apiKey, {
       systemOverride: TRANSLATE_SYSTEM,
       priority: priority(),
+      ...aiKeyConfig(),
     });
     live = isLiveAnswer(ans);
     out = live ? ans.replace(/^["“]|["”]$/g, '').trim().slice(0, 500) : null;
@@ -1093,6 +1094,7 @@ async function personaTurn(text: string, personaId: string): Promise<FeatureTurn
   const answer = await askBrain(`${text}`, history, useAssistantStore.getState().apiKey, {
     systemOverride: personaPrompt(def, notes),
     priority: priority(),
+    ...aiKeyConfig(),
   });
   if (!isLiveAnswer(answer)) {
     if (personaId === 'english-tutor') {
@@ -1166,6 +1168,7 @@ async function storyTurn(text: string, action: 'enter' | 'continue' | 'new', kid
   const answer = await askBrain(prompt, [], useAssistantStore.getState().apiKey, {
     systemOverride: 'You are a beloved children’s storyteller. Follow the user’s story instructions exactly, including the CAST/THREADS line.',
     priority: priority(),
+    ...aiKeyConfig(),
   });
   let episode: string;
   let offline = false;
@@ -1276,6 +1279,7 @@ async function researchTurn(query: string): Promise<FeatureTurn> {
   const answer = await askBrain(synthInput, [], useAssistantStore.getState().apiKey, {
     systemOverride: RESEARCH_SYSTEM,
     priority: priority(),
+    ...aiKeyConfig(),
   });
   if (!isLiveAnswer(answer)) {
     const brief = ungroundedBrief(query);
