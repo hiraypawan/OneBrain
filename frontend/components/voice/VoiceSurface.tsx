@@ -123,7 +123,7 @@ export function VoiceSurface() {
           </p>
         )}
         <button
-          className="voice-primary"
+          className={`voice-primary${listening ? ' is-listening' : ''}`}
           data-testid={listening ? 'stop-button' : 'active-button'}
           onClick={listening ? assistant.stopActive : () => void start()}
           disabled={starting}

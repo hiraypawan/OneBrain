@@ -18,7 +18,28 @@ body {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   overscroll-behavior-y: none;
+  min-height: 100vh;
   min-height: 100dvh;
+}
+
+/* Slow water wash behind everything: two breathing glows (warm amber +
+   deep teal) at very low alpha so text contrast never suffers. Fixed,
+   pointer-transparent, transform-only drift for 60fps on old phones. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 12% -8%, rgba(234, 187, 118, 0.08), transparent 60%),
+    radial-gradient(1000px 640px at 88% 108%, rgba(127, 216, 201, 0.06), transparent 62%),
+    radial-gradient(720px 480px at 86% 10%, rgba(234, 187, 118, 0.05), transparent 60%);
+  animation: ob-wash-drift 48s ease-in-out infinite alternate;
+}
+@keyframes ob-wash-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-2%, 2%, 0); }
 }
 
 /* Thumb-friendly minimum touch target */

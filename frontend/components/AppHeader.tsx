@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AccountLink } from "./AccountLink";
 import { Icon, type IconName } from "./ui/Icon";
+import { MindMark } from "./ui/MindMark";
 
 export type TabId = "today" | "voice" | "track" | "space" | "you";
 
@@ -55,16 +56,7 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <Link prefetch={false} href="/" className="app-brand" aria-label="OneBrain home">
-        <svg
-          width="30"
-          height="30"
-          viewBox="0 0 30 30"
-          fill="none"
-          aria-hidden="true"
-        >
-          <path d="M5 7h8v8H5zm12 8h8v8h-8z" fill="currentColor" />
-          <path d="M17 7h8M5 23h8" stroke="currentColor" strokeWidth="3" />
-        </svg>
+        <MindMark />
         <span>
           onebrain<span className="brand-stop">.</span>
         </span>
