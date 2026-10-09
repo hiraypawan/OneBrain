@@ -93,6 +93,7 @@ import {
   resumePlan,
 } from "@/lib/barge-in";
 import { normalizeHinglish } from "@/lib/transliterate";
+import { correctProperNouns, pickBestAlternative, stationGrammar } from "@/lib/pronunciation";
 import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/commands";
 import { useMediaStore } from "@/store/media";
 import { parseReminderIntent } from "@/lib/reminders";
@@ -1659,6 +1660,23 @@ export function useAssistant() {
           "en-IN";
         recog.continuous = true;
         recog.interimResults = true;
+        // Ask for n-best hypotheses: the top guess drops proper nouns
+        // ("Vangani" -> "vani") while alternative 2-3 often keeps them.
+        try {
+          (recog as any).maxAlternatives = 5;
+        } catch {}
+        // Bias the engine toward station/city names where supported
+        // (Chrome SpeechGrammarList; ignored elsewhere, never required).
+        try {
+          const SG =
+            (window as any).SpeechGrammarList ||
+            (window as any).webkitSpeechGrammarList;
+          if (SG) {
+            const grammars = new SG();
+            grammars.addFromString(stationGrammar(), 1);
+            (recog as any).grammars = grammars;
+          }
+        } catch {}
         recog.onspeechstart = () => {
           if (!current() || recogRef.current !== recog) return;
           lastActivityRef.current = Date.now();
@@ -1703,8 +1721,24 @@ export function useAssistant() {
             // better than mixed-script guesses, and chat shows one clean
             // script. Confidence travels along so stranger voices can be
             // gated precisely (undefined = engine gave no score).
+            // Pronunciation repair: the engine truncates proper nouns
+            // ("Vangani" -> "vani") in every language model, so restore
+            // station/city names from the phonetic gazetteer before the
+            // transcript reaches intents, transit or the AI.
+            const roman = normalizeHinglish(text);
+            const repaired = correctProperNouns(roman);
+            if (repaired.corrections.length) {
+              try {
+                useAssistantStore
+                  .getState()
+                  .logBgEvent(
+                    'pronunciation-fix',
+                    repaired.corrections.map((c) => `${c.from}->${c.to}`).join(', ').slice(0, 80),
+                  );
+              } catch {}
+            }
             const cleaned = prepareVoiceInput(
-              normalizeHinglish(text),
+              repaired.text,
               useAssistantStore.getState().settings,
             );
             if (cleaned === null) {
@@ -1740,15 +1774,34 @@ export function useAssistant() {
           let interim: string | null = null;
           for (let i = from; i < results.length; i++) {
             const res = results[i];
+            // N-best: the top guess drops proper nouns ("Vangani" -> "vani")
+            // while alternatives 2-5 often keep them. Score all hypotheses
+            // by gazetteer hits and push the best wording.
+            const hyps: string[] = [];
+            try {
+              const n = Math.min(res?.length || 1, 5);
+              for (let a = 0; a < n; a++) {
+                const h = res?.[a]?.transcript;
+                if (h && String(h).trim()) hyps.push(String(h));
+              }
+            } catch {}
+            if (!hyps.length && res?.[0]) hyps.push(String(res[0].transcript || ''));
+            const bestText = hyps.length > 1 ? pickBestAlternative(hyps) : hyps[0] || '';
             const alt = res?.[0];
-            if (!alt) continue;
+            if (!alt && !bestText) continue;
+            const altForScore = {
+              transcript: bestText || String(alt?.transcript || ''),
+              confidence: (alt as any)?.confidence,
+            };
+            void altForScore;
             // Talking over the reply. The microphone is still open, so the
             // assistant can hear its own voice — only interruption phrases are
             // accepted here, and nothing heard while speaking ever reaches the
             // turn collector (that is what keeps a barge-in from becoming a
             // phantom question).
+            const heardText = (bestText || String((alt as any)?.transcript || '')).trim();
             if (speakingRef.current && bargeInRef.current) {
-              const heard = String(alt.transcript || "").trim();
+              const heard = heardText;
               if (!heard) continue;
               if (!res.isFinal) {
                 try {
@@ -1790,15 +1843,15 @@ export function useAssistant() {
             }
             const outcome = collector.push({
               isFinal: !!res.isFinal,
-              transcript: alt.transcript || "",
-              confidence: alt.confidence,
+              transcript: heardText,
+              confidence: (alt as any)?.confidence,
             });
             if (outcome === "noise")
               useAssistantStore
                 .getState()
                 .logBgEvent(
                   "recog-noise",
-                  `${String(alt.transcript || "").slice(0, 40)} @${Number(alt.confidence).toFixed(2)}`,
+                  `${heardText.slice(0, 40)} @${Number((alt as any)?.confidence).toFixed(2)}`,
                 );
             // A turn was sent (Send now / cap): later entries belong to the next turn.
             if (expectingRef.current === false) break;

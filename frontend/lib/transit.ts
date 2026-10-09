@@ -19,6 +19,7 @@
 // cannot be reached the reply says exactly that and gives the official link.
 
 import { readPage, webSearch, type FetchLike, type WebSource } from './websearch';
+import { correctProperNouns, resolveStationName } from './pronunciation';
 
 export type TransitKind = 'train-live' | 'pnr' | 'suburban' | 'metro' | 'flights' | 'between';
 
@@ -66,7 +67,7 @@ export const CITY_TRANSIT: CityTransit[] = [
   {
     id: 'mumbai',
     city: 'Mumbai',
-    aliases: ['mumbai', 'bombay', 'bai', 'chatrapati', 'csmt', 'churchgate', 'andheri', 'borivali', 'virar', 'bandra', 'dadar', 'ghatkopar', 'kurla', 'thane', 'kalyan', 'dombivli', 'ambernath', 'badlapur', 'neral', 'panvel', 'vasai', 'bhiwandi', 'vile parle', 'jogeshwari', 'malad', 'kandivali', 'goregaon', 'marine lines', 'byculla', 'mulund', 'vikroli', 'sion', 'matunga', 'lower parel', 'maha laxmi', 'grant road', 'elphinstone', 'prabhadevi', 'santacruz', 'kharghar', 'nerul', 'vashi', 'mankhurd', 'chembur', 'tilak nagar', 'currey road', 'sandhurst road', 'dockyard', 'reay road', 'cotton green', 'wadala', 'king circle', 'mahim', 'matunga road'],
+    aliases: ['mumbai', 'bombay', 'bai', 'chatrapati', 'csmt', 'churchgate', 'andheri', 'borivali', 'virar', 'bandra', 'dadar', 'ghatkopar', 'kurla', 'thane', 'kalyan', 'dombivli', 'ambernath', 'badlapur', 'vangani', 'shelu', 'karjat', 'khopoli', 'titwala', 'ambivli', 'shahad', 'kasara', 'khadavli', 'vasind', 'asangaon', 'atgaon', 'neral', 'bhivpuri', 'palghar', 'boisar', 'vangaon', 'dahanu', 'panvel', 'vasai', 'nalasopara', 'bhayandar', 'mira road', 'dahisar', 'bhiwandi', 'vile parle', 'jogeshwari', 'malad', 'kandivali', 'goregaon', 'marine lines', 'byculla', 'mulund', 'vikroli', 'sion', 'matunga', 'lower parel', 'maha laxmi', 'grant road', 'elphinstone', 'prabhadevi', 'santacruz', 'kharghar', 'nerul', 'vashi', 'mankhurd', 'chembur', 'tilak nagar', 'currey road', 'sandhurst road', 'dockyard', 'reay road', 'cotton green', 'wadala', 'king circle', 'mahim', 'matunga road', 'lonavala', 'talegaon', 'pimpri', 'chinchwad', 'shivajinagar'],
     rail: ['Central line (CSMT–Kalyan/Kasara)', 'Western line (Churchgate–Dahanu Road)', 'Harbour line (CSMT–Panvel / Andheri–Goregaon)', 'Trans-Harbour (Thane–Kopar Khairane–Panvel)', 'Mumbai Metro Line 1 (Versova–Ghatkopar)', 'Mumbai Metro Line 2A/7', 'Monorail (Chembur–Jacob Circle)'],
     metro: ['Mumbai Metro Line 1: Versova–Ghatkopar', 'Mumbai Metro Line 2A: Dahisar East–DN Nagar', 'Mumbai Metro Line 7: Dahisar East–Gundavali', 'Monorail: Chembur–Jacob Circle'],
     airport: { code: 'BOM', name: 'Chhatrapati Shivaji Maharaj International', lat: 19.0896, lon: 72.8656 },
@@ -148,7 +149,7 @@ export const CITY_TRANSIT: CityTransit[] = [
 // ── Intent detection (pure) ────────────────────────────────────────────
 
 const MUMBAI_LOCAL_WORDS =
-  /(mumbai\s+local|local\s+train|local\s+pakad|central\s+line|western\s+line|harbour\s+line|fast\s+local|slow\s+local|churchgate|csmt|victoria\s+terminus|virar|dahanu|kalyan|kasara|panvel|borivali|andheri|bandra|dadar|ghatkopar|kurla|thane|dombivli|ambernath|badlapur|neral|bhiwandi|vasai)/i;
+  /(mumbai\s+local|local\s+train|local\s+pakad|central\s+line|western\s+line|harbour\s+line|fast\s+local|slow\s+local|churchgate|csmt|victoria\s+terminus|virar|dahanu|kalyan|kasara|panvel|borivali|andheri|bandra|dadar|ghatkopar|kurla|thane|dombivli|ambernath|badlapur|vangani|shelu|karjat|khopoli|titwala|kasara|neral|bhivpuri|bhiwandi|vasai|nalasopara|bhayandar|lonavala|talegaon|pimpri|chinchwad|shivajinagar)/i;
 
 const METRO_WORDS = /(metro|monorail|namma metro|delhi metro|mumbai metro|pune metro|underground|subway|tube)\b/i;
 
@@ -158,10 +159,14 @@ const FLIGHT_WORDS =
   /\b(flights?|planes?|aircraft|aeroplane|arrival|departure|landed|take ?off|boarding|jet|air ?india|indigo|vistara|akasa|spicejet|emirates|qatar|lufthansa|british airways|singapore airlines)\b/i;
 
 export function detectTransitIntent(text: string): TransitIntent | null {
-  const t = String(text || '').trim();
-  if (!t || t.length > 220) return null;
+  const raw = String(text || '').trim();
+  if (!raw || raw.length > 220) return null;
+  // Pronunciation repair first: "vani station" -> "vangani station" so the
+  // intent regexes below see the real station, not the engine's truncation.
+  // `query` keeps the original wording; matching uses the corrected form.
+  const t = correctProperNouns(raw).text;
   const lower = t.toLowerCase();
-  const city = matchCity(t);
+  const city = matchCity(t) || matchCity(raw);
 
   // PNR: a 10-digit number asked about as a booking.
   const pnr = t.match(/\b(\d{10})\b/);
@@ -192,7 +197,9 @@ export function detectTransitIntent(text: string): TransitIntent | null {
   const betweenText = t.replace(/\s+(batao|bata|dikhao|dikha|list|today|kal|tomorrow|please)\b/gi, ' ').replace(/\s+/g, ' ').trim();
   const between = betweenText.match(/^(?:trains?|rail)\s+(?:from\s+)?([\w\s]{2,24}?)\s+(?:to|se|aur|and)\s+([\w\s]{2,24})\.?$/i);
   if (between) {
-    return { kind: 'between', query: t, from: between[1].trim(), to: between[2].trim() };
+    const from = resolveStationName(between[1].trim()) || between[1].trim();
+    const to = resolveStationName(between[2].trim()) || between[2].trim();
+    return { kind: 'between', query: t, from, to };
   }
   return null;
 }
@@ -233,7 +240,23 @@ function stationsFrom(text: string): { from?: string; to?: string } {
   const explicit = t.match(/\bfrom\s+([A-Za-z][A-Za-z\s]{2,20}?)\s+(?:to|till|upto)\s+([A-Za-z][A-Za-z\s]{2,20})\b/i);
   const m = explicit || t.match(/\b([A-Za-z][A-Za-z\s]{2,20}?)\s+(?:se|tak)\s+([A-Za-z][A-Za-z\s]{2,20})\b/i);
   if (!m) return {};
-  return { from: m[1].trim(), to: m[2].trim() };
+  // Captures trail request words ("vangani station", "kalyan local time"):
+  // strip descriptor tails before resolving so from/to are clean names.
+  const cleanName = (s: string) => {
+    let out = s.trim();
+    for (let i = 0; i < 3; i++) {
+      const next = out
+        .replace(/\s+stations?$/i, '')
+        .replace(/\s+(locals?|trains?|times?|timetables?|timings?|schedules?)$/i, '')
+        .trim();
+      if (next === out) break;
+      out = next;
+    }
+    return out;
+  };
+  const from = resolveStationName(cleanName(m[1])) || cleanName(m[1]);
+  const to = resolveStationName(cleanName(m[2])) || cleanName(m[2]);
+  return { from, to };
 }
 
 // ── Providers (keyless) ────────────────────────────────────────────────
