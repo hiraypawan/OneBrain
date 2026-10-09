@@ -36,6 +36,8 @@ import {
   detectResearchIntent, planEntitySearches, parseSynthesis, ungroundedBrief,
   RESEARCH_SYSTEM, type ResearchSource,
 } from './research';
+import { gatherSources } from './websearch';
+import { detectTransitIntent, runTransit } from './transit';
 import {
   parseDateRef, detectRecallIntent, summarizeRange, formatCitation,
 } from './timetravel';
@@ -511,7 +513,13 @@ export async function handleFeatureTurn(
     };
   }
 
-  // 9. Research.
+  // 9. Live transit and travel: local trains, metro, trains, flights.
+  const transitIntent = detectTransitIntent(text);
+  if (transitIntent) {
+    return transitTurn(transitIntent);
+  }
+
+  // 10. Research.
   const rq = detectResearchIntent(text);
   if (rq) {
     return researchTurn(rq);
@@ -532,13 +540,13 @@ export async function handleFeatureTurn(
     }
   }
 
-  // 10. Time-travel recall.
+  // 11. Time-travel recall.
   const rIntent = detectRecallIntent(text);
   if (rIntent) {
     return recallTurn(text, rIntent);
   }
 
-  // 11. Briefs / close / forgetting / followups / money.
+  // 12. Briefs / close / forgetting / followups / money.
   const bIntent = detectBriefIntent(text);
   if (bIntent === 'morning') {
     const result = compileMorningBrief(briefData());
@@ -1177,6 +1185,37 @@ async function storyTurn(text: string, action: 'enter' | 'continue' | 'new', kid
   };
 }
 
+/**
+ * Live transit: Mumbai local, metro, Indian Railways and flights.
+ * Every number here comes from a fetched source, and the card always shows
+ * which one and when — see lib/transit.ts for what each provider can and
+ * cannot honestly claim.
+ */
+async function transitTurn(intent: ReturnType<typeof detectTransitIntent> & object): Promise<FeatureTurn> {
+  const result = await runTransit(intent);
+  const body = [
+    result.lines.length ? result.lines.map((l) => `• ${l}`).join('\n') : '',
+    result.sources.length
+      ? `Sources (${new Date(result.asOf).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}):\n${result.sources
+          .map((s) => `- ${s.title} — ${s.url}`)
+          .join('\n')}`
+      : '',
+    result.notice ? `Note: ${result.notice}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  return {
+    messages: [
+      {
+        text: `${result.title}\n\n${body}`,
+        meta: `${result.live ? 'Live' : 'Schedule/news'} · ${result.sources.length} source${result.sources.length === 1 ? '' : 's'}${result.notice ? ' · ' + result.notice : ''}`,
+      },
+    ],
+    speak: result.spoken,
+    card: { kind: 'transit', result },
+  };
+}
+
 async function researchTurn(query: string): Promise<FeatureTurn> {
   const f = useFeaturesStore.getState();
   const tk = todayKey();
@@ -1190,13 +1229,25 @@ async function researchTurn(query: string): Promise<FeatureTurn> {
     return { messages: [{ text: researchRefusal }], speak: researchRefusal, card: { kind: 'plan', reason: 'research-quota' } };
   }
   lastBriefQuery = query;
-  const entities = planEntitySearches(query).slice(0, deep ? 3 : 2);
-  const sources: ResearchSource[] = [];
-  for (const e of entities) {
-    try {
-      const w = await fetchWikipedia(e);
-      if (w?.text) sources.push({ title: w.title, url: w.url, snippet: w.text.slice(0, 600) });
-    } catch { /* next entity */ }
+  // Deep research = search the live web, then actually READ the best results
+  // (lib/websearch.ts). Keyless: scraped search engines plus the app's own
+  // /api/web route, with keyless CORS-open providers as fallback.
+  const gathered = await gatherSources(query, { readPages: deep ? 4 : 2 });
+  const sources: ResearchSource[] = gathered.sources.map((src) => ({
+    title: src.title,
+    url: src.url,
+    snippet: src.snippet.slice(0, 900),
+  }));
+  if (!sources.length) {
+    // No web route and no keyless provider answered: fall back to Wikipedia,
+    // which is CORS-open and still better than inventing anything.
+    const entities = planEntitySearches(query).slice(0, deep ? 3 : 2);
+    for (const e of entities) {
+      try {
+        const w = await fetchWikipedia(e);
+        if (w?.text) sources.push({ title: w.title, url: w.url, snippet: w.text.slice(0, 600) });
+      } catch { /* next entity */ }
+    }
   }
   if (!sources.length) {
     const brief = ungroundedBrief(query);
@@ -1224,8 +1275,9 @@ async function researchTurn(query: string): Promise<FeatureTurn> {
   }
   const brief = parseSynthesis(query, answer, sources, new Date().toISOString().slice(0, 10));
   const body = `${brief.spoken}\n\n${brief.picks.map((p) => `• ${p.name} — ${p.detail}`).join('\n')}\n\nSources: ${sources.map((s) => s.title).join(', ')} (as of ${brief.asOf}). Say “save brief” to keep it.`;
+  const providerNote = gathered.providers.length ? ` · via ${gathered.providers.join(', ')}` : '';
   return {
-    messages: [{ text: body, meta: `Research · grounded in ${sources.length} source${sources.length === 1 ? '' : 's'}` }],
+    messages: [{ text: body, meta: `Research · grounded in ${sources.length} source${sources.length === 1 ? '' : 's'}${providerNote}` }],
     speak: brief.spoken,
     card: { kind: 'research', brief },
   };

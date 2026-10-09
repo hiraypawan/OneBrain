@@ -7,6 +7,7 @@ import type { FitnessLog } from '@/lib/fitness';
 import type { TrackLens, TrackRangeKind } from '@/lib/track';
 import type { WorkoutPreset, CueSchedule } from '@/lib/workout';
 import type { ResearchBrief } from '@/lib/research';
+import type { TransitResult } from '@/lib/transit';
 import type { RangeSummary, DateRange } from '@/lib/timetravel';
 import type { Minutes } from '@/lib/scribe';
 import type { Commitment, BriefResult, ForgettingResult, RadarResult } from '@/lib/briefing';
@@ -30,6 +31,7 @@ export type FeatureCard =
   | { kind: 'fitness-ambiguous'; value: number; candidates: string[] }
   | { kind: 'workout' }
   | { kind: 'research'; brief: ResearchBrief }
+  | { kind: 'transit'; result: TransitResult }
   | { kind: 'recall'; range: DateRange; summary: RangeSummary }
   | { kind: 'persona'; id: string; name: string; tagline: string; corrections?: string }
   | { kind: 'translator'; pairId: string; lastFrom: string; lastTo: string; fromLang: string; toLang: string }
