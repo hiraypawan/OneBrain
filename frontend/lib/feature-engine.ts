@@ -24,6 +24,7 @@ import {
   type TrackLens, type TrackRangeKind,
 } from './track';
 import { didYouMean, isAffirmative, isNegative, askableTranscript } from './fuzzy';
+import { suggestStationCorrection } from './pronunciation';
 import { parseVoiceCommand, parseMediaCommand } from './commands';
 import { parseReminderIntent } from './reminders';
 import { INTENT_HINTS, type IntentHint } from './intents';
@@ -184,6 +185,19 @@ export function fuzzySuggestion(text: string): Suggestion<IntentHint> | null {
     parseFitnessLog(t).status === 'ok' ||
     detectFitnessRangeQuery(t);
   if (ownedElsewhere) return null;
+  // Station recovery before generic hints: a misheard proper noun ("vani"
+  // for "Vangani") with no transit anchors never reaches an intent, so ask
+  // with the corrected wording — confirming reruns it through transit.
+  // Only proposed when the corrected text actually routes somewhere.
+  const stationFix = suggestStationCorrection(t);
+  if (stationFix && detectTransitIntent(stationFix.corrected)) {
+    const say = stationFix.corrected;
+    return {
+      candidate: { say, label: `station “${stationFix.station}”` },
+      phrase: say,
+      score: 0.85,
+    };
+  }
   return didYouMean(t, INTENT_HINTS);
 }
 

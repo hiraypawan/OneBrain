@@ -243,6 +243,14 @@ describe('plan and unlock', () => {
   });
 });
 
+describe('misheard station recovery', () => {
+  it('asks about Vangani instead of dropping a truncated "vani"', async () => {
+    const turn = await handleFeatureTurn('vani');
+    expect(turn?.messages[0].text).toContain('vangani');
+    expect(useFeaturesStore.getState().pendingIntent?.text).toBe('vangani');
+  });
+});
+
 describe('fallthrough', () => {
   it('returns null for generic chat', async () => {
     expect(await handleFeatureTurn('what is the capital of France?')).toBeNull();

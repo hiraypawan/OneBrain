@@ -4,6 +4,7 @@ import {
   phoneticKey,
   pickBestAlternative,
   resolveStationName,
+  suggestStationCorrection,
 } from '../lib/pronunciation';
 import { detectTransitIntent } from '../lib/transit';
 
@@ -46,6 +47,15 @@ describe('pronunciation core: Indian station names survive the engine', () => {
       expect(i.from).toBe('vangani');
       expect(i.to).toBe('kalyan');
     }
+  });
+
+  it('proposes a station question for anchorless fragments, never silence', () => {
+    const s = suggestStationCorrection('vani');
+    expect(s?.station).toBe('vangani');
+    expect(s?.corrected).toContain('vangani');
+    expect(suggestStationCorrection('vangani')).toBeNull();
+    expect(suggestStationCorrection('what is the time')).toBeNull();
+    expect(suggestStationCorrection('')).toBeNull();
   });
 
   it('resolves between-station typo from/to', () => {

@@ -231,8 +231,14 @@ export function resolveStationName(heard: string): string | null {
       if (nameNorm === norm) return entry.canonical;
       const nameKey = phoneticKey(nameNorm);
       if (!nameKey) continue;
-      // Exact skeleton match (transliteration variants).
-      if (nameKey === heardKey) return entry.canonical;
+      // Exact skeleton match (transliteration variants like
+      // "wangani"/"vangani"). Short skeletons are untrustworthy: "what"
+      // collapses to "vt", the Victoria Terminus code — so skeletons under
+      // 3 chars never match by sound alone.
+      if (nameKey === heardKey) {
+        if (heardKey.length >= 3 && norm.length >= 4) return entry.canonical;
+        continue;
+      }
       const maxLen = Math.max(norm.length, nameNorm.length);
       const dist = levenshtein(norm, nameNorm, 3);
       // Truncation ("vani" for "vangani"): short skeleton subsequence of the
@@ -247,8 +253,10 @@ export function resolveStationName(heard: string): string | null {
         if (!best || score > best.score) best = { canonical: entry.canonical, score };
         continue;
       }
-      // Ordinary typo ("andheri" heard as "andhari").
-      if (dist <= (norm.length <= 5 ? 1 : 2)) {
+      // Ordinary typo ("andheri" heard as "andhari"). Short fragments
+      // ("wet" vs the "vt" code, distance 1) never fuzzy-match — exact
+      // codes already returned above.
+      if (norm.length >= 4 && dist <= (norm.length <= 5 ? 1 : 2)) {
         const score = 1 - dist / maxLen;
         if (!best || score > best.score) best = { canonical: entry.canonical, score };
       }
@@ -269,11 +277,17 @@ export interface Correction {
  * (for "mumbai central", "tilak nagar") and replaces only confident matches.
  * Stopwords and short fillers are never touched.
  */
-export function correctProperNouns(text: string): { text: string; corrections: Correction[] } {
+export function correctProperNouns(
+  text: string,
+  opts?: { force?: boolean },
+): { text: string; corrections: Correction[] } {
   const original = String(text || '');
   if (!original.trim()) return { text: original, corrections: [] };
   const corrections: Correction[] = [];
-  const hasAnchor = TRANSIT_ANCHORS.test(original);
+  // `force` ignores the transit-anchor gate. Used only to PROPOSE a
+  // "did you mean…?" question, never to silently rewrite — so a bare
+  // "vani" can still surface "Vangani" instead of dying unheard.
+  const hasAnchor = opts?.force === true || TRANSIT_ANCHORS.test(original);
   // Bigrams first so "tilak nagar" wins over "tilak" alone.
   let out = ` ${original} `;
   const words = tokensOf(original);
@@ -338,6 +352,29 @@ export function pickBestAlternative(alternatives: string[]): string {
     }
   }
   return best;
+}
+
+/**
+ * Propose a station correction as a QUESTION, not a rewrite. Returns null
+ * unless a forced re-read finds a gazetteer station the silent path missed
+ * (no transit anchors, e.g. a bare "vani"). Callers must confirm with the
+ * user before running anything — a wrong guess costs more than a shrug.
+ * Pure; the length/word caps keep long conversation out of this path.
+ */
+export function suggestStationCorrection(text: string): { corrected: string; station: string } | null {
+  const original = String(text || '').trim();
+  if (!original || original.length > 120) return null;
+  if (tokensOf(original).length > 10) return null;
+  const forced = correctProperNouns(original, { force: true });
+  if (!forced.corrections.length || forced.text === original) return null;
+  for (const c of forced.corrections) {
+    const station = c.to;
+    const known = STATION_GAZETTEER.some(
+      (e) => e.canonical === station || (e.aliases || []).includes(station),
+    );
+    if (known) return { corrected: forced.text, station };
+  }
+  return null;
 }
 
 /** JSGF grammar for SpeechGrammarList biasing (Chrome-only; ignored elsewhere). */

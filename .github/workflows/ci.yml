@@ -3,6 +3,15 @@ on:
   push:
     branches: [main, 'arena/**']
   pull_request:
+  # Full 6-project compat matrix on demand; pushes run the quick subset so
+  # local testing is not stuck behind a 10-minute gate (deploy is separate
+  # and already live in ~2 min).
+  workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: 'Run full 6-project compat matrix (default: chromium + iphone only)'
+        required: false
+        default: '0'
 permissions:
   contents: read
 concurrency:
@@ -44,17 +53,29 @@ jobs:
           WRANGLER_SEND_METRICS: 'false'
       - run: npm run build
       - run: npm run typecheck
-      - run: npx playwright install --with-deps chromium firefox webkit
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      - run: npx playwright install --with-deps chromium webkit
       - name: Browser suite
         run: |
           set -o pipefail
           npm run test:e2e 2>&1 | tee /tmp/e2e.log
         env:
           CI: 'true'
-      - name: Compatibility matrix
+      - name: Compatibility matrix (quick subset on push, full on dispatch)
         run: |
           set -o pipefail
-          npm run test:compat 2>&1 | tee /tmp/compat.log
+          if [ "${{ github.event.inputs.full_matrix }}" = "1" ]; then
+            npx playwright install --with-deps firefox
+            npm run test:compat 2>&1 | tee /tmp/compat.log
+          else
+            npx playwright test --config playwright.compat.config.ts --project=desktop-chromium --project=iphone-webkit 2>&1 | tee /tmp/compat.log
+          fi
         env:
           CI: 'true'
       # Failure logs and artifacts live on hosts that are not always reachable
