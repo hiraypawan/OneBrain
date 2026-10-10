@@ -20,11 +20,17 @@ const PROVIDER_LABELS: Record<string, string> = {
   gemini: 'Gemini (your key)',
   pollinations: 'Community AI',
   puter: 'Puter AI',
+  'puter-unavailable': 'Local fallback · Puter unavailable',
   wikipedia: 'Wikipedia',
   offline: 'Offline mode',
   'key-error': 'Key issue',
   server: 'Server',
 };
+function providerLabel(provider: string): string {
+  return provider.startsWith('puter:')
+    ? `Puter AI · ${provider.slice('puter:'.length)}`
+    : PROVIDER_LABELS[provider] || provider;
+}
 
 /** Phrases worth tapping when your hands are busy — all of them run through the
  *  same transcript path a spoken line takes, so nothing is a secret door. */
@@ -214,8 +220,13 @@ export function VoiceSurface() {
       )}
 
       <section className="voice-answer" aria-label="OneBrain response" aria-live="polite">
-        {assistant.currentStatus === 'processing' ? (
+        {assistant.currentStatus === 'processing' && !state.streamingAnswer ? (
           <p className="voice-pending" role="status">Working on your question…</p>
+        ) : state.streamingAnswer ? (
+          <>
+            <p className="voice-answer-text">{state.streamingAnswer}</p>
+            <p className="voice-pending" role="status">Streaming reply…</p>
+          </>
         ) : lastAssistant ? (
           <>
             <p className="voice-answer-text">{lastAssistant.content}</p>
@@ -223,7 +234,7 @@ export function VoiceSurface() {
               <p className={`provider-badge${state.lastProvider === 'offline' ? ' is-offline' : ''}`} data-testid="provider-badge">
                 {state.lastProvider === 'offline'
                   ? 'Offline answer — add a free Gemini key in You → Advanced for smarter replies.'
-                  : `Answered by ${PROVIDER_LABELS[state.lastProvider] || state.lastProvider}`}
+                  : `Answered by ${providerLabel(state.lastProvider)}`}
               </p>
             )}
             <p className="voice-answer-meta">{lastAssistant.meta || 'Answered on this device'}</p>

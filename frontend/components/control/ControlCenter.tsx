@@ -44,6 +44,7 @@ const PANELS: Record<string, React.ComponentType> = {
   drafts: dynamic(() => import("./Drafts").then((m) => m.Drafts), { loading }),
   plan: dynamic(() => import("./Plan").then((m) => m.Plan), { loading }),
   music: dynamic(() => import("./Music").then((m) => m.Music), { loading }),
+  image: dynamic(() => import("./ImageStudio").then((m) => m.ImageStudio), { loading }),
 };
 
 /**

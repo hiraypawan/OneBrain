@@ -8,6 +8,8 @@
 // audio bytes play everywhere and obey the OS output selection — neckband,
 // earbuds, desk speaker, phone speaker — with no choosing required.
 
+import { puterReady } from './puter';
+
 export type SpeechSource = 'user-key' | 'community' | 'puter';
 
 export interface SpeechAudio {
@@ -19,6 +21,10 @@ export interface SpeechRequest {
   text: string;
   lang?: string;
   apiKey?: string;
+  /** API key type; only a Gemini key may be sent to the Gemini TTS route. */
+  apiProvider?: 'gemini' | 'openai';
+  /** Separate speech opt-in; a cached Puter session or chat opt-in alone is not consent. */
+  puterSpeechEnabled?: boolean;
 }
 
 const CACHE_NAME = 'onebrain-speech-v1';
@@ -90,15 +96,16 @@ function audioBlobFrom(r: Response, body: Blob): SpeechAudio | null {
 }
 
 /**
- * Keyless client speech via Puter.js (loaded in browser).
- * Free, zero setup, and requires no API keys or login.
+ * Client speech via the user's explicitly enabled Puter account.
+ * A session is never sufficient consent by itself.
  */
 export async function synthesizeWithPuter(
   text: string,
   lang?: string,
   timeoutMs = 10_000,
+  enabled = false,
 ): Promise<SpeechAudio | null> {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined' || !puterReady(window, enabled)) return null;
   const puter = (window as any).puter;
   if (!puter?.ai?.txt2speech) return null;
   try {
@@ -150,14 +157,18 @@ export async function synthesizeSpeech(
   const cached = await readCachedSpeech(key);
   if (cached) return { blob: cached, source: 'community' };
 
-  // 1. Caller's own key: user's quota, custom models
-  if (req.apiKey) {
+  // The server TTS route is Gemini-specific. Never forward an OpenAI-compatible
+  // credential to it or to Puter; an unknown key type is treated as no key.
+  const geminiKey = req.apiProvider === 'gemini' ? req.apiKey : undefined;
+
+  // 1. Caller's own Gemini key: user's quota
+  if (geminiKey) {
     try {
       const r = await fetch('/api/speech/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
-        body: JSON.stringify({ text, lang, userKey: req.apiKey }),
+        body: JSON.stringify({ text, lang, userKey: geminiKey }),
       });
       if (r.ok) {
         const body = await r.blob();
@@ -171,7 +182,7 @@ export async function synthesizeSpeech(
   }
 
   // 2. Free, keyless client Puter.js TTS
-  const puterAudio = await synthesizeWithPuter(text, lang, opts.timeoutMs ?? 10_000);
+  const puterAudio = await synthesizeWithPuter(text, lang, opts.timeoutMs ?? 10_000, req.puterSpeechEnabled === true);
   if (puterAudio) {
     void cacheSpeech(key, puterAudio.blob);
     return puterAudio;
@@ -183,7 +194,7 @@ export async function synthesizeSpeech(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(opts.timeoutMs ?? 8_000),
-      body: JSON.stringify({ text, lang, userKey: req.apiKey || undefined }),
+      body: JSON.stringify({ text, lang, userKey: geminiKey || undefined }),
     });
     if (!r.ok) return null;
     const body = await r.blob();

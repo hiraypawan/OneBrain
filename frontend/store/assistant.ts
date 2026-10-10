@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { defaultSettings, normalizeSettings } from '../lib/settings';
 import type { AssistantStatus, Conversation, Message, Reminder, User, UserSettings } from '@/lib/types';
-import { db, getRecentMessages, deleteConversationLocal, clearAllLocal } from '@/lib/db';
+import { db, getRecentMessages, getConversationMessages, deleteConversationLocal, clearAllLocal } from '@/lib/db';
 import type { BgState, BgEvent } from '@/lib/background';
 import type { EnvironmentClass } from '@/lib/environment';
 import type { SpeechProgress } from '@/lib/barge-in';
 import { pushBgEvent } from '@/lib/background';
+import { SUMMARY_KEEP_MESSAGES } from '@/lib/summarize';
 
 interface AssistantState {
   user: User | null;
@@ -43,6 +44,9 @@ interface AssistantState {
   // puter, wikipedia, offline...). Shown honestly next to the answer.
   lastProvider: string | null;
   setLastProvider: (p: string | null) => void;
+  /** Live partial text from a streaming provider; never persisted to history. */
+  streamingAnswer: string | null;
+  setStreamingAnswer: (text: string | null) => void;
   hydrate: () => Promise<void>;
   voiceBaseline: number | null;
   setVoiceBaseline: (hz: number | null) => void;
@@ -85,6 +89,7 @@ interface AssistantState {
   loginBackend: (u: { id: string; email: string; displayName?: string }) => void;
   reloadFromDb: () => Promise<void>;
   newConversation: () => void;
+  loadConversation: (id: string) => Promise<void>;
   updateSettings: (p: Partial<UserSettings>) => void;
   addReminder: (r: Reminder) => Promise<void>;
   dismissReminder: (id: string) => Promise<void>;
@@ -158,6 +163,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   setLiveTranscript: (liveTranscript) => set({ liveTranscript }),
   lastProvider: null,
   setLastProvider: (lastProvider) => set({ lastProvider }),
+  streamingAnswer: null,
+  setStreamingAnswer: (streamingAnswer) => set({ streamingAnswer }),
   hydrate: async () => {
     // Cheap prefs first (sync-feeling), then heavy IndexedDB restore.
     set(loadPersisted());
@@ -174,12 +181,24 @@ export const useAssistantStore = create<AssistantState>((set) => ({
         createdAt: m.createdAt,
         meta: m.meta,
       }));
-      // Rebuild a rolling summary if the restored history is long.
-      let summary: string | null = null;
-      if (!summary && mapped.length > 20) {
+      // Summaries belong to a conversation, not a single global key. If an
+      // older record predates per-conversation summaries, reconstruct one from
+      // the restored transcript and keep it beside that conversation.
+      const memoryEnabled = useAssistantStore.getState().settings.memoryEnabled;
+      let summary: string | null = memoryEnabled ? convos[0]?.summary || null : null;
+      let summaryMark = summary
+        ? Number.isInteger(convos[0]?.summaryMark)
+          ? Math.min(mapped.length, Math.max(0, convos[0]!.summaryMark!))
+          : Math.max(0, mapped.length - SUMMARY_KEEP_MESSAGES)
+        : 0;
+      if (!summary && memoryEnabled && mapped.length > 20) {
         try {
           const { extractiveSummary } = await import('@/lib/summarize');
-          summary = extractiveSummary(mapped.slice(0, -10));
+          summaryMark = Math.max(0, mapped.length - 20);
+          summary = extractiveSummary(mapped.slice(0, summaryMark));
+          if (summary && convos[0]?.id) {
+            await db.conversations.update(convos[0].id, { summary, summaryMark });
+          }
         } catch {}
       }
       set({
@@ -191,6 +210,9 @@ export const useAssistantStore = create<AssistantState>((set) => ({
         conversations: convos.map((c) => ({ id: c.id, title: c.title, createdAt: c.createdAt, messages: [] })),
         currentConversationId: convos[0]?.id || crypto.randomUUID(),
         sessionSummary: summary,
+        summaryState: { mark: summaryMark, at: summary ? Date.now() : null },
+        lastProvider: null,
+        streamingAnswer: null,
       });
     } catch { set({ storageNotice: 'Saved conversations and reminders could not be loaded. Check browser storage; an empty list does not mean your data was deleted.' }); }
   },
@@ -212,10 +234,21 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   markSessionStart: () => set({ sessionStart: Date.now(), bgLog: [] }),
   sessionSummary: null,
   summaryState: { mark: 0, at: null },
-  setSummaryState: (summaryState) => set({ summaryState }),
+  setSummaryState: (summaryState) => {
+    set({ summaryState });
+    const st = useAssistantStore.getState();
+    if (st.settings.memoryEnabled && st.currentConversationId) {
+      void db.conversations.update(st.currentConversationId, { summaryMark: summaryState.mark }).catch(() => {});
+    }
+  },
   setSessionSummary: (sessionSummary) => {
     set({ sessionSummary });
-    if (useAssistantStore.getState().settings.memoryEnabled) db.kv.put({ key: 'sessionSummary', value: sessionSummary }).catch(() => {});
+    const st = useAssistantStore.getState();
+    if (st.settings.memoryEnabled && st.currentConversationId) {
+      const summary = sessionSummary || undefined;
+      const summaryMark = sessionSummary ? st.summaryState.mark : 0;
+      void db.conversations.update(st.currentConversationId, { summary, summaryMark }).catch(() => {});
+    }
   },
   micDeviceId: null,
   setMicDeviceId: (micDeviceId) => {
@@ -266,7 +299,15 @@ export const useAssistantStore = create<AssistantState>((set) => ({
     const after = useAssistantStore.getState();
     const conv = after.conversations.find((c) => c.id === cid);
     void db.transaction('rw', db.conversations, db.messages, async () => {
-      await db.conversations.put({ id: cid, title: conv?.title || 'Conversation', createdAt: conv?.createdAt || Date.now() });
+      const previous = await db.conversations.get(cid);
+      await db.conversations.put({
+        id: cid,
+        title: conv?.title || 'Conversation',
+        createdAt: conv?.createdAt || Date.now(),
+        ...(previous?.summary ? { summary: previous.summary } : {}),
+        ...(Number.isInteger(previous?.summaryMark) ? { summaryMark: previous!.summaryMark } : {}),
+        ...(previous?.tags ? { tags: previous.tags } : {}),
+      });
       await db.messages.add({ uuid: msg.id, conversationId: cid, role, content, meta, createdAt: msg.createdAt });
     }).catch(() => set({ micNotice: 'Conversation could not be saved. It is available for this session only; check browser storage.' }));
   },
@@ -281,14 +322,15 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       if (msgs[i].role === 'user') break;
     }
     const uuids = [...dropIds];
+    const currentId = useAssistantStore.getState().currentConversationId;
     const legacyIds = [...dropIds].filter(id => /^db-\d+$/.test(id)).map(id => Number(id.slice(3)));
-    await db.transaction('rw', db.messages, db.kv, async () => {
+    await db.transaction('rw', db.messages, db.conversations, async () => {
       await db.messages.where('uuid').anyOf(uuids).delete();
       for (const id of legacyIds) {
         const row = await db.messages.get(id);
         if (row && !row.uuid) await db.messages.delete(id);
       }
-      await db.kv.delete('sessionSummary');
+      if (currentId) await db.conversations.update(currentId, { summary: undefined, summaryMark: 0 });
     });
     set((s) => ({ messages: s.messages.filter((m) => !dropIds.has(m.id)), sessionSummary: null, summaryState: { mark: 0, at: null } }));
   },
@@ -300,6 +342,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       currentConversationId: s.currentConversationId === id ? crypto.randomUUID() : s.currentConversationId,
       sessionSummary: s.currentConversationId === id ? null : s.sessionSummary,
       summaryState: s.currentConversationId === id ? { mark: 0, at: null } : s.summaryState,
+      lastProvider: s.currentConversationId === id ? null : s.lastProvider,
+      streamingAnswer: s.currentConversationId === id ? null : s.streamingAnswer,
     }));
   },
   newConversation: () => {
@@ -308,6 +352,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       messages: [],
       sessionSummary: null,
       summaryState: { mark: 0, at: null },
+      lastProvider: null,
+      streamingAnswer: null,
       currentConversationId: id,
       conversations: [{ id, title: 'Conversation', createdAt: Date.now(), messages: [] }, ...s.conversations],
     }));
@@ -317,6 +363,47 @@ export const useAssistantStore = create<AssistantState>((set) => ({
         db.conversations.put({ id, title: 'Conversation', createdAt: Date.now() }).catch(() => {});
       }
     } catch {}
+  },
+  loadConversation: async (id) => {
+    if (!id) throw new Error('Choose a saved conversation first.');
+    const [stored, row] = await Promise.all([
+      getConversationMessages(id),
+      db.conversations.get(id),
+    ]);
+    if (!row && !stored.length) throw new Error('This saved conversation no longer exists.');
+    const messages: Message[] = stored.map((m) => ({
+      id: m.uuid || `db-${m.id}`,
+      role: m.role,
+      content: m.content,
+      createdAt: m.createdAt,
+      meta: m.meta,
+    }));
+    const { extractiveSummary } = await import('@/lib/summarize');
+    const hasSavedSummary = !!row?.summary;
+    const rebuiltMark = Math.max(0, messages.length - 20);
+    const summary = row?.summary || (messages.length > 20 ? extractiveSummary(messages.slice(0, rebuiltMark)) : null);
+    const savedMark = Number.isInteger(row?.summaryMark)
+      ? Math.min(messages.length, Math.max(0, row!.summaryMark!))
+      : hasSavedSummary
+        ? Math.max(0, messages.length - SUMMARY_KEEP_MESSAGES)
+        : summary ? rebuiltMark : 0;
+    if (summary && !hasSavedSummary && useAssistantStore.getState().settings.memoryEnabled) {
+      await db.conversations.update(id, { summary, summaryMark: savedMark });
+    }
+    const title = row?.title || messages.find((m) => m.role === 'user')?.content.slice(0, 50) || 'Conversation';
+    const createdAt = row?.createdAt || messages[0]?.createdAt || Date.now();
+    set((s) => ({
+      messages,
+      conversations: [
+        { id, title, createdAt, messages: [] },
+        ...s.conversations.filter((c) => c.id !== id),
+      ],
+      currentConversationId: id,
+      sessionSummary: summary,
+      summaryState: { mark: savedMark, at: summary ? Date.now() : null },
+      lastProvider: null,
+      streamingAnswer: null,
+    }));
   },
   updateSettings: (p) => set((s) => ({ settings: normalizeSettings({ ...s.settings, ...p }) })),
   addReminder: async (r) => {
@@ -348,7 +435,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       messages: [], conversations: [], reminders: [], user: null,
       isAuthenticated: false, authRevision: useAssistantStore.getState().authRevision + 1, isActive: false, currentStatus: 'idle',
       currentConversationId: `${Date.now()}`, apiKey: '', aiProvider: 'gemini', aiBaseUrl: '', aiModel: '', voiceBaseline: null, micNotice: null,
-      voiceNotice: null, liveTranscript: null, lastProvider: null,
+      voiceNotice: null, liveTranscript: null, lastProvider: null, streamingAnswer: null,
       bgLog: [], sessionStart: null,
     });
   },
@@ -395,11 +482,18 @@ if (typeof window !== 'undefined') {
  * Callers spread it into ChatExtra so chat/translation/research all follow
  * the same lane without their own provider logic.
  */
-export function aiKeyConfig(): { provider: 'gemini' | 'openai'; baseUrl: string; model: string } {
+export function aiKeyConfig(): {
+  provider: 'gemini' | 'openai'; baseUrl: string; model: string;
+  puterEnabled: boolean; puterFallbackEnabled: boolean; puterModel: string; puterProvider: string;
+} {
   const s = useAssistantStore.getState();
   return {
     provider: s.aiProvider === 'openai' ? 'openai' : 'gemini',
     baseUrl: s.aiBaseUrl || '',
     model: s.aiModel || '',
+    puterEnabled: s.settings.puterEnabled === true,
+    puterFallbackEnabled: s.settings.puterFallbackEnabled === true,
+    puterModel: s.settings.puterModel || '',
+    puterProvider: s.settings.puterProvider || '',
   };
 }

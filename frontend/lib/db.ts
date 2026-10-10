@@ -18,6 +18,8 @@ export interface StoredConversation {
   title: string;
   createdAt: number;
   summary?: string;
+  /** Message index covered by `summary`; survives reload/resume. */
+  summaryMark?: number;
   tags?: string[];
 }
 

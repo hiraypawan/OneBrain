@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildProfileBlock, estimateTokens } from '../lib/profile';
 import { keywords, recallRelevant, formatRecall } from '../lib/recall';
-import { extractiveSummary, splitForCompaction } from '../lib/summarize';
+import { extractiveSummary, rollingSummaryStep, splitForCompaction, SUMMARY_KEEP_MESSAGES } from '../lib/summarize';
 import { fitHistory, assemblePrompt, BUDGETS } from '../lib/context';
 import { monthKey } from '../lib/janitor';
 
@@ -49,9 +49,21 @@ describe('recall', () => {
     expect(formatRecall([])).toBe('');
   });
 
-  it('extracts keywords, dropping stopwords', () => {
+  it('extracts keywords, dropping stopwords and matching basic preference synonyms', () => {
     expect(keywords('What is the time in India right now?')).toContain('india');
     expect(keywords('what is the?')).toHaveLength(0);
+    expect(recallRelevant('What food do I like?', [
+      { role: 'user', content: 'I prefer dal for lunch.', createdAt: Date.now() },
+    ])).toHaveLength(1);
+  });
+
+  it('labels a recalled excerpt with its saved conversation title and date', () => {
+    const createdAt = Date.UTC(2026, 8, 2, 12);
+    const text = formatRecall(recallRelevant('Pune Goa train trip?', [
+      { role: 'user', content: 'My Pune to Goa train trip is on Friday.', createdAt, conversationTitle: 'Goa weekend' },
+    ]));
+    expect(text).toContain('“Goa weekend”');
+    expect(text).toContain('2026-09-02');
   });
 });
 
@@ -66,6 +78,36 @@ describe('summarize + budget', () => {
     const s = extractiveSummary(msgs, 'Old stuff.');
     expect(s).toMatch(/Previously: Old stuff/);
     expect(s.length).toBeLessThanOrEqual(800);
+  });
+
+  it('keeps a message-index cursor and folds only newly covered messages on refresh', () => {
+    const makeTurns = (start: number, count: number) => Array.from({ length: count }, (_, i) => {
+      const n = start + i;
+      return [
+        { role: 'user', content: `Turn ${n} unique detail about trains.`, createdAt: n * 2 },
+        { role: 'assistant', content: `Reply ${n}.`, createdAt: n * 2 + 1 },
+      ];
+    }).flat();
+    const firstMessages = makeTurns(0, 12);
+    const first = rollingSummaryStep(firstMessages, '', { mark: 0, at: null }, 60_000);
+    expect(first).not.toBeNull();
+    expect(first!.state.mark).toBe(firstMessages.length - SUMMARY_KEEP_MESSAGES);
+    expect(first!.summary).toContain('Turn 5 unique detail');
+
+    const allMessages = [...firstMessages, ...makeTurns(12, 6)];
+    const second = rollingSummaryStep(allMessages, first!.summary, first!.state, 120_000);
+    expect(second).not.toBeNull();
+    expect(second!.state.mark).toBe(allMessages.length - SUMMARY_KEEP_MESSAGES);
+    expect(second!.summary).toContain('Turn 11 unique detail');
+    // Turn 5 belongs in the previous summary, but must not be folded again.
+    expect(second!.summary.match(/Turn 5 unique detail/g)).toHaveLength(1);
+  });
+
+  it('does not refresh while the only unrolled messages are still in the retained tail', () => {
+    const tail = Array.from({ length: SUMMARY_KEEP_MESSAGES }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(1000), createdAt: i,
+    }));
+    expect(rollingSummaryStep(tail, '', { mark: 0, at: null }, 60_000)).toBeNull();
   });
 
   it('splits old (summarize) from new (keep) by budget', () => {

@@ -1,6 +1,6 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAssistantStore } from "@/store/assistant";
 import { getConversationMessages, type StoredMessage } from "@/lib/db";
 import { splitReply } from "@/lib/speech";
@@ -11,8 +11,12 @@ function ConvView() {
   const conversations = useAssistantStore((s) => s.conversations);
   const sessionMsgs = useAssistantStore((s) => s.messages);
   const currentId = useAssistantStore((s) => s.currentConversationId);
+  const loadConversation = useAssistantStore((s) => s.loadConversation);
+  const router = useRouter();
   const [stored, setStored] = useState<StoredMessage[]>([]);
   const [error, setError] = useState("");
+  const [resumeError, setResumeError] = useState("");
+  const [resuming, setResuming] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -35,6 +39,18 @@ function ConvView() {
   const savedIds = new Set(saved.map(m => m.id));
   const live = id && id === currentId ? sessionMsgs.filter(m => !savedIds.has(m.id)) : [];
   const all = [...saved, ...live];
+  async function resumeConversation() {
+    setResuming(true);
+    setResumeError("");
+    try {
+      await loadConversation(id);
+      router.push("/");
+    } catch (e) {
+      setResumeError(e instanceof Error ? e.message : "This conversation could not be resumed.");
+    } finally {
+      setResuming(false);
+    }
+  }
 
   return (
     <div className="py-6">
@@ -48,6 +64,14 @@ function ConvView() {
         {conv?.title || "Conversation"}
       </h1>
       <p className="text-gray-400 text-sm mb-4" role="status">{loading ? "Loading conversation…" : error || `${all.length} messages`}</p>
+      {!loading && !error && all.length > 0 && (
+        <div className="mb-4">
+          <button type="button" disabled={resuming} onClick={() => void resumeConversation()}>
+            {resuming ? "Opening conversation…" : "Continue this conversation"}
+          </button>
+          {resumeError && <p role="alert">{resumeError}</p>}
+        </div>
+      )}
       <div className="space-y-2">
         {all.map((m, i) => {
           const { spoken, english } =

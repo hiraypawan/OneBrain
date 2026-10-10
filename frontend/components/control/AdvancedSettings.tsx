@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { SettingsShell } from "@/components/settings/SettingsShell";
 import { VoiceEnrollment } from "@/components/settings/VoiceEnrollment";
+import { PuterSettings } from "@/components/control/PuterSettings";
 import { useAssistantStore } from "@/store/assistant";
 export default function Advanced() {
   const { apiKey, setApiKey, aiProvider, setAiProvider, aiBaseUrl, setAiBaseUrl, aiModel, setAiModel, settings, updateSettings } = useAssistantStore();
@@ -124,11 +125,15 @@ export default function Advanced() {
           OneBrain stores or sends anywhere.
         </p>
       </section>
+      <PuterSettings />
       <section className="settings-card">
         <h2>Optional AI provider</h2>
         <p>
           Google account sign-in and Gemini AI access are different. You do not
-          need an AI key to create an account or use local capture.
+          need an AI key to create an account or use local capture. When Puter is
+          enabled above it is tried first. If Puter fails, OneBrain stays on a
+          local fallback unless you separately enable cross-provider fallback;
+          with Puter off, the saved key provider is tried before community.
         </p>
         <details>
           <summary>Configure an AI API key (optional, free tiers)</summary>

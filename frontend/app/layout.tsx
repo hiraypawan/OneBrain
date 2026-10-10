@@ -41,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             navigation between Today and Your space, and so a voice "play …"
             always has a listener. */}
         <MediaPlayer />
-        {/* Keyless AI engine (Puter.js): loads after interactive, fails silently offline */}
+        {/* Optional Puter SDK loads only after explicit opt-in or when opening its tool. */}
         <ProviderScript />
         <script
           dangerouslySetInnerHTML={{

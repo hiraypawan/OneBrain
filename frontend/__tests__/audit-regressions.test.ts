@@ -77,6 +77,51 @@ describe('conversation data integrity', () => {
       { uuid: 'new-answer', conversationId: 'newer', role: 'assistant', content: 'New answer', createdAt: 3 },
     ]);
   }
+  it('resumes the requested saved conversation with its own summary cursor and preserves summary metadata on new turns', async () => {
+    await seed();
+    await db.conversations.update('older', { summary: 'Older conversation facts', summaryMark: 1 });
+    store.setState({
+      settings: { ...store.getState().settings, memoryEnabled: true },
+      messages: [], conversations: [], currentConversationId: null,
+    });
+    await store.getState().loadConversation('older');
+    expect(store.getState().currentConversationId).toBe('older');
+    expect(store.getState().messages.map((m) => m.id)).toEqual(['old-user']);
+    expect(store.getState().sessionSummary).toBe('Older conversation facts');
+    expect(store.getState().summaryState.mark).toBe(1);
+
+    store.getState().addMessage('assistant', 'Follow-up answer');
+    await db.messages.where('conversationId').equals('older').count();
+    const saved = await db.conversations.get('older');
+    expect(saved).toMatchObject({ summary: 'Older conversation facts', summaryMark: 1 });
+  });
+
+  it('rebuilds a missing summary from the covered prefix and stores its message cursor', async () => {
+    await db.conversations.put({ id: 'long', title: 'Long thread', createdAt: 1 });
+    await db.messages.bulkAdd(Array.from({ length: 30 }, (_, i) => ({
+      uuid: `long-${i}`,
+      conversationId: 'long',
+      role: i % 2 ? 'assistant' as const : 'user' as const,
+      content: `Turn ${i} describes a distinct train detail.`,
+      createdAt: i + 1,
+    })));
+    store.setState({ settings: { ...store.getState().settings, memoryEnabled: true } });
+    await store.getState().loadConversation('long');
+    expect(store.getState().sessionSummary).toMatch(/train/);
+    expect(store.getState().summaryState.mark).toBe(10);
+    expect(await db.conversations.get('long')).toMatchObject({ summaryMark: 10 });
+  });
+
+  it('restores the saved summary cursor while hydrating the latest conversation', async () => {
+    await seed();
+    await db.conversations.update('newer', { summary: 'Latest facts', summaryMark: 1 });
+    store.setState({ settings: { ...store.getState().settings, memoryEnabled: true } });
+    await store.getState().hydrate();
+    expect(store.getState().currentConversationId).toBe('newer');
+    expect(store.getState().summaryState.mark).toBe(1);
+    expect(store.getState().sessionSummary).toBe('Latest facts');
+  });
+
   it('restores only the active conversation using stable IDs; undo survives reload', async () => {
     await seed(); await store.getState().hydrate();
     expect(store.getState().messages.map(m => m.id)).toEqual(['new-user', 'new-answer']);
@@ -98,7 +143,7 @@ describe('conversation data integrity', () => {
   });
   it('does not hide an exchange or its summary if undo fails on disk', async () => {
     await seed(); await store.getState().hydrate(); store.setState({ sessionSummary: 'Still present' });
-    vi.spyOn(db.kv, 'delete').mockRejectedValueOnce(new Error('Delete failed'));
+    vi.spyOn(db.conversations, 'update').mockRejectedValueOnce(new Error('Delete failed'));
     await expect(store.getState().removeLastExchange()).rejects.toThrow('Delete failed');
     expect(await db.messages.count()).toBe(3); expect(store.getState().messages).toHaveLength(2);
     expect(store.getState().sessionSummary).toBe('Still present');
@@ -114,6 +159,15 @@ describe('untrusted preferences', () => {
   it.each([null, [], 'broken', 42])('handles corrupted settings %s', value => {
     expect(normalizeSettings(value).voiceSpeed).toBe(1);
     expect(normalizeSettings(value).proactive?.enabled).toBe(false);
+  });
+  it('keeps Puter chat, cross-provider fallback and speech disabled unless explicitly boolean-true', () => {
+    expect(defaultSettings.puterEnabled).toBe(false);
+    expect(defaultSettings.puterFallbackEnabled).toBe(false);
+    expect(defaultSettings.puterSpeechEnabled).toBe(false);
+    const prefs = normalizeSettings({ puterEnabled: 'true', puterFallbackEnabled: 1, puterSpeechEnabled: 'yes' });
+    expect(prefs.puterEnabled).toBe(false);
+    expect(prefs.puterFallbackEnabled).toBe(false);
+    expect(prefs.puterSpeechEnabled).toBe(false);
   });
   it('does not coerce strings into consent or crash numeric controls', () => {
     const prefs = normalizeSettings({ voiceSpeed: 'fast', memoryEnabled: 'false', ownerOnly: 'true', language: {}, autoDeleteDays: -4, proactive: { enabled: 'true' } });

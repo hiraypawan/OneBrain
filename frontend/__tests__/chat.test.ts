@@ -169,16 +169,17 @@ const signedIn = (chat: (...args: any[]) => any) => ({
 });
 
 describe('puterReady', () => {
-  it('is false without the SDK or without a session', () => {
-    expect(puterReady(undefined)).toBe(false);
+  it('is false without the SDK, without a session, or without explicit consent', () => {
+    expect(puterReady(undefined, true)).toBe(false);
     expect(puterReady({})).toBe(false);
-    expect(puterReady({ puter: { ai: { chat: async () => 'x' } } })).toBe(false);
-    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, auth: { isSignedIn: () => false } } })).toBe(false);
-    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, auth: { isSignedIn: () => { throw new Error('boom'); } } } })).toBe(false);
+    expect(puterReady({ puter: { ai: { chat: async () => 'x' } } }, true)).toBe(false);
+    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, auth: { isSignedIn: () => false } } }, true)).toBe(false);
+    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, auth: { isSignedIn: () => { throw new Error('boom'); } } } }, true)).toBe(false);
+    expect(puterReady(signedIn(async () => 'x'))).toBe(false);
   });
-  it('is true when signed in (isSignedIn or a raw authToken)', () => {
-    expect(puterReady(signedIn(async () => 'x'))).toBe(true);
-    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, authToken: 'tok' } })).toBe(true);
+  it('is true only when signed in and explicitly enabled', () => {
+    expect(puterReady(signedIn(async () => 'x'), true)).toBe(true);
+    expect(puterReady({ puter: { ai: { chat: async () => 'x' }, authToken: 'tok' } }, true)).toBe(true);
   });
 });
 
@@ -191,27 +192,101 @@ describe('askPuter (keyless browser AI)', () => {
   it('never calls chat() when the user is not signed in (that would open a sign-in dialog and stall the voice turn)', async () => {
     const chat = vi.fn(() => new Promise(() => {}));
     vi.stubGlobal('window', { puter: { ai: { chat }, auth: { isSignedIn: () => false } } });
-    expect(await askPuter([], 'sys', 50)).toBeNull();
+    expect(await askPuter([], 'sys', { enabled: true, timeoutMs: 50 })).toBeNull();
     expect(chat).not.toHaveBeenCalled();
   });
 
   it('reads string content', async () => {
     vi.stubGlobal('window', signedIn(async () => ({ message: { content: '  hello  ' } })));
-    expect(await askPuter([], 'sys')).toBe('hello');
+    expect(await askPuter([], 'sys', { enabled: true })).toBe('hello');
   });
 
   it('joins array content blocks', async () => {
     vi.stubGlobal('window', signedIn(async () => ({ message: { content: [{ text: 'a' }, { text: 'b' }] } })));
-    expect(await askPuter([], 'sys')).toBe('ab');
+    expect(await askPuter([], 'sys', { enabled: true })).toBe('ab');
   });
 
   it('returns null when the SDK throws', async () => {
     vi.stubGlobal('window', signedIn(async () => { throw new Error('rate limited'); }));
-    expect(await askPuter([], 'sys')).toBeNull();
+    expect(await askPuter([], 'sys', { enabled: true })).toBeNull();
   });
 
   it('gives up after the timeout when chat() hangs', async () => {
     vi.stubGlobal('window', signedIn(() => new Promise(() => {})));
-    expect(await askPuter([], 'sys', 20)).toBeNull();
+    expect(await askPuter([], 'sys', { enabled: true, timeoutMs: 20 })).toBeNull();
+  });
+
+  it('does not call Puter when signed in but not explicitly enabled', async () => {
+    const chat = vi.fn(async () => 'should not run');
+    vi.stubGlobal('window', signedIn(chat));
+    expect(await askPuter([], 'sys')).toBeNull();
+    expect(chat).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-route a saved model when its provider pin is missing', async () => {
+    const chat = vi.fn(async () => ({ message: { content: 'unexpected' } }));
+    vi.stubGlobal('window', signedIn(chat));
+    expect(await askPuter([], 'sys', { enabled: true, model: 'stale-model-id' })).toBeNull();
+    expect(chat).not.toHaveBeenCalled();
+  });
+
+  it('uses the selected catalog model, bounds context, and streams cumulative text', async () => {
+    async function* response() {
+      yield { text: 'hello' };
+      yield { choices: [{ delta: { content: ' world' } }] };
+    }
+    const chat = vi.fn(async () => response());
+    vi.stubGlobal('window', signedIn(chat));
+    const chunks: string[] = [];
+    const history = Array.from({ length: 30 }, (_, i) => ({ role: 'user', content: `turn ${i}` }));
+    const out = await askPuter(history, 'safe system', {
+      enabled: true,
+      model: 'catalog/model-exact',
+      provider: 'catalog-vendor',
+      maxTokens: 4000,
+      onChunk: (text) => chunks.push(text),
+    });
+    expect(out).toBe('hello world');
+    expect(chunks).toEqual(['hello', 'hello world']);
+    const [messages, options] = chat.mock.calls[0] as unknown as [any[], any];
+    expect(messages).toHaveLength(22);
+    expect(messages[0]).toEqual({ role: 'system', content: 'safe system' });
+    expect(messages[1].content).toBe('turn 9');
+    expect(options).toMatchObject({ model: 'catalog/model-exact', provider: 'catalog-vendor', max_tokens: 4000, stream: true });
+  });
+
+  it('stops a stalled stream promptly when the turn is cancelled', async () => {
+    let release!: () => void;
+    const returnSpy = vi.fn();
+    const stream = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => {
+            await new Promise<void>((resolve) => { release = resolve; });
+            return { done: false, value: { text: 'too late' } };
+          },
+          return: returnSpy,
+        };
+      },
+    };
+    vi.stubGlobal('window', signedIn(async () => stream));
+    let active = true;
+    const chunks: string[] = [];
+    const pending = askPuter([], 'sys', {
+      enabled: true,
+      timeoutMs: 1000,
+      onChunk: (text) => chunks.push(text),
+      shouldContinue: () => active,
+    });
+    setTimeout(() => { active = false; }, 10);
+    await expect(pending).resolves.toBeNull();
+    expect(chunks).toEqual([]);
+    expect(returnSpy).toHaveBeenCalledOnce();
+    release?.();
+  });
+
+  it('rejects malformed provider output rather than treating it as an answer', async () => {
+    vi.stubGlobal('window', signedIn(async () => ({ choices: [{ message: { content: 17 } }] })));
+    expect(await askPuter([], 'sys', { enabled: true })).toBeNull();
   });
 });

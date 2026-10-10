@@ -28,7 +28,7 @@ describe('synthesizeSpeech', () => {
   it('returns playable audio when the service answers with bytes', async () => {
     const fetchMock = vi.fn(async () => audioResponse());
     vi.stubGlobal('fetch', fetchMock);
-    const out = await synthesizeSpeech({ text: 'Namaste', lang: 'hi-IN', apiKey: 'USER-KEY' });
+    const out = await synthesizeSpeech({ text: 'Namaste', lang: 'hi-IN', apiKey: 'USER-KEY', apiProvider: 'gemini' });
     expect(out?.source).toBe('user-key');
     expect(out?.blob.size).toBeGreaterThan(1000);
     const init = (fetchMock.mock.calls[0] as unknown as [string, any])[1];
@@ -68,15 +68,57 @@ describe('synthesizeSpeech', () => {
       }
       return { ok: false, status: 500 };
     }));
+    const txt2speech = vi.fn(async () => ({ src: 'blob:puter-audio' }));
     vi.stubGlobal('window', {
       puter: {
-        ai: {
-          txt2speech: vi.fn(async () => ({ src: 'blob:puter-audio' })),
-        },
+        ai: { chat: vi.fn(), txt2speech },
+        auth: { isSignedIn: () => true },
       },
     });
-    const out = await synthesizeSpeech({ text: 'Hello from Puter', lang: 'en-IN' });
+    const out = await synthesizeSpeech({ text: 'Hello from Puter', lang: 'en-IN', puterSpeechEnabled: true });
     expect(out?.source).toBe('puter');
     expect(out?.blob.size).toBe(2048);
+    expect(txt2speech).toHaveBeenCalledWith('Hello from Puter', { language: 'en-IN' });
+  });
+
+  it('never calls Puter TTS from a cached session without the explicit setting opt-in', async () => {
+    const txt2speech = vi.fn(async () => ({ src: 'blob:puter-audio' }));
+    vi.stubGlobal('window', {
+      puter: { ai: { chat: vi.fn(), txt2speech }, auth: { isSignedIn: () => true } },
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })));
+    await expect(synthesizeSpeech({ text: 'Private sentence' })).resolves.toBeNull();
+    expect(txt2speech).not.toHaveBeenCalled();
+  });
+
+  it('does not forward an OpenAI-compatible key to the Gemini-only TTS route', async () => {
+    const fetchMock = vi.fn(async () => audioResponse(4096, 'community'));
+    vi.stubGlobal('fetch', fetchMock);
+    await synthesizeSpeech({ text: 'Provider-specific speech', apiKey: 'OPENAI-SECRET', apiProvider: 'openai' });
+    const request = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, any])[1].body);
+    expect(request).toEqual({ text: 'Provider-specific speech', lang: '' });
+    expect(JSON.stringify(request)).not.toContain('OPENAI-SECRET');
+  });
+
+  it('does not pass either provider key into Puter speech options', async () => {
+    const fakeBlob = new Blob([new Uint8Array(2048)], { type: 'audio/mpeg' });
+    const txt2speech = vi.fn(async () => ({ src: 'blob:puter-audio' }));
+    const fetchMock = vi.fn(async (url: string) => url === 'blob:puter-audio'
+      ? { ok: true, blob: async () => fakeBlob }
+      : { ok: false, status: 500 });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('window', {
+      puter: { ai: { chat: vi.fn(), txt2speech }, auth: { isSignedIn: () => true } },
+    });
+    const result = await synthesizeSpeech({
+      text: 'Speech text only',
+      apiKey: 'OPENAI-SECRET',
+      apiProvider: 'openai',
+      puterSpeechEnabled: true,
+    });
+    expect(result?.source).toBe('puter');
+    expect(txt2speech).toHaveBeenCalledWith('Speech text only', undefined);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('blob:puter-audio');
   });
 });
