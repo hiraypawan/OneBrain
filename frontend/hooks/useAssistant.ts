@@ -24,7 +24,7 @@ import {
   workspaceContextBlock,
   type CaptureDraft,
 } from "@/lib/workspace/model";
-import { db } from "@/lib/db";
+import { db, getRecentMessages } from "@/lib/db";
 import { aiKeyConfig, useAssistantStore } from "@/store/assistant";
 import { askBrain, askBrainDetailed } from "@/lib/brain";
 import {
@@ -111,6 +111,8 @@ export interface ChatExtra {
   recall?: string;
   verbosity?: string;
   language?: string;
+  onChunk?: (text: string) => void;
+  shouldContinue?: () => boolean;
 }
 
 async function fetchChat(
@@ -411,6 +413,8 @@ export function useAssistant() {
               text: chunk,
               lang,
               apiKey: useAssistantStore.getState().apiKey || undefined,
+              apiProvider: useAssistantStore.getState().aiProvider,
+              puterSpeechEnabled: useAssistantStore.getState().settings.puterSpeechEnabled === true,
             },
             { timeoutMs: 8000 },
           );
@@ -1114,8 +1118,8 @@ export function useAssistant() {
             after.summaryState,
           );
           if (step) {
-            after.setSessionSummary(step.summary);
             after.setSummaryState(step.state);
+            after.setSessionSummary(step.summary);
           }
         } catch {}
         await speak(feat.speak);
@@ -1131,9 +1135,34 @@ export function useAssistant() {
       let profile = "";
       let recall = "";
       let envelopeLine = "";
+      // Saved conversations outside the active thread are now eligible for
+      // local recall/profile context. Memory-off remains a hard boundary: do
+      // not read archived turns for a provider request in that mode.
+      let savedContext: { role: string; content: string; createdAt: number; conversationTitle?: string }[] = [];
+      if (st.settings.memoryEnabled) {
+        try {
+          const [saved, conversations] = await Promise.all([
+            getRecentMessages(1200),
+            Promise.resolve(st.conversations),
+          ]);
+          const titles = new Map(conversations.map((c) => [c.id, c.title]));
+          savedContext = saved
+            .filter((m) => m.conversationId !== st.currentConversationId)
+            .map((m) => ({
+              role: m.role,
+              content: m.content,
+              createdAt: m.createdAt,
+              conversationTitle: titles.get(m.conversationId) || "Saved conversation",
+            }));
+        } catch {}
+      }
       try {
+        const profileMessages = [
+          ...savedContext,
+          ...full.map((m) => ({ role: m.role, content: m.content, createdAt: m.createdAt })),
+        ];
         const d = digestMessages(
-          full.slice(-200).map((m) => ({
+          profileMessages.slice(-200).map((m) => ({
             role: m.role,
             content: m.content,
             createdAt: m.createdAt,
@@ -1144,16 +1173,13 @@ export function useAssistant() {
           summary: st.sessionSummary,
           name: st.user?.displayName,
         });
+        const activeRecall = full.slice(0, -6).map((m) => ({
+          role: m.role,
+          content: m.content,
+          createdAt: m.createdAt,
+        }));
         recall = formatRecall(
-          recallRelevant(
-            transcript,
-            full.slice(0, -6).map((m) => ({
-              role: m.role,
-              content: m.content,
-              createdAt: m.createdAt,
-            })),
-            3,
-          ),
+          recallRelevant(transcript, [...savedContext, ...activeRecall], 5),
         );
       } catch {}
       if (st.settings.memoryEnabled) {
@@ -1193,15 +1219,31 @@ export function useAssistant() {
         .map((m) => ({ role: m.role, content: m.content }));
       const history = fitHistory(tail, 2500);
       const generation = sessionGenerationRef.current;
+      useAssistantStore.getState().setStreamingAnswer(null);
       const answer = await fetchChat(transcript, history, st.apiKey, {
         profile,
         recall,
         verbosity: st.settings.verbosity,
         language: st.settings.language,
         ...aiKeyConfig(),
+        onChunk: (text) => {
+          if (sessionGenerationRef.current === generation) {
+            useAssistantStore.getState().setStreamingAnswer(text || null);
+          }
+        },
+        shouldContinue: () => sessionGenerationRef.current === generation,
       });
       if (sessionGenerationRef.current !== generation) return;
-      store.addMessage("assistant", answer, envelopeLine || undefined);
+      const answeredBy = useAssistantStore.getState().lastProvider;
+      const attribution = answeredBy?.startsWith("puter:")
+        ? `Puter AI · ${answeredBy.slice("puter:".length)}`
+        : answeredBy || "";
+      useAssistantStore.getState().setStreamingAnswer(null);
+      const answerMeta = [
+        attribution ? `Answered by ${attribution}` : "",
+        envelopeLine,
+      ].filter(Boolean).join(" · ");
+      store.addMessage("assistant", answer, answerMeta || undefined);
       // Same rolling window as the pre-send pass, so a long session never
       // ships an unbounded raw tail.
       try {
@@ -1212,8 +1254,8 @@ export function useAssistant() {
           after.summaryState,
         );
         if (step) {
-          after.setSessionSummary(step.summary);
           after.setSummaryState(step.state);
+          after.setSessionSummary(step.summary);
         }
       } catch {}
       await speak(answer);
@@ -2050,6 +2092,7 @@ export function useAssistant() {
     setCapturePreview(null);
     pendingSharedRef.current=null;setSharedPreview(null);
     store.setIsActive(false);
+    useAssistantStore.getState().setStreamingAnswer(null);
     stopSpeechPlayback();
     try {
       audioRef.current?.pause();

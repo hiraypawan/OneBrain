@@ -127,6 +127,14 @@ export const CATALOG: ToolEntry[] = [
     keywords: "utilities weather currency calculator dates timer stopwatch",
   },
   {
+    id: "image",
+    title: "AI image studio",
+    description: "Generate an image with a model you choose from Puter’s live catalog.",
+    group: "Utilities",
+    icon: "image",
+    keywords: "image picture illustration generate create art text to image prompt",
+  },
+  {
     id: "vault",
     title: "Private vault",
     description: "Password-encrypted entries on this device.",

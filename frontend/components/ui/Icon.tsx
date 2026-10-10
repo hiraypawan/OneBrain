@@ -23,6 +23,7 @@ const paths = {
   book: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4m0 13a3 3 0 0 1 3-3h11",
   music: "M9 18V5l10-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0m10-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   play: "M8 5v14l11-7z",
+  image: "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M9 9h.01",
 };
 export type IconName = keyof typeof paths;
 export function Icon({

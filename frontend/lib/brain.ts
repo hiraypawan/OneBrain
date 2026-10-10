@@ -5,7 +5,7 @@
 // prompts. Behavior for normal chat is unchanged.
 
 import { askPuter } from './puter';
-import { fallback as offlineFallback } from './gemini';
+import { fallback as offlineFallback, verbosityBudget } from './gemini';
 import { buildTurnPrompt, normalizeHistory } from './prompt';
 import { looksFactual, fetchWikipedia } from './knowledge';
 import { looksLive, liveFacts } from './websearch';
@@ -26,6 +26,17 @@ export interface ChatExtra {
   provider?: 'gemini' | 'openai';
   baseUrl?: string;
   model?: string;
+  /** Explicit per-browser opt-in to use the signed-in Puter account. */
+  puterEnabled?: boolean;
+  /** Explicit separate opt-in to continue with the configured key/community route if Puter fails. */
+  puterFallbackEnabled?: boolean;
+  /** Current model ID discovered from Puter's runtime catalog. */
+  puterModel?: string;
+  /** Provider ID from the same runtime catalog, to pin the selected model route. */
+  puterProvider?: string;
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  onChunk?: (text: string) => void;
+  shouldContinue?: () => boolean;
 }
 
 export interface BrainAnswer {
@@ -81,17 +92,42 @@ export async function askBrainDetailed(
         language: extra?.language,
         facts,
       });
-  // 1. Keyless browser AI (Puter). It always receives the current message
-  //    (feature modes used to call it with an empty history = no question).
-  try {
-    const puterAnswer = await askPuter(
-      [...prompt.history, { role: 'user', content: message }],
-      prompt.system,
-      extra?.priority ? 30000 : 20000,
-    );
-    if (puterAnswer) return { text: puterAnswer, provider: 'puter' };
-  } catch { /* fall through */ }
-  // 2. Server route: the user's Gemini key, then the community model.
+  // Puter is used only after a user explicitly connects it in settings. The
+  // selected model is an exact runtime-catalog ID; an empty value deliberately
+  // means “Puter default”. Streaming is used when the chat surface can display
+  // partial text, and the iterator is closed when that turn is cancelled.
+  if (extra?.puterEnabled) {
+    try {
+      const puterAnswer = await askPuter(
+        [...prompt.history, { role: 'user', content: message }],
+        prompt.system,
+        {
+          enabled: true,
+          model: extra.puterModel,
+          provider: extra.puterProvider,
+          maxTokens: verbosityBudget(extra.verbosity),
+          timeoutMs: extra.priority ? 30000 : 20000,
+          reasoningEffort: extra.reasoningEffort,
+          onChunk: extra.onChunk,
+          shouldContinue: extra.shouldContinue,
+        },
+      );
+      if (puterAnswer) {
+        const route = extra.puterModel
+          ? `${extra.puterProvider || 'unknown-provider'}/${extra.puterModel}`
+          : `${extra.puterProvider || 'auto-provider'}/default-model`;
+        return { text: puterAnswer, provider: `puter:${route}` };
+      }
+    } catch { /* follow the user's visible fallback preference */ }
+    extra.onChunk?.('');
+    if (extra?.shouldContinue && !extra.shouldContinue()) return { text: '', provider: 'cancelled' };
+    if (!extra?.puterFallbackEnabled) {
+      return { text: offlineFallback(message), provider: 'puter-unavailable' };
+    }
+  }
+  if (extra?.shouldContinue && !extra.shouldContinue()) return { text: '', provider: 'cancelled' };
+  // The configured user-key lane is honored when Puter is not selected (or
+  // when it is unavailable); the backend then uses its community fallback.
   const urls = Array.from(
     new Set(
       [API_URL ? `${API_URL}/api/chat` : null, '/api/chat'].filter(Boolean) as string[],

@@ -8,11 +8,13 @@ const PROVIDER_LABELS: Record<string, string> = {
   gemini: "Gemini",
   pollinations: "Community AI",
   puter: "Puter AI",
+  "puter-unavailable": "Local fallback · Puter unavailable",
   wikipedia: "Wikipedia",
   offline: "Offline mode",
   "key-error": "Key issue",
   server: "Server",
 };
+const providerLabel = (provider: string): string => provider.startsWith("puter:") ? `Puter AI · ${provider.slice("puter:".length)}` : PROVIDER_LABELS[provider] || provider;
 
 /**
  * Everything the assistant says out loud on Today, in one file: the answer, the
@@ -22,7 +24,9 @@ const PROVIDER_LABELS: Record<string, string> = {
  */
 export function AnswerBlock({ latest }: { latest?: { content: string } }) {
   const lastProvider = useAssistantStore((s) => s.lastProvider);
-  if (!latest) return null;
+  const streamingAnswer = useAssistantStore((s) => s.streamingAnswer);
+  const content = streamingAnswer || latest?.content;
+  if (!content) return null;
   return (
     <section
       className="answer-inline"
@@ -33,15 +37,16 @@ export function AnswerBlock({ latest }: { latest?: { content: string } }) {
         <span className="answer-mark">ob.</span>
         <h2>OneBrain</h2>
       </div>
-      <p>{latest.content}</p>
-      {lastProvider && (
+      <p>{content}</p>
+      {streamingAnswer ? <p role="status">Streaming reply…</p> : null}
+      {!streamingAnswer && lastProvider && (
         <p
           className={`provider-badge${lastProvider === "offline" ? " is-offline" : ""}`}
           data-testid="provider-badge"
         >
           {lastProvider === "offline"
             ? "Offline answer \u2014 add a free Gemini key in Settings \u2192 Advanced for smarter replies."
-            : `Answered by ${PROVIDER_LABELS[lastProvider] || lastProvider}`}
+            : `Answered by ${providerLabel(lastProvider)}`}
         </p>
       )}
       <small>AI answers can be wrong. Check important information.</small>

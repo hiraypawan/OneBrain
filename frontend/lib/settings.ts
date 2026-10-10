@@ -2,7 +2,7 @@ import type { UserSettings } from './types';
 import { DEFAULT_PROACTIVE, normalizeProactive } from './proactive';
 
 export const defaultSettings: UserSettings = {
-  memoryEnabled: true, voiceSpeed: 1, language: 'hinglish', verbosity: 'short',
+  memoryEnabled: true, puterEnabled: false, puterFallbackEnabled: false, puterSpeechEnabled: false, puterModel: '', puterProvider: '', voiceSpeed: 1, language: 'hinglish', verbosity: 'short',
   theme: 'dark', nightMode: false, autoDeleteDays: 0, ownerOnly: false,
   proactive: DEFAULT_PROACTIVE, silentMode: false, musicEnabled: true, endOfSpeechMs: 1600, labsEnabled: false, bargeIn: true,
 };
@@ -18,6 +18,11 @@ export function normalizeSettings(value: unknown): UserSettings {
       !['__proto__', 'prototype', 'constructor'].includes(k) && k.length > 0 && k.length <= 80 && typeof v === 'string' && v.length <= 80).slice(0, 50)) : {};
   return {
     memoryEnabled: p.memoryEnabled === undefined ? true : p.memoryEnabled === true,
+    puterEnabled: p.puterEnabled === true,
+    puterFallbackEnabled: p.puterFallbackEnabled === true,
+    puterSpeechEnabled: p.puterSpeechEnabled === true,
+    puterModel: typeof p.puterModel === 'string' ? p.puterModel.trim().slice(0, 160) : '',
+    puterProvider: typeof p.puterProvider === 'string' && /^[a-z0-9._:-]{1,80}$/i.test(p.puterProvider.trim()) ? p.puterProvider.trim() : '',
     voiceSpeed: finite('voiceSpeed', 1, 0.5, 2),
     language: typeof p.language === 'string' && ['en-IN', 'en-US', 'hinglish', 'hi-IN', 'marathi', 'es-ES'].includes(p.language) ? p.language : 'hinglish',
     verbosity: p.verbosity === 'medium' || p.verbosity === 'long' ? p.verbosity : 'short',

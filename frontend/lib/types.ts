@@ -39,6 +39,16 @@ export interface UserSettings {
    */
   bargeIn?: boolean;
   memoryEnabled: boolean;
+  /** Explicit opt-in: send chat context to the user's signed-in Puter account. */
+  puterEnabled?: boolean;
+  /** Explicit opt-in to fall back to the configured key/community provider if Puter fails. */
+  puterFallbackEnabled?: boolean;
+  /** Separate opt-in for sending reply text to Puter speech synthesis. */
+  puterSpeechEnabled?: boolean;
+  /** User-selected current Puter chat model ID; blank follows Puter's default. */
+  puterModel?: string;
+  /** Provider from the live catalog, pinned alongside a selected chat model. */
+  puterProvider?: string;
   voiceSpeed: number;
   language: string;
   verbosity: 'short' | 'medium' | 'long';

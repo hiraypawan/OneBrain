@@ -11,12 +11,15 @@ export interface Summarizable {
 
 export function extractiveSummary(msgs: Summarizable[], prev = ''): string {
   const users = msgs.filter((m) => m.role === 'user').map((m) => m.content.trim()).filter(Boolean);
-  const firsts = users.slice(0, 3).map((u) => u.slice(0, 120));
+  // The caller passes only newly folded messages; retain their latest user
+  // statements so updates carry new decisions/preferences instead of repeating
+  // only the opening questions from the conversation.
+  const recent = users.slice(-4).map((u) => u.slice(0, 140));
   const topics = digestMessages(msgs.map((m) => ({ role: m.role, content: m.content, createdAt: m.createdAt })));
   const topicLine = topics.topics.slice(0, 5).map((t) => t.topic).join(', ');
   const parts: string[] = [];
   if (prev) parts.push(`Previously: ${prev}`);
-  if (firsts.length) parts.push(`User asked about: ${firsts.join(' | ')}`);
+  if (recent.length) parts.push(`Recent user details: ${recent.join(' | ')}`);
   if (topicLine) parts.push(`Recurring topics: ${topicLine}`);
   if (topics.routineNotes[0]) parts.push(topics.routineNotes[0]);
   return parts.join('\n').slice(0, 800);
@@ -51,7 +54,7 @@ export function splitForCompaction<T extends { content: string }>(
  * 30 seconds, so the model always has a current compressed view.
  */
 export interface SummaryState {
-  /** How many user turns had been seen when the summary was written. */
+  /** Message index up to which the summary was last refreshed. */
   mark: number;
   at: number | null;
 }
@@ -62,6 +65,7 @@ export interface SummaryStep {
 }
 
 export const SUMMARY_WINDOW_TURNS = 6;
+export const SUMMARY_KEEP_MESSAGES = SUMMARY_WINDOW_TURNS * 2;
 export const SUMMARY_TAIL_CHARS = 2400;
 export const SUMMARY_MIN_INTERVAL_MS = 30000;
 
@@ -71,13 +75,19 @@ export function rollingSummaryStep(
   state: SummaryState,
   now = Date.now(),
 ): SummaryStep | null {
-  const userCount = messages.filter((m) => m.role === 'user').length;
-  const sinceMark = messages.slice(state.mark > 0 ? state.mark : 0);
-  const turnDelta = userCount - (state.mark || 0);
+  // `mark` is a message index, not a turn count. Count turns only in the
+  // unsummarized suffix; subtracting it from total user turns made the trigger
+  // stop firing after the first refresh.
+  const mark = Math.min(messages.length, Math.max(0, Math.floor(state.mark || 0)));
+  const sinceMark = messages.slice(mark);
+  const turnDelta = sinceMark.filter((m) => m.role === 'user').length;
   const tailChars = sinceMark.reduce((n, m) => n + m.content.length, 0);
   if (turnDelta < SUMMARY_WINDOW_TURNS && tailChars < SUMMARY_TAIL_CHARS) return null;
   if (state.at && now - state.at < SUMMARY_MIN_INTERVAL_MS) return null;
-  const fold = messages.slice(0, Math.max(0, messages.length - SUMMARY_WINDOW_TURNS * 2));
+  const foldEnd = Math.max(0, messages.length - SUMMARY_KEEP_MESSAGES);
+  // Only fold newly covered messages. Reprocessing the whole transcript on
+  // every refresh duplicated old details and made the summary cursor lie.
+  const fold = messages.slice(mark, foldEnd);
   if (!fold.length) return null;
-  return { summary: extractiveSummary(fold, prev), state: { mark: messages.length, at: now } };
+  return { summary: extractiveSummary(fold, prev), state: { mark: foldEnd, at: now } };
 }
