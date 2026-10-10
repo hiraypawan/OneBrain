@@ -28,6 +28,7 @@ export function PuterSettings() {
   const language = useAssistantStore((s) => s.settings.language);
   const updateSettings = useAssistantStore((s) => s.updateSettings);
   const [sdkReady, setSdkReady] = useState(false);
+  const [loadSdk, setLoadSdk] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [username, setUsername] = useState("");
   const [busy, setBusy] = useState(false);
@@ -66,8 +67,14 @@ export function PuterSettings() {
 
   async function connect() {
     const puter = currentPuter();
-    if (!puter?.auth?.signIn) {
-      setMessage("Puter is still loading. Wait a moment and try again.");
+    if (!puter) {
+      setLoadSdk(true);
+      setBusy(true);
+      setMessage("Loading Puter's browser SDK. When it is ready, press Connect Puter again to open sign-in.");
+      return;
+    }
+    if (typeof puter.auth?.signIn !== "function") {
+      setMessage("Puter account sign-in is unavailable in this SDK session.");
       return;
     }
     setBusy(true);
@@ -131,24 +138,34 @@ export function PuterSettings() {
 
   return (
     <section className="settings-card" aria-labelledby="puter-settings-heading">
-      <Script
-        src="https://js.puter.com/v2/"
-        strategy="afterInteractive"
-        onReady={() => { void refreshStatus(); }}
-        onError={() => setMessage("Puter's browser SDK could not load. Other chat providers remain available.")}
-      />
+      {loadSdk && (
+        <Script
+          src="https://js.puter.com/v2/"
+          strategy="afterInteractive"
+          onReady={() => {
+            void refreshStatus();
+            setBusy(false);
+            setMessage("Puter is ready. Press Connect Puter again to continue with sign-in.");
+          }}
+          onError={() => {
+            setLoadSdk(false);
+            setBusy(false);
+            setMessage("Puter's browser SDK could not load. Other chat providers remain available.");
+          }}
+        />
+      )}
       <h2 id="puter-settings-heading">Puter AI (your Puter account)</h2>
       <p>
-        Connecting only signs in; chat and speech remain off until you enable them separately. With chat enabled, Puter receives the current question and included context. With speech enabled, it receives reply text for synthesis. Your account allowance, provider limits and model terms apply. A failed Puter chat stays local unless you separately allow another provider below.
+        Puter’s browser SDK loads only after you press Connect Puter. Connecting only signs in; chat and speech remain off until you enable them separately. With chat enabled, Puter receives the current question and included context. With speech enabled, it receives reply text for synthesis. Your account allowance, provider limits and model terms apply. A failed Puter chat stays local unless you separately allow another provider below.
       </p>
       <p role="status">
-        {!sdkReady ? "Loading Puter connection…" : signedIn ? `Puter account connected${username ? ` as ${username}` : ""}.` : "No active Puter session detected."}
+        {!sdkReady ? "Puter connection is not loaded." : signedIn ? `Puter account connected${username ? ` as ${username}` : ""}.` : "No active Puter session detected."}
         {puterEnabled && !signedIn ? " Puter is enabled, but no active session is available; it will be skipped." : ""}
       </p>
       <div className="settings-actions">
         {!signedIn && (
-          <button type="button" disabled={!sdkReady || busy} onClick={() => void connect()}>
-            {busy ? "Connecting…" : "Connect Puter"}
+          <button type="button" disabled={busy} onClick={() => void connect()}>
+            {busy ? (sdkReady ? "Connecting…" : "Loading Puter…") : "Connect Puter"}
           </button>
         )}
       </div>

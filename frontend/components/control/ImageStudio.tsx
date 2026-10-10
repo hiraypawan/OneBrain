@@ -28,6 +28,8 @@ function safeImageSource(value: unknown): string {
 
 export function ImageStudio() {
   const [sdkReady, setSdkReady] = useState(false);
+  const [loadSdk, setLoadSdk] = useState(false);
+  const [sdkLoading, setSdkLoading] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [models, setModels] = useState<PuterModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
@@ -106,17 +108,40 @@ export function ImageStudio() {
 
   return (
     <div className="py-6">
-      <Script
-        src="https://js.puter.com/v2/"
-        strategy="afterInteractive"
-        onReady={refreshStatus}
-        onError={() => setStatus("Puter's browser SDK could not load.")}
-      />
+      {loadSdk && (
+        <Script
+          src="https://js.puter.com/v2/"
+          strategy="afterInteractive"
+          onReady={() => {
+            refreshStatus();
+            setSdkLoading(false);
+            setStatus("Puter tools are loaded. Connect your account in Advanced settings if needed, then refresh the image catalog.");
+          }}
+          onError={() => {
+            setLoadSdk(false);
+            setSdkLoading(false);
+            setStatus("Puter's browser SDK could not load. No image request was sent.");
+          }}
+        />
+      )}
       <h1 className="text-2xl font-bold">AI image studio</h1>
       <p className="text-gray-400 my-3">
-        Image generation uses your signed-in Puter account and its current allowance, provider limits, and model terms. Refreshing the catalog sends a metadata request; your prompt and generated image are sent only after you press Generate. OneBrain does not save the result automatically.
+        Image generation uses your signed-in Puter account and its current allowance, provider limits, and model terms. Press Load Puter image tools to download Puter’s browser SDK; this does not sign you in or send a prompt. Refreshing the catalog sends a metadata request; your prompt and generated image are sent only after you press Generate. OneBrain does not save the result automatically.
       </p>
-      <p role="status">{!sdkReady ? "Loading Puter…" : signedIn ? "Puter is signed in." : "Puter sign-in is required."}</p>
+      <p role="status">{!sdkReady ? "Puter image tools are not loaded." : signedIn ? "Puter is signed in." : "Puter sign-in is required."}</p>
+      {!sdkReady && (
+        <button
+          type="button"
+          disabled={sdkLoading}
+          onClick={() => {
+            setSdkLoading(true);
+            setLoadSdk(true);
+            setStatus("Loading Puter’s browser SDK. No account, catalog, or image request is made yet.");
+          }}
+        >
+          {sdkLoading ? "Loading Puter…" : "Load Puter image tools"}
+        </button>
+      )}
       {!signedIn && <a className="settings-action" href="/control?panel=advanced">Connect Puter in Advanced settings ↗</a>}
       <section className="settings-card mt-4">
         <div className="settings-actions">

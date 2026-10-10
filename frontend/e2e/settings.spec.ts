@@ -163,7 +163,9 @@ test("advanced guards OAuth credentials and requests no microphone or provider o
     .getByLabel("Gemini API key", { exact: true })
     .fill("GOCSPX-test-only-not-a-real-secret");
   await page.getByRole("button", { name: "Save key locally" }).click();
-  await expect(page.getByRole("status")).toContainText("not a Gemini API key");
+  await expect(
+    page.getByText(/This is a Google sign-in credential, not a Gemini API key\./),
+  ).toBeVisible();
   expect(
     await page.evaluate(
       () =>
@@ -193,6 +195,22 @@ test("advanced guards OAuth credentials and requests no microphone or provider o
   ).toBeVisible();
   expect(await page.evaluate(() => (window as any).__micRequests)).toBe(1);
   expect(providers).toEqual([]);
+});
+test("Puter's browser SDK loads only after the explicit Connect action", async ({
+  page,
+}) => {
+  const providers: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().startsWith("https://js.puter.com")) providers.push(request.url());
+  });
+  await page.goto("/control?panel=advanced");
+  await expect(page.getByRole("button", { name: "Connect Puter" })).toBeVisible();
+  expect(providers).toEqual([]);
+  await page.getByRole("button", { name: "Connect Puter" }).click();
+  await expect.poll(() => providers.length).toBeGreaterThan(0);
+  await expect(
+    page.getByRole("status").filter({ hasText: "Puter's browser SDK could not load" }),
+  ).toBeVisible();
 });
 test("privacy export and diagnostics use the settings shell on narrow screens", async ({
   page,
