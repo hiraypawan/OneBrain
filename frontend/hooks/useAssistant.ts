@@ -26,7 +26,7 @@ import {
 } from "@/lib/workspace/model";
 import { db, getRecentMessages } from "@/lib/db";
 import { aiKeyConfig, useAssistantStore } from "@/store/assistant";
-import { askBrain, askBrainDetailed } from "@/lib/brain";
+import { fetchChat } from "@/lib/chat-chain";
 import {
   handleFeatureTurn,
   observeTranscript,
@@ -66,23 +66,16 @@ import {
   dismissActiveNotification,
 } from "@/services/notificationService";
 import {
-  detectPitch,
   median,
   rangeFromPitch,
   isDifferentSpeaker,
   shouldIgnoreTranscript,
 } from "@/lib/voiceprint";
 import {
-  classifyEnvironment,
   effectiveEndOfSpeechMs,
-  environmentChanged,
   environmentTuning,
   ownerRequiredHere,
   resetNoiseFloor,
-  rmsOf,
-  updateNoiseFloor,
-  type EnvironmentClass,
-  type NoiseFloorState,
 } from "@/lib/environment";
 import {
   classifyWhileSpeaking,
@@ -95,6 +88,7 @@ import {
 import { normalizeHinglish } from "@/lib/transliterate";
 import { correctProperNouns, pickBestAlternative, stationGrammar } from "@/lib/pronunciation";
 import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/commands";
+import { useVoicePrint } from "@/hooks/useVoicePrint";
 import { useMediaStore } from "@/store/media";
 import { parseReminderIntent } from "@/lib/reminders";
 
@@ -106,36 +100,27 @@ export interface SpeakOptions {
   origin?: string;
 }
 
-export interface ChatExtra {
-  profile?: string;
-  recall?: string;
-  verbosity?: string;
-  language?: string;
-  onChunk?: (text: string) => void;
-  shouldContinue?: () => boolean;
-}
-
-async function fetchChat(
-  message: string,
-  history: { role: string; content: string }[],
-  userKey?: string,
-  extra?: ChatExtra,
-) {
-  // Brain chain lives in @/lib/brain so feature modes share it (identical
-  // behavior for normal chat: Wikipedia -> Puter -> API route -> offline).
-  // The provider is recorded so the UI can say honestly who answered.
-  const detailed = await askBrainDetailed(message, history, userKey, {
-    ...extra,
-    priority: useFeaturesStore.getState().plan !== "free",
-  });
-  try {
-    useAssistantStore.getState().setLastProvider(detailed.provider);
-  } catch {}
-  return detailed.text;
-}
-
 export function useAssistant() {
   const store = useAssistantStore();
+  // A3 split: the acoustic cluster (mic stream, silent keep-alive, pitch,
+  // noise floor, enrollment) lives in useVoicePrint — it owns only its own
+  // nodes and timers; the session state machine below reads these handles.
+  const {
+    streamRef,
+    audioCtxRef,
+    oscRef,
+    noiseRef,
+    envRef,
+    lastVoiceAtRef,
+    analyserRef,
+    pitchWinRef,
+    pitchTimerRef,
+    stopPitchTracking,
+    startPitchTracking,
+    enrollVoice,
+    startSilentLoop,
+  } = useVoicePrint();
+
   const lastActivityRef = useRef(Date.now());
   const processingRef = useRef(false);
   const sessionOwnedRef = useRef(false);
@@ -197,7 +182,6 @@ export function useAssistant() {
       cancelled = true;
     };
   }, [historyKey]);
-  const streamRef = useRef<MediaStream | null>(null);
   const recogRef = useRef<any>(null);
   const recognitionReadyRef = useRef(false);
   // Result gate for the live recognizer (Android confidence-0 finals etc.).
@@ -228,23 +212,12 @@ export function useAssistant() {
       restartAfterEndRef.current = true;
     }
   }, []);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const oscRef = useRef<OscillatorNode | null>(null);
   const wakeLockRef = useRef<any>(null);
   const retryRef = useRef(0);
   const speakingRef = useRef(false);
   const speechRequestRef = useRef(0);
   const cancelSpeechRef = useRef<() => void>(() => {});
   const expectingRef = useRef(false); // true only while we genuinely want mic input
-  // Environment + interruption state (lib/environment.ts, lib/barge-in.ts).
-  // The noise floor is smoothed across frames; the microphone is the same
-  // stream used for pitch, so this costs no extra permission or battery.
-  const noiseRef = useRef<NoiseFloorState>(resetNoiseFloor());
-  const envRef = useRef<EnvironmentClass | null>(null);
-  // Last moment the microphone frame carried voice energy. The recognizer
-  // drops results now and then while the person is still talking; this is how
-  // the turn assembler tells "dropped a result" from "stopped talking".
-  const lastVoiceAtRef = useRef(0);
   // Characters of the reply currently being spoken that have actually been
   // heard, measured in chunk boundaries — the resume point on interruption.
   const spokenCharsRef = useRef(0);
@@ -266,9 +239,6 @@ export function useAssistant() {
     resumeSpeech: async () => false,
     interruptSpeech: () => null,
   });
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const pitchWinRef = useRef<Array<{ t: number; hz: number }>>([]);
-  const pitchTimerRef = useRef<any>(null);
   const speakerNoticeOnRef = useRef(false);
   // Installed TTS voices. Chrome fills this asynchronously, so it is cached
   // across replies and refreshed on voiceschanged (e.g. a voice pack gets
@@ -1319,130 +1289,7 @@ export function useAssistant() {
     [processTranscript, resumeListening],
   );
 
-  const stopPitchTracking = useCallback(() => {
-    try {
-      if (pitchTimerRef.current) clearInterval(pitchTimerRef.current);
-    } catch {}
-    pitchTimerRef.current = null;
-    try {
-      analyserRef.current?.disconnect();
-    } catch {}
-    analyserRef.current = null;
-    pitchWinRef.current = [];
-    // No frame is being read any more, so "voice energy" must not stay true
-    // and hold a turn open for nothing.
-    lastVoiceAtRef.current = 0;
-  }, []);
 
-  // Sample mic pitch a few times per second while listening. Feeds the
-  // speaker tags above; cheap (one 2048 FFT buffer per tick).
-  const startPitchTracking = useCallback(() => {
-    try {
-      const ctx = audioCtxRef.current;
-      const stream = streamRef.current;
-      if (!ctx || !stream) return;
-      stopPitchTracking();
-      const src = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 2048;
-      src.connect(analyser);
-      analyserRef.current = analyser;
-      pitchTimerRef.current = setInterval(() => {
-        try {
-          const st = useAssistantStore.getState();
-          if (!st.isActive || st.currentStatus !== "listening") return;
-          const buf = new Float32Array(analyser.fftSize);
-          analyser.getFloatTimeDomainData(buf);
-          // Environment recognition: the same frame that carries a voice also
-          // carries the room. Track the sustained floor and tell the app when
-          // the surroundings change (see lib/environment.ts for the rules).
-          noiseRef.current = updateNoiseFloor(noiseRef.current, rmsOf(buf));
-          // Voice activity, from the very same frame: energy well above the
-          // smoothed floor is the person talking. The turn assembler reads
-          // this so a dropped recognition result never ends a turn early.
-          // (rmsOf over 2048 samples costs microseconds; this tick is 250 ms.)
-          const energy = rmsOf(buf);
-          const floor = noiseRef.current.floor ?? 0;
-          if (energy > Math.max(0.015, floor * 3)) lastVoiceAtRef.current = Date.now();
-          const env = classifyEnvironment(noiseRef.current.floor ?? 0);
-          if (environmentChanged(envRef.current, env)) {
-            envRef.current = env;
-            try {
-              useAssistantStore.getState().setMicEnvironment(env);
-              useAssistantStore
-                .getState()
-                .logBgEvent("environment", `${env} · floor ${(noiseRef.current.floor ?? 0).toFixed(4)}`);
-            } catch {}
-          }
-          const hz = detectPitch(buf, ctx.sampleRate);
-          if (hz != null) {
-            pitchWinRef.current.push({ t: Date.now(), hz });
-            const cutoff = Date.now() - 8000;
-            pitchWinRef.current = pitchWinRef.current.filter(
-              (w) => w.t > cutoff,
-            );
-          }
-        } catch {}
-      }, 250);
-    } catch {}
-  }, [stopPitchTracking]);
-
-  // 3-second owner enrollment: read a line aloud, we store median pitch.
-  const enrollVoice = useCallback(async (): Promise<number | null> => {
-    const s = await navigator.mediaDevices.getUserMedia(
-      micConstraints(useAssistantStore.getState().micDeviceId),
-    );
-    try {
-      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new Ctx();
-      try {
-        await ctx.resume();
-      } catch {}
-      const src = ctx.createMediaStreamSource(s);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 2048;
-      src.connect(analyser);
-      const pitches: number[] = [];
-      const buf = new Float32Array(analyser.fftSize);
-      for (let i = 0; i < 12; i++) {
-        await new Promise((r) => setTimeout(r, 250));
-        analyser.getFloatTimeDomainData(buf);
-        const hz = detectPitch(buf, ctx.sampleRate);
-        if (hz != null) pitches.push(hz);
-      }
-      try {
-        s.getTracks().forEach((t) => t.stop());
-      } catch {}
-      try {
-        await ctx.close();
-      } catch {}
-      const med = median(pitches);
-      if (med == null) return null;
-      useAssistantStore.getState().setVoiceBaseline(Math.round(med));
-      return Math.round(med);
-    } catch (e) {
-      try {
-        s.getTracks().forEach((t) => t.stop());
-      } catch {}
-      throw e;
-    }
-  }, []);
-
-  const startSilentLoop = useCallback(() => {
-    try {
-      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-      audioCtxRef.current = new Ctx();
-      const ctx = audioCtxRef.current!;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 0.001;
-      gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      osc.start();
-      oscRef.current = osc;
-    } catch {}
-  }, []);
 
   // Acquire mic + watch it. If a multipoint earbud jumps to another device
   // (laptop call), a background app grabs the mic, or earbuds disconnect,

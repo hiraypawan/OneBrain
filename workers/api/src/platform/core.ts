@@ -78,6 +78,26 @@ export async function membership(c: Ctx, space: string, minimum: 'read' | 'write
 export function audit(env: PlatformEnv, space: string, actorId: string, operation: string, subject: string, detail: unknown = {}) {
   return env.DB.prepare('INSERT INTO space_audit (id,space_id,actor_id,operation,subject_id,at,detail) VALUES (?,?,?,?,?,?,?)').bind(id(),space,actorId,operation,subject,Date.now(),JSON.stringify(detail));
 }
+/** C5 (GDPR): the ONE erasure used by both DELETE /api/user/delete-account
+ *  (root, direct) and DELETE /api/platform/user/delete-account (app proxy).
+ *  Owned workspaces are deleted first so their members/records/jobs/connections
+ *  cascade instead of orphaning; everything user-scoped follows; entitlement key
+ *  redemptions are un-linked (the key itself survives for its next owner). */
+export async function deleteAccountData(env: PlatformEnv, userId: string): Promise<void> {
+  const owned: any[] = (await env.DB.prepare('SELECT id FROM spaces WHERE owner_id = ?').bind(userId).all()).results || [];
+  for (const s of owned) {
+    await env.DB.prepare('DELETE FROM spaces WHERE id = ?').bind(s.id).run();
+  }
+  for (const t of ['messages', 'conversations', 'user_memory', 'reminders', 'reset_tokens', 'platform_sessions', 'user_entitlements', 'entitlement_usage']) {
+    await env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(userId).run();
+  }
+  await env.DB.prepare('DELETE FROM google_identities WHERE user_id = ?').bind(userId).run();
+  await env.DB.prepare('DELETE FROM space_members WHERE user_id = ?').bind(userId).run();
+  await env.DB.prepare('DELETE FROM oauth_states WHERE user_id = ?').bind(userId).run();
+  await env.DB.prepare('DELETE FROM entitlement_events WHERE user_id = ?').bind(userId).run();
+  await env.DB.prepare('UPDATE entitlement_keys SET redeemed_by = NULL WHERE redeemed_by = ?').bind(userId).run();
+  await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
+}
 export async function rateLimit(c: Ctx, label: string, max: number) {
   const now = Date.now(), window = Math.floor(now / 60000);
   // A session key prevents thousands of signed-in users behind the same proxy/NAT

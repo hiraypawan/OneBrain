@@ -84,6 +84,40 @@ export function AccountSettings() {
       setBusy(false);
     }
   }
+  async function deleteAccount() {
+    if (busy) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/platform/user/delete-account", {
+        method: "DELETE",
+        signal: AbortSignal.timeout(30000),
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!response.ok && response.status !== 401) throw new Error();
+      generation.current++;
+      // Server account is gone; clear this browser too so nothing lingers.
+      try {
+        await useAssistantStore.getState().wipeAll();
+      } catch {}
+      try {
+        localStorage.removeItem("onebrain-shared-voice");
+      } catch {}
+      useAssistantStore.getState().logout();
+      setAccount(null);
+      setStatus("guest");
+      setNotice(
+        "Account deleted: user row, Google sign-in link, sessions, saved conversations, memory, reminders, entitlement history and every shared workspace you owned are removed from the server, and this browser’s local canvas data has been cleared. Your Google account itself and provider-side copies were not touched.",
+      );
+    } catch {
+      setNotice(
+        "Account deletion could not be confirmed — nothing was removed. Your local data was left untouched so you can retry. Check your connection and try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <SettingsShell
       active="account"
@@ -154,11 +188,40 @@ export function AccountSettings() {
               Sign out all sessions
             </button>
           </section>
+          <section className="settings-card">
+            <h2>Delete this account</h2>
+            <p>
+              Permanent and irreversible. The confirmation below reads back
+              exactly what goes: your user row and Google sign-in link, every
+              server session, saved conversations and messages, memory,
+              reminders, entitlement history, and each shared workspace you own
+              with its members, records, credentials and jobs. Afterwards this
+              browser’s local canvas data is cleared as well.
+            </p>
+            <p>
+              Not deleted: your Google account itself, copies already held by
+              AI providers, and the separate encrypted vault (clear it from the
+              Vault panel).
+            </p>
+            <button
+              className="danger-action"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  confirm(
+                    "Delete this OneBrain account permanently?\n\nWill be deleted from the server:\n• your user row and Google sign-in link\n• all sign-in sessions on every device\n• saved conversations, messages, memory and reminders\n• entitlement history and redeemed keys\n• every shared workspace you own — records, credentials, jobs, members\n\nThen this browser’s local canvas data is cleared and you are signed out.\n\nNot deleted: your Google account, provider-side copies, the encrypted vault.\n\nThis cannot be undone.",
+                  )
+                )
+                  void deleteAccount();
+              }}
+            >
+              Delete account
+            </button>
+          </section>
         </>
       ) : (
         <GoogleSignIn className="settings-card auth-entry" next="/control?panel=account" />
-      )}
-      <section className="settings-card">
+      )}      <section className="settings-card">
         <h2>Local is separate from shared</h2>
         <p>
           You can use the local canvas without signing in. Google sign-in gives

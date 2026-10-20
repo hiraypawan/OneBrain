@@ -12,6 +12,9 @@ import { useAssistantStore } from '../store/assistant';
 const root = resolve(__dirname, '..');
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
 const hook = read('hooks/useAssistant.ts');
+// A3 split: the acoustic half (pitch, noise floor, enrollment) lives in its
+// own hook; the wiring contract follows the code there.
+const voicePrint = read('hooks/useVoicePrint.ts');
 const surface = read('components/voice/VoiceSurface.tsx');
 
 describe('interrupting and resuming a spoken reply', () => {
@@ -63,9 +66,11 @@ describe('interrupting and resuming a spoken reply', () => {
 
 describe('environment recognition is wired into listening', () => {
   it('measures the room from the microphone frames it already reads', () => {
-    expect(hook).toContain('updateNoiseFloor(noiseRef.current, rmsOf(buf))');
-    expect(hook).toContain('classifyEnvironment(noiseRef.current.floor ?? 0)');
-    expect(hook).toContain('setMicEnvironment(env)');
+    // The frame sampling moved into useVoicePrint (A3 split) — same wiring,
+    // new file: the tick still runs on the live mic stream's analyser.
+    expect(voicePrint).toContain('updateNoiseFloor(noiseRef.current, rmsOf(buf))');
+    expect(voicePrint).toContain('classifyEnvironment(noiseRef.current.floor ?? 0)');
+    expect(voicePrint).toContain('setMicEnvironment(env)');
     // A new session re-measures instead of trusting the last room.
     expect(hook).toContain('noiseRef.current = resetNoiseFloor()');
   });

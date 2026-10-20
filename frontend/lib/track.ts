@@ -174,6 +174,31 @@ const logsIn = (logs: FitnessLog[], range: TrackRange) =>
     .filter((l) => inRange(l, range))
     .sort((a, b) => b.createdAt - a.createdAt);
 
+// ---------------------------------------------------------------- views ----
+// A5 (pre-compute): the store hands out a NEW logs array on every write, so
+// array identity is the invalidation signal. Each lens view computes once per
+// write; every render after that — including the 14-day bar strips — reads the
+// pre-computed result instead of re-filtering and re-sorting every log.
+const viewCache = new WeakMap<FitnessLog[], Map<string, unknown>>();
+function cachedView<T>(
+  key: string,
+  logs: FitnessLog[],
+  range: TrackRange,
+  compute: () => T,
+): T {
+  let bucket = viewCache.get(logs);
+  if (!bucket) {
+    bucket = new Map();
+    viewCache.set(logs, bucket);
+  }
+  const full = `${key}|${range.kind}|${range.start}|${range.end}`;
+  const hit = bucket.get(full);
+  if (hit !== undefined) return hit as T;
+  const value = compute();
+  bucket.set(full, value);
+  return value;
+}
+
 // ---------------------------------------------------------------- money ----
 
 export function money(amount: number, currency = 'INR'): string {
@@ -271,6 +296,9 @@ export interface ExpenseView {
 /** Everything about spending in one range: per-item list, category totals,
  *  a per-day bar series and the single largest expense. */
 export function expenseView(logs: FitnessLog[], range: TrackRange): ExpenseView {
+  return cachedView('expense', logs, range, () => computeExpenseView(logs, range));
+}
+function computeExpenseView(logs: FitnessLog[], range: TrackRange): ExpenseView {
   const items = logsIn(logs, range).filter((l) => l.kind === 'expense');
   const totals = new Map<string, { total: number; count: number }>();
   const perDay = new Map<string, number>();
@@ -431,6 +459,9 @@ export function foodView(
   range: TrackRange,
   goal: number,
 ): FoodDayView[] {
+  return cachedView(`food|${goal}`, logs, range, () => computeFoodView(logs, range, goal));
+}
+function computeFoodView(logs: FitnessLog[], range: TrackRange, goal: number): FoodDayView[] {
   const all = logsIn(logs, range).filter((l) => l.kind === 'food');
   const byDay = new Map<string, FitnessLog[]>();
   for (const l of all) {
@@ -555,6 +586,9 @@ export function healthView(
   range: TrackRange,
   goals: { sleep: number; water: number },
 ): HealthView {
+  return cachedView(`health|${goals.sleep}|${goals.water}`, logs, range, () => computeHealthView(logs, range, goals));
+}
+function computeHealthView(logs: FitnessLog[], range: TrackRange, goals: { sleep: number; water: number }): HealthView {
   const scoped = logsIn(logs, range);
   const sleepMap = valueByDay(scoped, 'sleep', range.days, 'sum');
   const waterMap = valueByDay(scoped, 'water', range.days, 'sum');
@@ -673,6 +707,9 @@ const labelFamily = (label: string): { key: string; unit: string } => {
 const qtyOf = (l: FitnessLog) => (Number.isFinite(l.qty as number) ? (l.qty as number) : 0);
 
 export function workoutView(logs: FitnessLog[], range: TrackRange): WorkoutView {
+  return cachedView('workout', logs, range, () => computeWorkoutView(logs, range));
+}
+function computeWorkoutView(logs: FitnessLog[], range: TrackRange): WorkoutView {
   const scoped = logsIn(logs, range).filter((l) => l.kind === 'workout');
   const byDay = new Map<string, FitnessLog[]>();
   for (const l of scoped) {

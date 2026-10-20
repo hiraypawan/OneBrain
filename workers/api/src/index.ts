@@ -7,7 +7,7 @@ import { capacityRetryAfter, noteD1Failure } from './platform/capacity';
 import { maintenance } from './platform/maintenance';
 import { runDue } from './platform/jobs';
 import { searchMedia } from './media';
-import type { PlatformEnv } from './platform/core';
+import { deleteAccountData, type PlatformEnv } from './platform/core';
 
 // OneBrain API on Cloudflare Workers + D1. Same routes as backend/src,
 // ported to the Workers runtime (async D1, WebCrypto JWT, no node APIs).
@@ -473,22 +473,9 @@ app.post('/api/user/export-all-data', requireAuth, async (c) => {
 });
 
 app.delete('/api/user/delete-account', requireAuth, async (c) => {
-  const userId = me(c);
-  // Delete spaces owned by this user first: space members/records/jobs/etc
-  // cascade from spaces, so owned workspaces do not orphan.
-  const owned: any[] = (await c.env.DB.prepare('SELECT id FROM spaces WHERE owner_id = ?').bind(userId).all()).results || [];
-  for (const s of owned) {
-    await c.env.DB.prepare('DELETE FROM spaces WHERE id = ?').bind(s.id).run();
-  }
-  for (const t of ['messages', 'conversations', 'user_memory', 'reminders', 'reset_tokens', 'platform_sessions', 'user_entitlements', 'entitlement_usage']) {
-    await c.env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(userId).run();
-  }
-  await c.env.DB.prepare('DELETE FROM google_identities WHERE user_id = ?').bind(userId).run();
-  await c.env.DB.prepare('DELETE FROM space_members WHERE user_id = ?').bind(userId).run();
-  await c.env.DB.prepare('DELETE FROM oauth_states WHERE user_id = ?').bind(userId).run();
-  await c.env.DB.prepare('DELETE FROM entitlement_events WHERE user_id = ?').bind(userId).run();
-  await c.env.DB.prepare('UPDATE entitlement_keys SET redeemed_by = NULL WHERE redeemed_by = ?').bind(userId).run();
-  await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
+  // Same erasure as the app-reachable platform route; this root path stays for
+  // direct/operator calls. See deleteAccountData in platform/core.ts.
+  await deleteAccountData(c.env as unknown as PlatformEnv, me(c));
   return c.json({ ok: true });
 });
 

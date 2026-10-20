@@ -68,6 +68,7 @@ import {
   type BriefData,
 } from './briefing';
 import { detectScribeIntent, extractMinutes, minutesToTasks, spokenMinutes } from './scribe';
+import { fetchConnectedOpenTasks } from './connected-brief';
 import { planAllows, quotaMessage, FREE_LIMITS } from './plans';
 
 export interface FeatureTurn {
@@ -571,8 +572,33 @@ export async function handleFeatureTurn(
     return { messages: [{ text: result.spoken, meta: 'Close my day · finished, rollover, tomorrow’s top 3' }], speak: result.spoken, card: { kind: 'brief', title: 'Close my day', result } };
   }
   if (bIntent === 'forgetting') {
-    const result = forgettingScan(briefData());
-    return { messages: [{ text: result.spoken, meta: 'Forgetting scan · overdue, promises, money, reminders' }], speak: result.spoken, card: { kind: 'forgetting', result } };
+    // C1: the scan reads this device's data and, because the user asked
+    // directly, the first Connected workspace's open tasks (short race,
+    // local-only when signed out or offline). Only actually-merged server
+    // tasks are credited in the reply, so the answer stays honest.
+    const d = briefData();
+    const connected = await fetchConnectedOpenTasks(2500, !!useAssistantStore.getState().user?.id);
+    let merged = 0;
+    if (connected.length) {
+      const now = Date.now();
+      const seen = new Set(d.openTasks.map((t) => t.title.toLowerCase()));
+      for (const t of connected) {
+        const key = t.title.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        d.openTasks.push(t);
+        if (t.due && new Date(`${t.due}T23:59:59`).getTime() < now) d.overdueTasks.push(t);
+        merged += 1;
+      }
+    }
+    const result = forgettingScan(d);
+    const meta = merged
+      ? 'Forgetting scan · overdue, promises, money, reminders + Connected work'
+      : 'Forgetting scan · overdue, promises, money, reminders';
+    const spoken = merged
+      ? `${result.spoken} (Also counting ${merged} open task${merged === 1 ? '' : 's'} from Connected work.)`
+      : result.spoken;
+    return { messages: [{ text: spoken, meta }], speak: spoken, card: { kind: 'forgetting', result } };
   }
   if (bIntent === 'followups') {
     const result = followupRadar(f.commitments);

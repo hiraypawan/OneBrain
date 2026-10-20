@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import { startGoogleLogin, finishGoogleLogin, googleConfigured, sessionUser } from './google-auth';
-import { actor, audit, fail, hash, id, membership, number, object, publicConnection, randomToken, rateLimit, seal, text, unseal, type PlatformContext } from './core';
+import { actor, audit, deleteAccountData, fail, hash, id, membership, number, object, publicConnection, randomToken, rateLimit, seal, text, unseal, type PlatformContext } from './core';
 import { jsonRequest, PROVIDERS, validateConnection, type Provider } from './connectors';
 import { prepareJob, runDue } from './jobs';
 import { readPage, pageResult } from './pages';
@@ -59,6 +59,10 @@ platform.get('/me',c=>{
 });
 platform.post('/logout',async c=>{await c.env.DB.prepare('DELETE FROM platform_sessions WHERE token_hash=?').bind(c.get('session')).run();return c.json({ok:true});});
 platform.post('/logout-all',async c=>{await c.env.DB.prepare('DELETE FROM platform_sessions WHERE user_id=?').bind(actor(c).id).run();return c.json({ok:true});});
+// C5 (GDPR): full account erasure reachable from the app's Account panel
+// (the Next proxy mounts this at /api/platform/user/delete-account). The
+// client shows a read-back confirmation first; the live session is the consent.
+platform.delete('/user/delete-account',async c=>{await deleteAccountData(c.env,actor(c).id);return c.json({ok:true,notice:'Account, sessions and owned workspaces deleted.'});});
 platform.get('/spaces',async c=>c.json({spaces:(await c.env.DB.prepare('SELECT s.id,s.name,s.created_at,m.role FROM spaces s JOIN space_members m ON m.space_id=s.id WHERE m.user_id=? ORDER BY s.created_at').bind(actor(c).id).all()).results}));
 // One authenticated request instead of separate identity and workspace-list calls.
 platform.get('/bootstrap',async c=>{

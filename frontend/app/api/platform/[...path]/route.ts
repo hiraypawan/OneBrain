@@ -28,8 +28,8 @@ async function proxy(request:NextRequest,{params}:{params:Promise<{path:string[]
     const data=await result.json();
     delete data.token;
     const response=NextResponse.json(data,{status:result.status,headers:{'Cache-Control':'no-store'}});
-    if((path[0]==='logout'||path[0]==='logout-all')&&(result.ok||result.status===401))response.cookies.set(COOKIE,'',{httpOnly:true,sameSite:'lax',path:'/api/platform',maxAge:0});
-    if (result.status===401 || ((path[0]==='logout'||path[0]==='logout-all')&&result.ok)) response.cookies.set(SESSION_HINT,'',{sameSite:'lax',path:'/',maxAge:0});
+    if((path[0]==='logout'||path[0]==='logout-all'||(path[0]==='user'&&path[1]==='delete-account'))&&(result.ok||result.status===401))response.cookies.set(COOKIE,'',{httpOnly:true,sameSite:'lax',path:'/api/platform',maxAge:0});
+    if (result.status===401 || ((path[0]==='logout'||path[0]==='logout-all'||(path[0]==='user'&&path[1]==='delete-account'))&&result.ok)) response.cookies.set(SESSION_HINT,'',{sameSite:'lax',path:'/',maxAge:0});
     else if (result.ok && (path[0]==='me'||path[0]==='bootstrap')) response.cookies.set(SESSION_HINT,'1',{sameSite:'lax',path:'/',maxAge:7*86400,secure:request.nextUrl.protocol==='https:'||request.headers.get('x-forwarded-proto')==='https'});
     const retry=result.headers.get('Retry-After');if(retry)response.headers.set('Retry-After',retry);
     return response;

@@ -4,6 +4,7 @@ import { SettingsShell } from "@/components/settings/SettingsShell";
 import { VoiceEnrollment } from "@/components/settings/VoiceEnrollment";
 import { PuterSettings } from "@/components/control/PuterSettings";
 import { useAssistantStore } from "@/store/assistant";
+import { CATALOG } from "@/components/control/catalog";
 export default function Advanced() {
   const { apiKey, setApiKey, aiProvider, setAiProvider, aiBaseUrl, setAiBaseUrl, aiModel, setAiModel, settings, updateSettings } = useAssistantStore();
   const [draft, setDraft] = useState(apiKey),
@@ -88,6 +89,18 @@ export default function Advanced() {
             onChange={(e) => updateSettings({ labsEnabled: e.target.checked })}
           />
         </label>
+        {/* C2: preview what Labs adds before it appears in Your space. */}
+        <ul className="labs-preview" aria-label="Labs feature previews">
+          {CATALOG.filter((entry) => entry.labs).map((entry) => (
+            <li key={entry.id} className="labs-preview-item">
+              <span className="labs-preview-title">{entry.title}</span>
+              <span className="labs-preview-desc">{entry.description}</span>
+              <span className="labs-badge">
+                {settings.labsEnabled ? 'Shown in Your space' : 'Hidden by default'} · unverified
+              </span>
+            </li>
+          ))}
+        </ul>
       </section>
       <section className="settings-card">
         <h2>Theme</h2>

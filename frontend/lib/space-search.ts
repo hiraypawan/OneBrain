@@ -44,6 +44,8 @@ export interface SpaceSearchInput {
   logs?: { id: string; kind: string; label: string; detail?: string; createdAt: number }[];
   catalog?: { id: string; title: string; description: string; keywords?: string }[];
   limit?: number;
+  /** Item ids the user has opened before; boosts interaction frequency. */
+  clickedIds?: string[];
 }
 
 const SECTION_LABELS: Record<SpaceSectionId, string> = {
@@ -78,9 +80,17 @@ function mentions(hay: string, term: string): boolean {
   return re.test(hay);
 }
 
-/** Score 0..n: 3 per term in the title, 1 per term in the body, plus a small
- *  recency bonus so two equally-good hits surface the fresher one first. */
-export function scoreHit(query: string, title: string, body: string, at: number, now = Date.now()): number {
+/** Score 0..n: 3 per term in the title, 1 per term in the body, plus a recency
+ *  bonus and an interaction-frequency boost for items the user has opened
+ *  before (tracked by the caller via `clickedIds`). Frequently opened items
+ *  surface first for repeat queries. */
+export function scoreHit(
+  query: string,
+  title: string,
+  body: string,
+  at: number,
+  opts: { now?: number; clicked?: boolean } = {},
+): number {
   const list = terms(query);
   if (!list.length) return 0;
   const t = String(title || '').toLowerCase();
@@ -91,8 +101,12 @@ export function scoreHit(query: string, title: string, body: string, at: number,
     else if (mentions(b, term)) score += 1;
   }
   if (!score) return 0;
-  const ageDays = Math.max(0, (now - at) / DAY);
-  return score + Math.max(0, 1 - ageDays / 120);
+  // Recency: stronger decay so very recent items win ties over older ones.
+  const ageDays = Math.max(0, ((opts.now ?? Date.now()) - at) / DAY);
+  score += Math.max(0, 1 - ageDays / 90);
+  // Interaction frequency: items the user has opened before rank higher.
+  if (opts.clicked) score += 1;
+  return score;
 }
 
 const clip = (s: string, n = 130) => {
@@ -109,14 +123,17 @@ export function searchSpace(input: SpaceSearchInput): {
 } {
   const query = String(input.query || '').trim();
   const limit = input.limit ?? 24;
+  const now = Date.now();
+  const clickedIds = input.clickedIds ?? [];
   if (query.length < 2)
     return { hits: [], bySection: [], query, total: 0, empty: true };
 
   const found: SpaceHit[] = [];
-  const push = (hit: SpaceHit, score: number) => {
-    if (score <= 0) return;
+  const push = (hit: SpaceHit, score: number, clicked = false) => {
+    const finalScore = score + (clicked ? 1 : 0);
+    if (finalScore <= 0) return;
     found.push({ ...hit, title: clip(hit.title, 90), snippet: clip(hit.snippet) });
-    scores.set(hit.id, score);
+    scores.set(hit.id, finalScore);
   };
   const scores = new Map<string, number>();
 
@@ -142,7 +159,10 @@ export function searchSpace(input: SpaceSearchInput): {
         href: `/?item=${item.id}`,
         at: item.createdAt,
       },
-      scoreHit(query, item.title, `${item.body} ${item.kind}`, item.createdAt),
+      scoreHit(query, item.title, `${item.body} ${item.kind}`, item.createdAt, {
+        now,
+        clicked: clickedIds?.includes(`item:${item.id}`),
+      }),
     );
   }
 
@@ -158,7 +178,7 @@ export function searchSpace(input: SpaceSearchInput): {
         href: '/control?panel=reminders',
         at: when,
       },
-      scoreHit(query, r.title, r.date || '', when),
+      scoreHit(query, r.title, r.date || '', when, { now, clicked: clickedIds.includes(`reminder:${r.id}`) }),
     );
   }
 
@@ -173,7 +193,7 @@ export function searchSpace(input: SpaceSearchInput): {
         href: `/conversations?id=${encodeURIComponent(c.id)}`,
         at: c.createdAt,
       },
-      scoreHit(query, c.title, c.summary || '', c.createdAt),
+      scoreHit(query, c.title, c.summary || '', c.createdAt, { now, clicked: clickedIds.includes(`conv:${c.id}`) }),
     );
   }
 
@@ -188,7 +208,7 @@ export function searchSpace(input: SpaceSearchInput): {
         href: '/control?panel=memory-search',
         at: m.createdAt,
       },
-      scoreHit(query, '', m.content, m.createdAt) - 1.2,
+      scoreHit(query, '', m.content, m.createdAt, { now, clicked: clickedIds.includes(`msg:${m.createdAt}:${clip(m.content, 24)}`) }) - 1.2,
     );
   }
 
@@ -203,7 +223,7 @@ export function searchSpace(input: SpaceSearchInput): {
         href: '/control?panel=stories',
         at: s.updatedAt,
       },
-      scoreHit(query, s.title, s.premise || '', s.updatedAt),
+      scoreHit(query, s.title, s.premise || '', s.updatedAt, { now, clicked: clickedIds.includes(`story:${s.id}`) }),
     );
   }
 
@@ -218,7 +238,7 @@ export function searchSpace(input: SpaceSearchInput): {
         href: '/control?panel=drafts',
         at: d.createdAt,
       },
-      scoreHit(query, d.subject, d.body, d.createdAt),
+      scoreHit(query, d.subject, d.body, d.createdAt, { now, clicked: clickedIds.includes(`draft:${d.id}`) }),
     );
   }
 
@@ -233,7 +253,10 @@ export function searchSpace(input: SpaceSearchInput): {
         href: `/track?lens=${l.kind === 'expense' ? 'expenses' : l.kind === 'food' ? 'food' : l.kind === 'workout' ? 'workouts' : 'health'}`,
         at: l.createdAt,
       },
-      scoreHit(query, l.label, `${l.kind} ${l.detail || ''}`, l.createdAt) - 0.6,
+      scoreHit(query, l.label, `${l.kind} ${l.detail || ''}`, l.createdAt, {
+        now,
+        clicked: clickedIds.includes(`log:${l.id}`),
+      }) - 0.6,
     );
   }
 
@@ -253,7 +276,7 @@ export function searchSpace(input: SpaceSearchInput): {
       // non-matching query fall through to the whole catalog.
       (() => {
         const score = scoreHit(query, entry.title, `${entry.description} ${entry.keywords || ''}`, Date.now());
-        return score > 0 ? score + 0.5 : 0;
+        return score > 0 ? score + 0.5 + (clickedIds.includes(`tool:${entry.id}`) ? 1 : 0) : 0;
       })(),
     );
   }

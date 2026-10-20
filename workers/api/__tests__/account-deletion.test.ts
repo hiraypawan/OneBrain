@@ -109,6 +109,35 @@ describe('DELETE /api/user/delete-account', () => {
     expect(response.status).toBe(401);
     expect(await count('SELECT COUNT(*) AS n FROM users')).toBeGreaterThan(0);
   });
+
+  // C5: the Next proxy only reaches /api/platform/*, so the Account panel uses
+  // this mount. It must be the SAME erasure as the root path above, and the
+  // live session is what proves consent — so it cannot survive the call.
+  it('the app-reachable platform route erases the same rows and revokes the session', async () => {
+    const doomed = await fixture('platform-doomed@example.test');
+    const now = Date.now();
+    await DB.batch([
+      DB.prepare('INSERT INTO spaces (id,name,owner_id,created_at) VALUES (?,?,?,?)').bind('p-owned-space', 'Owned', doomed.user.id, now),
+      DB.prepare('INSERT INTO space_members (space_id,user_id,role,joined_at) VALUES (?,?,?,?)').bind('p-owned-space', doomed.user.id, 'owner', now),
+      DB.prepare('INSERT INTO conversations (id,user_id,created_at) VALUES (?,?,?)').bind('p-conv-1', doomed.user.id, now),
+      DB.prepare('INSERT INTO user_memory (id,user_id,memory_type,key,value,created_at) VALUES (?,?,?,?,?,?)').bind('p-mem-1', doomed.user.id, 'fact', 'k', '"v"', now),
+    ]);
+
+    const response = await call('/api/platform/user/delete-account', doomed, 'DELETE');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true });
+
+    for (const [table, column] of [
+      ['users', 'id'], ['spaces', 'owner_id'], ['space_members', 'user_id'],
+      ['conversations', 'user_id'], ['user_memory', 'user_id'], ['platform_sessions', 'user_id'],
+    ] as const) {
+      expect(await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} = ?`, doomed.user.id), `${table}.${column} still references the deleted user`).toBe(0);
+    }
+
+    // The same session cannot be replayed: the row that carried it is gone.
+    const replay = await call('/api/platform/user/delete-account', doomed, 'DELETE');
+    expect(replay.status).toBe(401);
+  });
 });
 
 describe('memory clearing accepts both API shapes', () => {

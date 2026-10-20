@@ -32,9 +32,13 @@ export function estimate(input={}) {
  };
  // This repository binds ONE free database, not all 5 GB of account storage.
  const limits={workerRequests:100000,d1RowsRead:5000000,d1RowsWritten:100000,singleDatabaseBytes:500000000};
- const budgets=Object.fromEntries(Object.entries(limits).map(([k,v])=>[k,{estimated:Math.ceil(demand[k]),limit:v,operatingBudget:Math.floor(v*(1-x.headroom)),fits:demand[k]<=v*(1-x.headroom)}]));
+ const budgets=Object.fromEntries(Object.entries(limits).map(([k,v])=>{
+  const est=Math.ceil(demand[k]),op=Math.floor(v*(1-x.headroom));
+  return [k,{key:k,estimated:est,limit:v,operatingBudget:op,fits:est<=op,approaching:est>op}];
+ }));
  const scheduler={requested:x.scheduledJobs,maxCandidatesPerDay:cron*x.jobBatch,fits:x.scheduledJobs<=cron*x.jobBatch};
- return {assumptions:x,budgets,scheduler,fits:Object.values(budgets).every(v=>v.fits)&&scheduler.fits,notice:'An assumed daily budget, NOT proof of 10,000 concurrent users. CPU, bursts, D1 queueing, auth rate limits, abusive traffic and other account usage still need measurement.'};
+ const warnings=Object.values(budgets).filter(b=>b.approaching).map(b=>`${b.key}: estimated ${b.estimated} daily rows against operating budget ${b.operatingBudget} (limit ${b.limit})`);
+ return {assumptions:x,budgets,scheduler,warnings,fits:Object.values(budgets).every(v=>v.fits)&&scheduler.fits,notice:'An assumed daily budget, NOT proof of 10,000 concurrent users. CPU, bursts, D1 queueing, auth rate limits, abusive traffic and other account usage still need measurement.'};
 }
 // A throughput model, deliberately separate from the daily budget. The query
 // duration must be measured on the deployed workload before drawing conclusions.
@@ -49,6 +53,6 @@ export function estimateBurst(input={}) {
  return {assumptions:x,sqlQueries,serialDatabaseSeconds,requiredSqlQueriesPerSecond:sqlQueries/x.targetSeconds,idealSqlQueriesPerSecond:1000/x.meanSqlMs,fitsSerialTime:serialDatabaseSeconds<=x.targetSeconds,notice:'Hypothetical single-primary SQL service time, NOT measured concurrent users, p95 latency, CPU compliance, or an SLA. Network, Worker overhead, writes and other traffic can make it worse.'};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
- try{const burst=process.argv[2]==='--burst',file=process.argv[burst?3:2],input=file?JSON.parse(readFileSync(file,'utf8')):{};const result=burst?estimateBurst(input):estimate(input);console.log(JSON.stringify(result,null,2));if(!(burst?result.fitsSerialTime:result.fits))process.exitCode=2;}
+ try{const burst=process.argv[2]==='--burst',file=process.argv[burst?3:2],input=file?JSON.parse(readFileSync(file,'utf8')):{};const result=burst?estimateBurst(input):estimate(input);console.log(JSON.stringify(result,null,2));if(result.warnings&&result.warnings.length)for(const w of result.warnings)console.warn(`CAPACITY WARNING: ${w}`);if(!(burst?result.fitsSerialTime:result.fits))process.exitCode=2;}
  catch(e){console.error(e.message);process.exitCode=1;}
 }

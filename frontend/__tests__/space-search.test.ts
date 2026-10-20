@@ -91,8 +91,8 @@ describe('one search box over the whole space', () => {
     expect(scoreHit('hi', 'Police station timings', '', NOW)).toBe(0);
     expect(scoreHit('missing', 'anything', 'body', NOW)).toBe(0);
     expect(scoreHit('', 'anything', 'body', NOW)).toBe(0);
-    const fresh = scoreHit('xx', 'xx', '', NOW, NOW);
-    const old = scoreHit('xx', 'xx', '', day(400), NOW);
+    const fresh = scoreHit('xx', 'xx', '', day(0), { now: NOW });
+    const old = scoreHit('xx', 'xx', '', day(400), { now: NOW });
     expect(fresh - old).toBeLessThanOrEqual(1);
     expect(fresh - old).toBeGreaterThan(0.9);
   });
