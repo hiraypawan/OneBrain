@@ -110,7 +110,10 @@ describe('token-budgeted context envelope', () => {
 
   it('estimates tokens from characters, conservatively', () => {
     expect(estimateTokens('')).toBe(0);
-    expect(estimateTokens('a'.repeat(360))).toBe(100);
+    // Latin text: ~4 chars per token.
+    expect(estimateTokens('a'.repeat(360))).toBe(90);
+    // Devanagari is denser: fewer chars per token.
+    expect(estimateTokens('नमस्ते'.repeat(60))).toBeGreaterThanOrEqual(estimateTokens('a'.repeat(360)));
   });
 
   it('leads with open tasks and skips finished ones', () => {
