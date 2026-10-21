@@ -32,7 +32,7 @@ describe('synthesizeSpeech', () => {
     expect(out?.source).toBe('user-key');
     expect(out?.blob.size).toBeGreaterThan(1000);
     const init = (fetchMock.mock.calls[0] as unknown as [string, any])[1];
-    expect(JSON.parse(init.body)).toEqual({ text: 'Namaste', lang: 'hi-IN', userKey: 'USER-KEY' });
+    expect(JSON.parse(init.body)).toEqual({ text: 'Namaste', lang: 'hi-IN', userKey: 'USER-KEY', tier: 'user' });
   });
 
   it('returns null (so the browser voice can take over) on the fallback contract', async () => {
@@ -96,8 +96,23 @@ describe('synthesizeSpeech', () => {
     vi.stubGlobal('fetch', fetchMock);
     await synthesizeSpeech({ text: 'Provider-specific speech', apiKey: 'OPENAI-SECRET', apiProvider: 'openai' });
     const request = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, any])[1].body);
-    expect(request).toEqual({ text: 'Provider-specific speech', lang: '' });
+    expect(request).toEqual({ text: 'Provider-specific speech', lang: '', tier: 'keyless' });
     expect(JSON.stringify(request)).not.toContain('OPENAI-SECRET');
+  });
+
+  it('asks for each tier once: a failed user-key attempt is not repeated in the keyless request', async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      return body.tier === 'user'
+        ? { ok: true, headers: new Headers({ 'Content-Type': 'application/json' }), blob: async () => new Blob(['{"fallback":true}']) }
+        : audioResponse(4096, 'community');
+    }));
+    const out = await synthesizeSpeech({ text: 'Two tiers', lang: 'en-IN', apiKey: 'USER-KEY', apiProvider: 'gemini' });
+    expect(out?.source).toBe('community');
+    expect(bodies.map((b) => b.tier)).toEqual(['user', 'keyless']);
+    expect(bodies[1].userKey).toBeUndefined();
   });
 
   it('does not pass either provider key into Puter speech options', async () => {

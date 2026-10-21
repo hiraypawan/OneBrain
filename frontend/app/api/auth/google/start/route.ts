@@ -1,5 +1,5 @@
 import { NextRequest,NextResponse } from 'next/server';
-import { authRequest,localRedirect,STATE_COOKIE } from '@/lib/google-auth-server';
+import { authRequest,localRedirect,signInFailureCode,STATE_COOKIE } from '@/lib/google-auth-server';
 import { NEXT_COOKIE,safeReturnPath } from '@/lib/auth-return';
 export const dynamic='force-dynamic';
 async function returnPath(request:NextRequest){
@@ -10,7 +10,7 @@ export async function POST(request:NextRequest){
  const next=await returnPath(request),back=(code:string)=>localRedirect(`/auth/login?error=${code}${next!=='/'?`&next=${encodeURIComponent(next)}`:''}`);
  let result:any;
  try{result=await authRequest('start',{},request.headers.get('CF-Connecting-IP')||undefined);}
- catch(e){return back(e instanceof Error&&/not completed|Configure/.test(e.message)?'configuration':'unreachable');}
+ catch(e){return back(signInFailureCode(e,'start'));}
  try{
   const url=new URL(result.url);
   if(url.origin!=='https://accounts.google.com'||url.pathname!=='/o/oauth2/v2/auth'||!/^[a-f0-9]{64}$/.test(result.state)||!/^[a-f0-9]{64}$/.test(result.browserToken))throw new Error('Invalid sign-in response');

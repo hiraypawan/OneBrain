@@ -414,63 +414,218 @@ export function speechAudioElement(): HTMLAudioElement | null {
   }
 }
 
-/** Unlock the shared element. Must be called inside a user gesture (iOS). */
-export async function unlockAudioOutput(): Promise<boolean> {
-  const el = speechAudioElement();
-  let ok = false;
-  if (el) {
-    try {
-      if (!el.src) el.src = SILENT_WAV;
-      await el.play();
-      el.pause();
-      try {
-        el.currentTime = 0;
-      } catch {}
-      ok = true;
-    } catch {}
-  }
-  if (typeof window !== 'undefined' && typeof window.speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined') {
-    try {
-      const u = new SpeechSynthesisUtterance('');
-      u.volume = 0;
-      window.speechSynthesis.speak(u);
-    } catch {}
-  }
-  return ok;
+// ---------------------------------------------------------------------------
+// Unlocking spoken output inside a user gesture
+//
+// Why replies were silent on iPhone/iPad ("Speech was queued but never
+// started"): WebKit on iOS DROPS speechSynthesis.speak() — no event, nothing
+// queued, `speaking` stays false — until one speak() has run *during* a user
+// gesture (WebKit SpeechSynthesis::speak, RequireUserGestureForSpeechStart).
+// The shared <audio> element likewise needs play() to be CALLED inside a
+// gesture once. "During a gesture" means on the synchronous call stack of an
+// activation-triggering event: click, touchend, pointerup (touch/pen),
+// keydown, mousedown. Two mistakes kept the old unlock from ever working:
+//   * it primed the speech engine only after `await el.play()` — by then the
+//     gesture is over, so iOS dropped the primer too;
+//   * it ran on the first `pointerdown`, which is NOT an activation for touch
+//     input, and then never tried again.
+// Both unlocks below are issued synchronously, and the app keeps trying on
+// later gestures until each one is confirmed.
+// ---------------------------------------------------------------------------
+
+/** A speak() has been issued inside a real activation (the WebKit unlock). */
+let speechPrimed = false;
+/** The shared element has played once from a gesture. */
+let mediaUnlocked = false;
+
+export function audioUnlockState(): { speech: boolean; media: boolean } {
+  return { speech: speechPrimed, media: mediaUnlocked };
+}
+
+/** Test hook: forget both unlocks and the shared element. */
+export function resetAudioUnlockState(): void {
+  speechPrimed = false;
+  mediaUnlocked = false;
+  speechEl = null;
+  speechObjectUrl = null;
+  stopCurrent = null;
 }
 
 /**
- * Unlock on the first real user gesture anywhere in the app, then stop
- * listening. Returns an unsubscribe function.
+ * Is this an activation-triggering input event (HTML "user activation")?
+ * Only these let a page start sound on iOS. A touch `pointerdown` is not one.
+ */
+export function isActivationEvent(ev: any): boolean {
+  if (!ev || ev.isTrusted === false) return false;
+  const pointerType = String(ev.pointerType || '');
+  switch (String(ev.type || '')) {
+    case 'click':
+    case 'touchend':
+    case 'mousedown':
+      return true;
+    case 'keydown':
+      return ev.key !== 'Escape';
+    case 'pointerdown':
+      return pointerType === 'mouse';
+    case 'pointerup':
+      return pointerType !== 'mouse';
+    default:
+      return false;
+  }
+}
+
+/** iPhone/iPad (including iPadOS, which reports itself as a Mac). */
+export function isAppleTouchDevice(): boolean {
+  try {
+    if (typeof navigator === 'undefined') return false;
+    const ua = String(navigator.userAgent || '');
+    if (/iP(hone|ad|od)/.test(ua)) return true;
+    return /Macintosh/.test(ua) && Number((navigator as any).maxTouchPoints) > 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prime the browser speech engine. MUST run synchronously inside a gesture
+ * handler — never after an `await`. Returns false when there is no engine.
+ */
+export function primeSpeechSynthesis(): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    const synth: any = (window as any).speechSynthesis;
+    const Utter: any = (window as any).SpeechSynthesisUtterance;
+    if (!synth || typeof synth.speak !== 'function' || typeof Utter !== 'function') return false;
+    // An engine that is already talking is unlocked; never queue behind (or
+    // disturb) a reply that is playing.
+    if (synth.speaking || synth.pending) return true;
+    const u = new Utter('');
+    u.volume = 0;
+    synth.speak(u);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Unlock the shared <audio> element. play() is CALLED synchronously (that is
+ * what counts on iOS); only the confirmation arrives later.
+ */
+function unlockMediaElement(): Promise<boolean> {
+  const el = speechAudioElement();
+  if (!el) return Promise.resolve(false);
+  // A reply is playing: the element is unlocked already, and pausing it here
+  // would cut that reply off.
+  if (!el.paused) {
+    mediaUnlocked = true;
+    return Promise.resolve(true);
+  }
+  let attempt: Promise<void> | undefined;
+  try {
+    // Always the silent clip: an earlier reply's blob URL may be revoked.
+    el.src = SILENT_WAV;
+    attempt = el.play() as Promise<void> | undefined;
+  } catch {
+    return Promise.resolve(false);
+  }
+  return Promise.resolve(attempt).then(
+    () => {
+      try {
+        // Only stop our own silent clip, never a reply that replaced it.
+        if (el.src === SILENT_WAV) {
+          el.pause();
+          el.currentTime = 0;
+        }
+      } catch {}
+      mediaUnlocked = true;
+      return true;
+    },
+    () => false,
+  );
+}
+
+/**
+ * Unlock spoken output from a tap/click/key handler. Call it FIRST in the
+ * handler, before anything awaits: the speech engine is primed and the shared
+ * element's play() is issued synchronously. Resolves true once the element
+ * is confirmed playable.
+ */
+export function unlockAudioOutput(): Promise<boolean> {
+  if (primeSpeechSynthesis()) speechPrimed = true;
+  return unlockMediaElement();
+}
+
+/**
+ * Unlock on real user gestures anywhere in the app — and keep trying on each
+ * new gesture until both the speech engine and the <audio> element are
+ * unlocked, because a scroll, a touch `pointerdown` or a refused play() does
+ * not count. Returns an unsubscribe function.
  */
 export function primeAudioOutputOnGesture(target: any = typeof document === 'undefined' ? null : document): () => void {
   if (!target || typeof target.addEventListener !== 'function') return () => {};
-  let done = false;
-  const events = ['pointerdown', 'touchend', 'click', 'keydown'];
-  const run = () => {
-    if (done) return;
-    done = true;
-    void unlockAudioOutput();
+  const events = ['pointerdown', 'mousedown', 'touchend', 'pointerup', 'click', 'keydown'];
+  let released = false;
+  let mediaInFlight = false;
+  const release = () => {
+    if (released) return;
+    released = true;
     for (const e of events) {
       try {
         target.removeEventListener(e, run, true);
       } catch {}
     }
   };
+  const settleIfDone = () => {
+    if (speechPrimed && mediaUnlocked) release();
+  };
+  function run(ev: any) {
+    if (released) return;
+    // Only an activation-triggering event can unlock anything; the rest
+    // (touch pointerdown, synthetic events) would just waste the attempt.
+    if (!isActivationEvent(ev)) return;
+    if (!speechPrimed && primeSpeechSynthesis()) speechPrimed = true;
+    if (!mediaUnlocked && !mediaInFlight) {
+      mediaInFlight = true;
+      void unlockMediaElement().then(() => {
+        mediaInFlight = false;
+        settleIfDone();
+      });
+    }
+    settleIfDone();
+  }
   for (const e of events) {
     try {
       target.addEventListener(e, run, { capture: true, passive: true });
     } catch {}
   }
-  return () => {
-    if (done) return;
-    done = true;
-    for (const e of events) {
+  return release;
+}
+
+/**
+ * iOS 17+: let the browser voice play through the speaker even when the
+ * Ring/Silent switch is on, by asking for a media-playback audio session.
+ *
+ * Only call this while the microphone is NOT capturing: WebKit applies the
+ * requested session type even during capture, and 'playback' cannot record.
+ * Returns a function that restores the previous type.
+ */
+export function preferPlaybackAudioSession(): () => void {
+  try {
+    const session: any = typeof navigator === 'undefined' ? null : (navigator as any).audioSession;
+    if (!session || typeof session.type !== 'string') return () => {};
+    const previous = session.type;
+    // Someone chose a session on purpose (e.g. play-and-record): leave it.
+    if (previous !== 'auto') return () => {};
+    session.type = 'playback';
+    return () => {
       try {
-        target.removeEventListener(e, run, true);
+        if (session.type === 'playback') session.type = previous;
       } catch {}
-    }
-  };
+    };
+  } catch {
+    return () => {};
+  }
 }
 
 export function stopSpeechPlayback(): void {
@@ -658,6 +813,18 @@ function clearMediaSession(announce = true) {
 }
 
 /**
+ * Safety ceiling for one spoken clip, in ms. Uses the larger of the reported
+ * duration and a size estimate at a deliberately low bitrate (2 kB/s, well
+ * below the 4 kB/s of 32 kbps speech MP3), plus slack — a ceiling only exists
+ * for a clip whose `ended` event never comes, so erring long is harmless.
+ */
+export function speechCeilingMs(bytes: number, durationSeconds: number): number {
+  const bySize = (Math.max(0, Number(bytes) || 0) / 2000) * 1000;
+  const byDuration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds * 1000 : 0;
+  return Math.min(Math.max(Math.max(bySize, byDuration) + 5000, 10_000), 600_000);
+}
+
+/**
  * Play synthesized reply audio. Resolves null when playback could not start
  * (autoplay blocked, no element, decode error) so the caller can fall back to
  * the browser voice and say why.
@@ -706,6 +873,8 @@ export async function playSpeechBlob(
       el.onended = null;
       el.onerror = null;
       el.onpause = null;
+      el.onloadedmetadata = null;
+      el.ondurationchange = null;
       clearMediaSession(announce);
       resolve(ok);
     };
@@ -720,9 +889,19 @@ export async function playSpeechBlob(
   el.onended = () => settle(true);
   el.onerror = () => settle(false);
   el.onpause = () => settle(false);
-  // Ceiling in case `ended` never fires: decoding errors on some phones.
-  const ceiling = Number.isFinite(el.duration) && el.duration > 0 ? el.duration * 1000 + 5000 : 60_000;
-  timer = setTimeout(stop, Math.min(Math.max(ceiling, 5000), 180_000));
+  // Ceiling in case `ended` never fires (decoding errors on some phones). It
+  // must never cut a long answer short: the duration is unknown until the
+  // metadata loads, so start from a size-based estimate that is generous for
+  // every format we play, then extend once the real duration is known.
+  const sizeEstimateMs = speechCeilingMs(blob.size, NaN);
+  const arm = (ms: number) => {
+    clearTimeout(timer);
+    timer = setTimeout(stop, ms);
+  };
+  arm(sizeEstimateMs);
+  el.onloadedmetadata = el.ondurationchange = () => {
+    if (!settled) arm(speechCeilingMs(blob.size, el.duration));
+  };
   stopCurrent = stop;
 
   try {

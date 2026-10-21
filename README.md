@@ -73,7 +73,7 @@ Operator checks after changing the deploy target:
 
 - Cloudflare → Workers & Pages → `onebrains` → **Settings → Production branch** must be `main`, otherwise Direct Uploads land in Preview and `onebrains.pages.dev` is never updated.
 - Pages **must not** be Git-connected to this repo; Git integration and Direct Upload conflict.
-- The API Worker secret `GOOGLE_LOGIN_REDIRECT` must be exactly `https://onebrains.pages.dev/api/auth/google/callback`.
+- Google sign-in needs the GitHub repository secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (an OAuth client whose redirect URI is exactly `https://onebrains.pages.dev/api/auth/google/callback`). The deploy applies D1 migrations, creates `TOKEN_ENCRYPTION_KEY` if missing, copies the OAuth pair to the API Worker and derives the callback from `FRONTEND_URL` — see [Google sign-in setup](docs/GOOGLE-AUTH-SETUP.md#4-production-onebrainspagesdev-two-secrets-then-deploy).
 
 ## Free-tier capacity
 

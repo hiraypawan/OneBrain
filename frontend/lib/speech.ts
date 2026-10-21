@@ -334,66 +334,25 @@ export function diagnoseTts(input: {
   return { level: 'ok', code: 'ready', blocking: false, message: null, hint: null };
 }
 
-// Break a cleaned reply into utterance-sized pieces. Chrome's speechSynthesis
-// goes quiet mid-sentence on long utterances (~15 s on desktop; Android may
-// end without firing any event), so each chunk stays comfortably short and
-// splits only on sentence/clause boundaries — never mid-word.
-export function splitForSpeech(text: string, maxChars = 180): string[] {
-  const t = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!t) return [];
-  if (t.length <= maxChars) return [t];
-  // Sentence enders in Latin scripts plus the Devanagari danda (।).
-  const sentences = t.match(/[^.!?।]+[.!?।]*\s*/g) || [t];
-  const out: string[] = [];
-  let buf = '';
-  const flush = () => {
-    if (buf.trim()) out.push(buf.trim());
-    buf = '';
-  };
-  for (const raw of sentences) {
-    const s = raw.trim();
-    if (!s) continue;
-    if (s.length > maxChars) {
-      flush();
-      // One very long sentence: split on commas/semicolons, then on spaces.
-      let piece = '';
-      for (const part of s.split(/(?<=[,;:])\s+/)) {
-        if ((piece + ' ' + part).trim().length > maxChars && piece) {
-          out.push(piece.trim());
-          piece = '';
-        }
-        if (part.length > maxChars) {
-          for (const word of part.split(' ')) {
-            if ((piece + ' ' + word).trim().length > maxChars && piece) {
-              out.push(piece.trim());
-              piece = '';
-            }
-            piece = (piece + ' ' + word).trim();
-          }
-        } else {
-          piece = (piece + ' ' + part).trim();
-        }
-      }
-      if (piece) out.push(piece);
-      continue;
-    }
-    if ((buf + ' ' + s).trim().length > maxChars) flush();
-    buf = (buf + ' ' + s).trim();
-  }
-  flush();
-  return out;
-}
+// Sentence-aware splitting lives in a DOM-free module so the server voice can
+// share it; re-exported here for existing callers.
+export { splitForSpeech, splitForProgressiveSpeech } from './speech-split';
 
 // ---------------------------------------------------------------------------
 // Browser-voice fallback (used only when real reply audio is unavailable)
 //
-// Two engine bugs made this path look like "the app is broken":
-//   1. cancel() immediately followed by speak() drops the utterance on iOS
-//      Safari and macOS Safari — no start event, no error, just silence.
-//   2. Setting u.voice to a voice whose language differs from u.lang (a Hindi
-//      request answered by an English voice, say) also goes silent on some
+// Engine behaviours that made this path look like "the app is broken":
+//   1. iOS WebKit silently DROPS speak() — no event, nothing queued — until one
+//      speak() has run inside a user gesture. That unlock lives in
+//      lib/audio.ts (unlockAudioOutput / primeAudioOutputOnGesture); this file
+//      only reports it truthfully when it happens ('stalled').
+//   2. cancel() immediately followed by speak() can drop the utterance on
+//      Safari. So the engine is only cancelled when it is actually busy, and
+//      then given time to settle before the next speak().
+//   3. Setting u.voice to a voice whose language differs from u.lang (a Hindi
+//      request answered by an English voice, say) goes silent on some
 //      Android/Chrome builds.
-// Both are handled here, plus a one-shot retry with the engine default voice,
+// All are handled here, plus a one-shot retry with the engine default voice,
 // so a failure produces a reason instead of nothing.
 // ---------------------------------------------------------------------------
 
@@ -403,10 +362,10 @@ export function utteranceVoicePlan<V extends VoiceLike>(
   requestedLang: string,
 ): { voice: V | null; lang: string } {
   const voice = (choice?.voice as V) || null;
-  // Keep the exact tag the engine reported (BCP-47 is case-insensitive, but
-  // some engines match the string they published more eagerly).
+  // Keep the exact tag the engine published ("en-IN", not our normalised
+  // "en-in"): BCP-47 is case-insensitive, but Apple's voice lookup is not.
   const requested = String(requestedLang || '').trim() || 'en-IN';
-  const voiceLang = String(choice?.lang || voice?.lang || '').trim();
+  const voiceLang = String(voice?.lang || choice?.lang || '').trim();
   if (voice) return { voice, lang: voiceLang || requested };
   return { voice: null, lang: requested };
 }
@@ -465,13 +424,20 @@ export async function speakChunksWithBrowserVoice(
   const rate = Math.min(2, Math.max(0.1, Number(opts.rate) || 1));
   const plan = utteranceVoicePlan(opts.choice || null, opts.lang);
 
-  // Clear any stuck/queued speech first, then let the engine settle. Doing
-  // this in the same tick as speak() is what swallows the utterance on Safari.
+  // Clear stuck/queued speech only when there is some. cancel() on an idle
+  // engine achieves nothing, and cancel() right before speak() is exactly what
+  // swallows the utterance on Safari — so when we do cancel, let it settle.
+  let busy = false;
   try {
-    synth.cancel();
+    busy = !!synth.speaking || !!synth.pending;
   } catch {}
-  await sleep(30);
-  if (cancelled || !current()) return 'cancelled';
+  if (busy) {
+    try {
+      synth.cancel();
+    } catch {}
+    await sleep(120);
+    if (cancelled || !current()) return 'cancelled';
+  }
 
   /** One utterance; resolves 'ok' | 'stalled' | 'error' | 'cancelled'. */
   const speakOne = (text: string, useVoice: boolean): Promise<BrowserSpeakOutcome> =>
@@ -542,7 +508,8 @@ export async function speakChunksWithBrowserVoice(
   signalSpeechPlayback('start');
   let spokenChars = 0;
   try {
-    for (const chunk of chunks) {
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
       if (cancelled || !current()) return 'cancelled';
       let outcome = await speakOne(chunk, true);
       // Retry once without pinning a voice: an installed-but-broken voice pack
@@ -556,7 +523,10 @@ export async function speakChunksWithBrowserVoice(
         outcome = await speakOne(chunk, false);
       }
       if (outcome === 'ok') {
-        spokenChars += chunk.length;
+        // Count the space that joined this chunk to the next one, so a reply
+        // heard to the end reports its full length — a few characters short
+        // read as "interrupted" and offered a bogus "continue".
+        spokenChars += chunk.length + (i < chunks.length - 1 ? 1 : 0);
         opts.onProgress?.(spokenChars);
         continue;
       }

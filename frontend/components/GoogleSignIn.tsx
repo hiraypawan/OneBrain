@@ -6,6 +6,17 @@ import { platformApi } from "@/lib/platform";
 import { safeReturnPath, signInErrorMessage } from "@/lib/auth-return";
 
 type Availability = "loading" | "ready" | "unconfigured" | "error" | "paused";
+/** Setting names (never values) the server still needs, and the callback to register. */
+type Setup = { missing: string[]; callback: string | null };
+
+function readSetup(caps: any): Setup | null {
+  const g = caps?.googleSignIn;
+  if (!g || !Array.isArray(g.missing)) return null;
+  return {
+    missing: g.missing.filter((m: unknown) => typeof m === "string").slice(0, 8),
+    callback: typeof g.callback === "string" ? g.callback : null,
+  };
+}
 
 export function GoogleSignIn({
   className = "ops-card ops-auth",
@@ -15,7 +26,8 @@ export function GoogleSignIn({
   const [availability, setAvailability] = useState<Availability>("loading"),
     [busy, setBusy] = useState(false),
     [embedded, setEmbedded] = useState(false),
-    [attempt, setAttempt] = useState(0);
+    [attempt, setAttempt] = useState(0),
+    [setup, setSetup] = useState<Setup | null>(null);
   const returnTo = safeReturnPath(next);
   const errorText = signInErrorMessage(error);
 
@@ -37,6 +49,7 @@ export function GoogleSignIn({
     platformApi("/capabilities")
       .then((c) => {
         if (!alive) return;
+        setSetup(readSetup(c));
         setAvailability(
           c.mode && c.mode !== "normal"
             ? "paused"
@@ -119,12 +132,32 @@ export function GoogleSignIn({
           </p>
           <details className="auth-operator">
             <summary>Running this site? How to turn it on</summary>
-            <p>
-              Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and the redirect URL on
-              the platform API, and connect the frontend to it (PLATFORM_API
-              binding or PLATFORM_API_URL). Full steps:
-              docs/GOOGLE-AUTH-SETUP.md.
-            </p>
+            {setup?.missing.length ? (
+              <p data-testid="google-setup-missing">
+                The sign-in server is still missing:{" "}
+                <strong>{setup.missing.join(", ")}</strong>.
+              </p>
+            ) : null}
+            <ol>
+              <li>
+                In Google Cloud Console → APIs &amp; Services → Credentials,
+                create an OAuth client ID of type “Web application”
+                {setup?.callback ? (
+                  <>
+                    {" "}with this exact authorized redirect URI:{" "}
+                    <code data-testid="google-setup-callback">{setup.callback}</code>
+                  </>
+                ) : null}
+                .
+              </li>
+              <li>
+                Add its client ID and client secret as the GitHub repository
+                secrets GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (or as secrets
+                on the API Worker), then run the Cloudflare deploy again. The
+                deploy creates the encryption key itself.
+              </li>
+            </ol>
+            <p>Full steps: docs/GOOGLE-AUTH-SETUP.md.</p>
           </details>
         </>
       ) : embedded ? (

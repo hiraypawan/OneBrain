@@ -29,6 +29,9 @@ export function signInErrorMessage(code: string | null | undefined): string | nu
     case 'expired': return 'That sign-in attempt expired or was opened in a different tab or browser. Start again from this page.';
     case 'configuration': return 'Google sign-in isn’t switched on for this site yet. You can keep using OneBrain on this device.';
     case 'unreachable': return 'OneBrain’s sign-in server couldn’t be reached. Check your connection and try again.';
+    case 'busy': return 'Too many sign-in attempts right now. Wait a minute, then try again.';
+    case 'server': return 'OneBrain’s sign-in server hit an error. Try again in a moment — if it keeps happening, the site operator needs to check the server.';
+    case 'account': return 'This Google account’s email already belongs to an older OneBrain account, and accounts are never merged automatically. Ask the site operator to migrate it.';
     default: return 'Google couldn’t finish signing you in. Try again — if it keeps failing, your account may need support.';
   }
 }

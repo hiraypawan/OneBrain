@@ -2,12 +2,53 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { fail, hash, id, object, randomToken, seal, text, unseal, type PlatformEnv } from './core';
 import { jsonRequest } from './connectors';
 const googleKeys=createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
-export function googleConfigured(env:PlatformEnv){return !!(env.GOOGLE_CLIENT_ID&&env.GOOGLE_CLIENT_SECRET&&env.GOOGLE_LOGIN_REDIRECT&&env.TOKEN_ENCRYPTION_KEY);}
+const CALLBACK_PATH='/api/auth/google/callback';
+/**
+ * The callback Google returns to: the explicit GOOGLE_LOGIN_REDIRECT, otherwise
+ * derived from the site origin (APP_ORIGIN, else the first FRONTEND_URL entry),
+ * which the deploy already sets. One less secret to paste by hand — and Google
+ * still only accepts a callback registered on the OAuth client, exactly.
+ */
+export function loginRedirect(env:PlatformEnv):string|null{
+ const explicit=String(env.GOOGLE_LOGIN_REDIRECT||'').trim();
+ if(explicit)return explicit;
+ const origin=String(env.APP_ORIGIN||'').trim()||String(env.FRONTEND_URL||'').split(',')[0].trim();
+ if(!origin)return null;
+ try{return new URL(origin).origin+CALLBACK_PATH;}catch{return null;}
+}
+/** HTTPS (or loopback HTTP) and the exact callback path, nothing else; null otherwise. */
+function safeRedirect(value:string|null):string|null{
+ if(!value)return null;
+ let redirect:URL;try{redirect=new URL(value);}catch{return null;}
+ if((redirect.protocol!=='https:'&&!(redirect.protocol==='http:'&&['localhost','127.0.0.1'].includes(redirect.hostname)))||redirect.pathname!==CALLBACK_PATH||redirect.search||redirect.hash||redirect.username||redirect.password)return null;
+ return redirect.href;
+}
+/** seal()/unseal() need base64 of exactly 32 bytes; anything else fails at sign-in time. */
+export function validEncryptionKey(value?:string):boolean{
+ try{return !!value&&Uint8Array.from(atob(value),c=>c.charCodeAt(0)).length===32;}catch{return false;}
+}
+/**
+ * What Google sign-in still needs — setting NAMES only, never values — so the
+ * sign-in page and the deploy log can say exactly what to add instead of a
+ * bare "not configured".
+ */
+export function googleSignInStatus(env:PlatformEnv):{ready:boolean;missing:string[];callback:string|null}{
+ const missing:string[]=[];
+ if(!env.GOOGLE_CLIENT_ID)missing.push('GOOGLE_CLIENT_ID');
+ if(!env.GOOGLE_CLIENT_SECRET)missing.push('GOOGLE_CLIENT_SECRET');
+ if(!validEncryptionKey(env.TOKEN_ENCRYPTION_KEY))missing.push('TOKEN_ENCRYPTION_KEY');
+ const callback=safeRedirect(loginRedirect(env));
+ if(!callback)missing.push('GOOGLE_LOGIN_REDIRECT');
+ return {ready:missing.length===0,missing,callback};
+}
+export function googleConfigured(env:PlatformEnv){return googleSignInStatus(env).ready;}
 function config(env:PlatformEnv){
- if(!googleConfigured(env))fail(503,'Google sign-in is not configured. Follow docs/GOOGLE-AUTH-SETUP.md.');
- let redirect:URL;try{redirect=new URL(env.GOOGLE_LOGIN_REDIRECT!);}catch{return fail(503,'Configure a valid Google login callback.');}
- if((redirect.protocol!=='https:'&&!(redirect.protocol==='http:'&&['localhost','127.0.0.1'].includes(redirect.hostname)))||redirect.pathname!=='/api/auth/google/callback'||redirect.search||redirect.hash||redirect.username||redirect.password)fail(503,'Google login requires HTTPS (or local loopback HTTP) and the exact /api/auth/google/callback path.');
- return {clientId:env.GOOGLE_CLIENT_ID!,clientSecret:env.GOOGLE_CLIENT_SECRET!,redirect:redirect.href};
+ const status=googleSignInStatus(env);
+ if(!status.ready){
+  if(status.missing.includes('GOOGLE_LOGIN_REDIRECT')&&env.GOOGLE_LOGIN_REDIRECT)fail(503,'Google login requires HTTPS (or local loopback HTTP) and the exact /api/auth/google/callback path.');
+  fail(503,'Google sign-in is not configured. Follow docs/GOOGLE-AUTH-SETUP.md.');
+ }
+ return {clientId:env.GOOGLE_CLIENT_ID!,clientSecret:env.GOOGLE_CLIENT_SECRET!,redirect:status.callback!};
 }
 export async function startGoogleLogin(env:PlatformEnv){
  const settings=config(env),state=randomToken(),browserToken=randomToken(),verifier=randomToken(),nonce=randomToken(),digest=await hash(state);

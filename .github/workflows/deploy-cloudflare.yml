@@ -56,9 +56,62 @@ jobs:
           cache-dependency-path: workers/api/package-lock.json
       - run: npm ci --no-audit --no-fund
         working-directory: workers/api
+
+      # Google sign-in stores its one-time login state and identities in D1
+      # (migrations/0005_google_identity.sql and later). Wrangler records what is
+      # applied, so this is a no-op once the database is current, and it captures
+      # a backup first. A token without D1 access only warns, never blocks.
+      - name: Apply D1 migrations
+        working-directory: workers/api
+        run: |
+          set -uo pipefail
+          if npx wrangler d1 migrations apply onebrain-db --remote; then
+            echo "D1 schema is current."
+          else
+            echo "::warning::Could not apply D1 migrations to onebrain-db (the Cloudflare API token may lack Account → D1 → Edit). Google sign-in needs them: run 'npx wrangler d1 migrations apply onebrain-db --remote' in workers/api once, or add D1 Edit to the token."
+          fi
+
       - name: Publish onebrain-api
         run: npx wrangler deploy
         working-directory: workers/api
+
+      # Google sign-in needs, on onebrain-api: a 32-byte TOKEN_ENCRYPTION_KEY and
+      # the OAuth client's GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (the callback
+      # URL is derived from FRONTEND_URL). The key is random and only has to stay
+      # the same, so it is created here once when missing and never replaced
+      # (replacing it would void stored connector credentials). The OAuth pair is
+      # copied from GitHub repository secrets of the same names when present, so
+      # they can be managed in one place. Values never appear in the log.
+      - name: Provision sign-in secrets
+        working-directory: workers/api
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          set -uo pipefail
+          if ! names="$(npx wrangler secret list --format json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{for(const x of JSON.parse(s))console.log(x.name)}catch{process.exit(1)}})')"; then
+            echo "::warning::Could not list onebrain-api secrets, so the sign-in secrets were not checked. Google sign-in needs TOKEN_ENCRYPTION_KEY, GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET there (docs/GOOGLE-AUTH-SETUP.md)."
+            exit 0
+          fi
+          if ! grep -qx TOKEN_ENCRYPTION_KEY <<<"$names"; then
+            if node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64"))' | npx wrangler secret put TOKEN_ENCRYPTION_KEY >/dev/null; then
+              echo "Created a random TOKEN_ENCRYPTION_KEY on onebrain-api."
+            else
+              echo "::warning::Could not create TOKEN_ENCRYPTION_KEY on onebrain-api. Set it by hand: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\" | npx wrangler secret put TOKEN_ENCRYPTION_KEY"
+            fi
+          fi
+          if [ -n "${GOOGLE_CLIENT_ID:-}" ] && [ -n "${GOOGLE_CLIENT_SECRET:-}" ]; then
+            ok=1
+            printf '%s' "$GOOGLE_CLIENT_ID" | npx wrangler secret put GOOGLE_CLIENT_ID >/dev/null || ok=0
+            printf '%s' "$GOOGLE_CLIENT_SECRET" | npx wrangler secret put GOOGLE_CLIENT_SECRET >/dev/null || ok=0
+            if [ "$ok" = 1 ]; then
+              echo "Copied GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET from GitHub secrets to onebrain-api."
+            else
+              echo "::warning::Could not copy the Google OAuth secrets to onebrain-api. A dashboard *variable* with the same name blocks a secret: delete it in Workers → onebrain-api → Settings → Variables and Secrets."
+            fi
+          elif ! grep -qx GOOGLE_CLIENT_SECRET <<<"$names"; then
+            echo "::notice::Google sign-in stays off until GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET exist. Add them as GitHub repository secrets (Settings → Secrets and variables → Actions) and re-run this workflow. See docs/GOOGLE-AUTH-SETUP.md."
+          fi
 
   frontend:
     name: Deploy onebrains.pages.dev
@@ -113,6 +166,14 @@ jobs:
             if [ "$code" = "200" ]; then
               echo "PLATFORM_API is reachable through the Pages alias."
               head -c 200 /tmp/capabilities.json; echo
+              # Say plainly whether Google sign-in works, and what it still needs.
+              node -e '
+                const c = JSON.parse(require("fs").readFileSync("/tmp/capabilities.json", "utf8"));
+                const g = c.googleSignIn || {};
+                const callback = g.callback || process.env.PUBLIC_URL + "/api/auth/google/callback";
+                if (c.configured) console.log("Google sign-in is ON. OAuth redirect URI: " + callback);
+                else console.log("::warning title=Google sign-in is off::Missing on onebrain-api: " + ((g.missing || []).join(", ") || "unknown") + ". Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET as GitHub repository secrets, register " + callback + " as an authorized redirect URI on that OAuth client, then re-run this workflow. See docs/GOOGLE-AUTH-SETUP.md.");
+              ' || true
               break
             fi
             if [ "$attempt" = "12" ]; then
@@ -150,4 +211,11 @@ jobs:
           {
             echo "- Expected commit: \`${GITHUB_SHA}\`"
             echo "- URL: ${PUBLIC_URL}"
+            node -e '
+              try {
+                const c = JSON.parse(require("fs").readFileSync("/tmp/capabilities.json", "utf8"));
+                const g = c.googleSignIn || {};
+                console.log(c.configured ? "- Google sign-in: on" : "- Google sign-in: **off** — missing " + ((g.missing || []).join(", ") || "unknown"));
+              } catch { console.log("- Google sign-in: unknown"); }
+            ' 2>/dev/null || true
           } >> "$GITHUB_STEP_SUMMARY"

@@ -133,21 +133,41 @@ export async function synthesizeWithPuter(
   }
 }
 
+/** POST one tier of /api/speech/tts; null on any failure or non-audio answer. */
+async function fetchSpeechTier(
+  body: Record<string, string>,
+  timeoutMs: number,
+): Promise<SpeechAudio | null> {
+  try {
+    const r = await fetch('/api/speech/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return null;
+    return audioBlobFrom(r, await r.blob());
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Ask for spoken audio for `text`.
  *
  * Ordered:
  * 1. Cache hit (instant, 0 network).
- * 2. Caller's own API key (if provided) via `/api/speech/tts`.
- * 3. Free client Puter.js TTS (`puter.ai.txt2speech`).
- * 4. Server `/api/speech/tts` keyless community voice.
+ * 2. Caller's own Gemini key via `/api/speech/tts` (tier "user").
+ * 3. Puter.js TTS (`puter.ai.txt2speech`), only with the explicit opt-in.
+ * 4. The keyless read-aloud voice via `/api/speech/tts` (tier "keyless").
  *
- * Returns null — never throws — whenever audio is unavailable, so callers can
- * fall back to the browser voice.
+ * Each tier is asked for exactly once — the slow user-key attempt is never
+ * repeated inside the keyless request. Returns null — never throws — whenever
+ * audio is unavailable, so callers can fall back to the browser voice.
  */
 export async function synthesizeSpeech(
   req: SpeechRequest,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; userKeyTimeoutMs?: number } = {},
 ): Promise<SpeechAudio | null> {
   const text = String(req.text || '').trim();
   if (!text) return null;
@@ -161,48 +181,29 @@ export async function synthesizeSpeech(
   // credential to it or to Puter; an unknown key type is treated as no key.
   const geminiKey = req.apiProvider === 'gemini' ? req.apiKey : undefined;
 
-  // 1. Caller's own Gemini key: user's quota
+  // 1. Caller's own Gemini key: user's quota. Gemini speech is slower than the
+  //    keyless voice, so it gets its own (longer) allowance.
   if (geminiKey) {
-    try {
-      const r = await fetch('/api/speech/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
-        body: JSON.stringify({ text, lang, userKey: geminiKey }),
-      });
-      if (r.ok) {
-        const body = await r.blob();
-        const audio = audioBlobFrom(r, body);
-        if (audio) {
-          void cacheSpeech(key, audio.blob);
-          return audio;
-        }
-      }
-    } catch {}
+    const owned = await fetchSpeechTier(
+      { text, lang, userKey: geminiKey, tier: 'user' },
+      opts.userKeyTimeoutMs ?? 14_000,
+    );
+    if (owned) {
+      void cacheSpeech(key, owned.blob);
+      return owned;
+    }
   }
 
-  // 2. Free, keyless client Puter.js TTS
+  // 2. Puter.js TTS, only with the separate speech opt-in.
   const puterAudio = await synthesizeWithPuter(text, lang, opts.timeoutMs ?? 10_000, req.puterSpeechEnabled === true);
   if (puterAudio) {
     void cacheSpeech(key, puterAudio.blob);
     return puterAudio;
   }
 
-  // 3. Server fallback route (community audio)
-  try {
-    const r = await fetch('/api/speech/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 8_000),
-      body: JSON.stringify({ text, lang, userKey: geminiKey || undefined }),
-    });
-    if (!r.ok) return null;
-    const body = await r.blob();
-    const audio = audioBlobFrom(r, body);
-    if (!audio) return null;
-    void cacheSpeech(key, audio.blob);
-    return audio;
-  } catch {
-    return null;
-  }
+  // 3. Keyless read-aloud voice. The server answers within ~7 s.
+  const keyless = await fetchSpeechTier({ text, lang, tier: 'keyless' }, opts.timeoutMs ?? 9_000);
+  if (!keyless) return null;
+  void cacheSpeech(key, keyless.blob);
+  return keyless;
 }

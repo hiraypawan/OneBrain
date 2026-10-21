@@ -218,10 +218,12 @@ describe('API request and spending boundaries', () => {
     expect((await stt()).status).toBe(501);
     expect(await (await tts(request({ text: 'Hello' }))).json()).toEqual({ fallback: true });
     const answer = await (await chat(request({ message: 'hello' }))).json(); expect(answer.provider).toBe('offline');
-    // Both speech and chat may only reach the KEYLESS community endpoints —
-    // never a host-key provider, even with those keys configured.
+    // Both speech and chat may only reach KEYLESS endpoints (community chat,
+    // the public read-aloud voice) — never a host-key provider, even with
+    // those keys configured.
     expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(2);
-    for (const call of fetch.mock.calls) expect(String((call as unknown[])[0])).toMatch(/^https:\/\/text\.pollinations\.ai\//);
+    for (const call of fetch.mock.calls)
+      expect(String((call as unknown[])[0])).toMatch(/^https:\/\/(text\.pollinations\.ai|translate\.google\.(com|co\.in))\//);
     const dumped = JSON.stringify(fetch.mock.calls);
     expect(dumped).not.toContain('test-only-host-key');
     expect(dumped).not.toContain('generativelanguage');

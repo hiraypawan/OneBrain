@@ -1,25 +1,26 @@
-// Server-side text-to-speech providers for OneBrain replies.
-// Real spoken audio for OneBrain replies.
+// Server-side text-to-speech for OneBrain replies: real spoken audio bytes.
 //
-// Why this exists: browser speechSynthesis is the only thing this app used to
-// rely on, and it is the least reliable audio path on the platforms people
-// actually use. It cannot be routed to a chosen speaker (setSinkId does not
-// apply to it), iOS Safari refuses to start it without a fresh user gesture,
-// Android Chrome frequently reports zero voices, and several engines swallow
-// utterances with no error event at all. Result: text-only replies.
+// Why this exists: browser speechSynthesis is the least reliable audio path on
+// the platforms people actually use. It cannot be routed to a chosen speaker
+// (setSinkId does not apply to it), iOS Safari drops it until the page has
+// spoken once inside a tap, Android Chrome frequently reports zero voices, and
+// several engines swallow utterances with no error event at all.
 //
 // Audio BYTES play through an <audio> element instead, which every platform
 // supports, follows the OS output automatically (neckband / earbuds / speaker),
-// can be pinned with setSinkId on Chromium, and shows up in the lock screen.
+// can be pinned with setSinkId on Chromium, shows up on the lock screen — and
+// on iPhone is not muted by the Ring/Silent switch.
 //
 // Hosting cost stays at zero: HOST provider keys are never read here. Ordered:
-//   1. the user's own AI key (their quota, their plan) — best quality, Indian
-//      languages included;
-//   2. a keyless community audio model, so zero-setup users still get sound;
+//   1. the user's own Gemini key (their quota, their plan) — best quality;
+//   2. a keyless read-aloud voice, so zero-setup users still get sound;
 //   3. `{ fallback: true }` — the client then uses the browser voice.
 //
-// The client always has a working fallback, so a provider outage degrades to
-// the previous behaviour instead of silence.
+// Every tier is time-boxed so this route answers before the client gives up
+// on it, and the client always has a working fallback, so a provider outage
+// degrades to the browser voice instead of silence.
+
+import { splitForSpeech } from './speech-split';
 
 export const MAX_TEXT = 1500;
 export const MAX_KEY = 256;
@@ -53,13 +54,6 @@ export function geminiVoiceFor(lang: string): string {
     de: 'Charon',
   };
   return map[base] || 'Puck';
-}
-
-// Community audio model voices (OpenAI-compatible names).
-export function communityVoiceFor(lang: string): string {
-  const base = String(lang || '').toLowerCase().split('-')[0];
-  const indian = ['hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn', 'ml', 'pa', 'ur'];
-  return indian.includes(base) ? 'alloy' : 'nova';
 }
 
 /** Base64 (possibly data-URL wrapped) -> bytes. */
@@ -107,6 +101,11 @@ export function pcmToWav(
   return out;
 }
 
+export type SpeechBytes = { bytes: Uint8Array; mime: string };
+
+/** Milliseconds left before `deadline` (an epoch-ms timestamp). */
+const timeLeft = (deadline: number) => deadline - Date.now();
+
 /**
  * Speech built on the CALLER's own key. Their plan, their quota — the host
  * never spends anything. Returns null on any failure so the next tier runs.
@@ -115,15 +114,18 @@ export async function userKeySpeech(
   text: string,
   lang: string,
   userKey: string,
-): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  deadline = Date.now() + 12_000,
+): Promise<SpeechBytes | null> {
   for (const model of GEMINI_TTS_MODELS) {
+    const left = timeLeft(deadline);
+    if (left < 500) break;
     try {
       const r = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': userKey },
-          signal: AbortSignal.timeout(20_000),
+          signal: AbortSignal.timeout(left),
           body: JSON.stringify({
             contents: [{ parts: [{ text }] }],
             generationConfig: {
@@ -156,52 +158,198 @@ export async function userKeySpeech(
   return null;
 }
 
-/**
- * Keyless community audio (the same family of keyless providers this app
- * already uses for chat). Zero setup for the user, no host key involved.
- */
-export async function communitySpeech(
-  text: string,
-  lang: string,
-): Promise<{ bytes: Uint8Array; mime: string } | null> {
-  const voice = communityVoiceFor(lang);
-  // Two shapes of the same keyless service: the plain GET returns audio bytes,
-  // the OpenAI-compatible POST returns base64 audio inside JSON. Trying both
-  // means one provider outage does not take spoken replies down with it.
-  try {
-    const url = `https://text.pollinations.ai/${encodeURIComponent(text)}?model=openai-audio&voice=${encodeURIComponent(voice)}`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-    if (r.ok) {
-      const type = String(r.headers.get('content-type') || '');
-      if (/^audio\//i.test(type)) {
-        const bytes = new Uint8Array(await r.arrayBuffer());
-        if (bytes.byteLength >= 1000)
-          return { bytes, mime: /mp3|mpeg/i.test(type) ? 'audio/mpeg' : type.split(';')[0] };
-      }
-    }
-  } catch {
-    // fall through to the JSON shape
+// ---------------------------------------------------------------------------
+// Keyless read-aloud voice (Google Translate's public text-to-speech)
+//
+// The keyless model this route used before (Pollinations `openai-audio`) was
+// withdrawn — it now answers "Model not found" — so every zero-setup user lost
+// spoken replies and fell back to the browser voice, which iPhones refuse to
+// start until the page has been tapped. Google Translate's read-aloud voice
+// needs no key, answers in well under a second, and speaks the languages this
+// app uses: English with an Indian accent (served from translate.google.co.in,
+// as gTTS does with tld="co.in"), Hindi, Marathi, Bengali, Gujarati, Punjabi,
+// Tamil, Telugu, Kannada, Malayalam, Urdu and more.
+//
+// It is an unofficial endpoint, so: requests stay within its 200-character
+// limit, everything is time-boxed, nothing is retried in a loop, and any
+// failure returns null so the browser voice takes over.
+// ---------------------------------------------------------------------------
+
+// Languages Google's read-aloud voice speaks (the list gTTS ships).
+const READ_ALOUD_LANGS = new Set([
+  'af', 'am', 'ar', 'bg', 'bn', 'bs', 'ca', 'cs', 'cy', 'da', 'de', 'el', 'en', 'es', 'et', 'eu',
+  'fi', 'fr', 'gl', 'gu', 'ha', 'hi', 'hr', 'hu', 'id', 'is', 'it', 'iw', 'ja', 'jw', 'km', 'kn',
+  'ko', 'la', 'lt', 'lv', 'ml', 'mr', 'ms', 'my', 'ne', 'nl', 'no', 'pa', 'pl', 'pt', 'ro', 'ru',
+  'si', 'sk', 'sq', 'sr', 'su', 'sv', 'sw', 'ta', 'te', 'th', 'tl', 'tr', 'uk', 'ur', 'vi',
+]);
+const READ_ALOUD_ALIASES: Record<string, string> = { he: 'iw', jv: 'jw', fil: 'tl', nb: 'no', nn: 'no' };
+const READ_ALOUD_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+/** translate_tts accepts up to 200 characters per request. */
+export const READ_ALOUD_GET_MAX = 180;
+/** The batchexecute RPC accepts up to 100 characters per request (as gTTS uses it). */
+export const READ_ALOUD_RPC_MAX = 100;
+const READ_ALOUD_PARALLEL = 3;
+const READ_ALOUD_REQUEST_MS = 4_500;
+
+/** Google read-aloud language + host for a BCP-47 tag; null when unsupported. */
+export function readAloudTarget(lang: string): { tl: string; host: string } | null {
+  const norm = String(lang || '').trim().toLowerCase().replace(/_/g, '-');
+  const [rawBase = '', region = ''] = norm.split('-');
+  if (!rawBase) return { tl: 'en', host: 'translate.google.co.in' };
+  if (rawBase === 'zh') {
+    return { tl: region === 'tw' || region === 'hk' ? 'zh-TW' : 'zh-CN', host: 'translate.google.com' };
   }
+  const base = READ_ALOUD_ALIASES[rawBase] || rawBase;
+  if (!READ_ALOUD_LANGS.has(base)) return null;
+  const indianEnglish = base === 'en' && (!region || region === 'in');
+  return { tl: base, host: indianEnglish ? 'translate.google.co.in' : 'translate.google.com' };
+}
+
+/** The read-aloud GET URL for one piece of text. */
+export function readAloudUrl(host: string, tl: string, q: string, idx = 0, total = 1): string {
+  const params = new URLSearchParams({
+    ie: 'UTF-8',
+    client: 'tw-ob',
+    tl,
+    q,
+    total: String(total),
+    idx: String(idx),
+    textlen: String(q.length),
+  });
+  return `https://${host}/translate_tts?${params.toString()}`;
+}
+
+/** Form body for the batchexecute read-aloud RPC (the request gTTS sends). */
+export function readAloudRpcBody(text: string, tl: string): string {
+  const parameter = JSON.stringify([text, tl, null, 'null']);
+  const rpc = JSON.stringify([[['jQ1olc', parameter, null, 'generic']]]);
+  return `f.req=${encodeURIComponent(rpc)}&`;
+}
+
+/** Pull the base64 MP3 out of a batchexecute response; null when absent. */
+export function readAloudRpcAudio(body: string): Uint8Array | null {
+  const match = /jQ1olc","\[\\"(.*?)\\"\]/.exec(String(body || ''));
+  if (!match) return null;
+  const b64 = match[1]
+    .replace(/\\\//g, '/')
+    .replace(/\\u003d/gi, '=')
+    .replace(/\\u002b/gi, '+');
   try {
-    const r = await fetch('https://text.pollinations.ai/openai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(20_000),
-      body: JSON.stringify({
-        model: 'openai-audio',
-        modalities: ['text', 'audio'],
-        audio: { voice, format: 'mp3' },
-        messages: [{ role: 'user', content: text }],
-      }),
-    });
-    if (!r.ok) return null;
-    const j: any = await r.json();
-    const b64 = j?.choices?.[0]?.message?.audio?.data || j?.audio?.data || j?.data;
-    if (typeof b64 !== 'string' || !b64) return null;
     const bytes = base64ToBytes(b64);
-    if (bytes.byteLength < 1000) return null;
-    return { bytes, mime: 'audio/mpeg' };
+    return bytes.byteLength >= 200 ? bytes : null;
   } catch {
     return null;
   }
+}
+
+export function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.byteLength;
+  }
+  return out;
+}
+
+async function readAloudViaGet(
+  q: string,
+  target: { tl: string; host: string },
+  idx: number,
+  total: number,
+  deadline: number,
+): Promise<Uint8Array | null> {
+  const hosts = target.host === 'translate.google.com' ? [target.host] : [target.host, 'translate.google.com'];
+  for (const host of hosts) {
+    const left = timeLeft(deadline);
+    if (left < 300) return null;
+    try {
+      const r = await fetch(readAloudUrl(host, target.tl, q, idx, total), {
+        headers: {
+          'User-Agent': READ_ALOUD_UA,
+          Referer: `https://${host}/`,
+          Accept: 'audio/mpeg,audio/*;q=0.9,*/*;q=0.5',
+        },
+        signal: AbortSignal.timeout(Math.min(left, READ_ALOUD_REQUEST_MS)),
+      });
+      if (!r.ok) continue;
+      // A blocked request comes back as an HTML/captcha page: never "audio".
+      if (!/^audio\//i.test(String(r.headers.get('content-type') || ''))) continue;
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      if (bytes.byteLength >= 200) return bytes;
+    } catch {
+      // next host / the RPC shape
+    }
+  }
+  return null;
+}
+
+async function readAloudViaRpc(
+  q: string,
+  target: { tl: string; host: string },
+  deadline: number,
+): Promise<Uint8Array | null> {
+  const pieces = splitForSpeech(q, READ_ALOUD_RPC_MAX);
+  const out: Uint8Array[] = [];
+  for (const piece of pieces) {
+    const left = timeLeft(deadline);
+    if (left < 300) return null;
+    try {
+      const r = await fetch(`https://${target.host}/_/TranslateWebserverUi/data/batchexecute`, {
+        method: 'POST',
+        headers: {
+          'User-Agent': READ_ALOUD_UA,
+          Referer: `https://${target.host}/`,
+          'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+        },
+        body: readAloudRpcBody(piece, target.tl),
+        signal: AbortSignal.timeout(Math.min(left, READ_ALOUD_REQUEST_MS)),
+      });
+      if (!r.ok) return null;
+      const audio = readAloudRpcAudio(await r.text());
+      if (!audio) return null;
+      out.push(audio);
+    } catch {
+      return null;
+    }
+  }
+  return out.length ? concatBytes(out) : null;
+}
+
+/**
+ * Keyless spoken audio (MP3) for `text`, or null. Pieces are fetched a few at
+ * a time and joined in order; if any piece fails the whole answer falls back,
+ * because a hole in the middle of a sentence is worse than the browser voice.
+ */
+export async function keylessSpeech(
+  text: string,
+  lang: string,
+  deadline = Date.now() + 7_000,
+): Promise<SpeechBytes | null> {
+  const target = readAloudTarget(lang);
+  if (!target) return null;
+  const parts = splitForSpeech(text, READ_ALOUD_GET_MAX);
+  if (!parts.length) return null;
+  const audio: Array<Uint8Array | null> = new Array(parts.length).fill(null);
+  let failed = false;
+  let next = 0;
+  const worker = async () => {
+    while (!failed && next < parts.length) {
+      const idx = next++;
+      const piece =
+        (await readAloudViaGet(parts[idx], target, idx, parts.length, deadline)) ||
+        (failed ? null : await readAloudViaRpc(parts[idx], target, deadline));
+      if (!piece) {
+        failed = true;
+        return;
+      }
+      audio[idx] = piece;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(READ_ALOUD_PARALLEL, parts.length) }, worker));
+  if (failed || audio.some((a) => !a)) return null;
+  const bytes = concatBytes(audio as Uint8Array[]);
+  return bytes.byteLength >= 500 ? { bytes, mime: 'audio/mpeg' } : null;
 }

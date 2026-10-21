@@ -8,6 +8,8 @@ export type PlatformEnv = {
   DB: D1Database; JWT_SECRET?: string; TOKEN_ENCRYPTION_KEY?: string;
   OUTBOUND_HOSTS?: string; GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_CONNECT_REDIRECT?: string; GOOGLE_LOGIN_REDIRECT?: string; APP_ORIGIN?: string;
+  /** Public site origin(s), comma-separated; the first one names the default Google login callback. */
+  FRONTEND_URL?: string;
   /** Comma-separated operator emails allowed to grant plans and mint keys. */
   ENTITLEMENT_ADMINS?: string;
   /** '1' honours the old browser-check-digit beta keys. Off by default: they are mintable by anyone reading this repository. */

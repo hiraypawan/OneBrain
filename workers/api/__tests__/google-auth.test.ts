@@ -2,7 +2,8 @@ import {beforeAll,afterAll,afterEach,describe,it,expect,vi} from 'vitest';
 import {Miniflare} from 'miniflare';
 import {applyMigrations} from './helpers/migrations';
 import {generateKeyPair,exportJWK,SignJWT} from 'jose';
-import {startGoogleLogin,finishGoogleLogin,sessionUser} from '../src/platform/google-auth';
+import {startGoogleLogin,finishGoogleLogin,sessionUser,googleSignInStatus,loginRedirect,validEncryptionKey} from '../src/platform/google-auth';
+import {app} from '../src/index';
 import {hash} from '../src/platform/core';
 let mf:Miniflare,env:any,keys:any,jwk:any;
 beforeAll(async()=>{
@@ -55,5 +56,48 @@ describe('Google-only authorization code authentication',()=>{
  });
  it('rejects an expired flow before contacting Google',async()=>{
   const {body,network}=await attempt();await env.DB.prepare('UPDATE google_login_states SET expires_at=0 WHERE state_hash=?').bind(await hash(body.state)).run();await expect(finishGoogleLogin(env,body)).rejects.toThrow();expect(network).not.toHaveBeenCalled();
+ });
+});
+describe('Google sign-in readiness (what the sign-in page and deploy log report)',()=>{
+ const base={DB:{} as any};
+ it('names exactly what is missing, never a value',()=>{
+  const status=googleSignInStatus({...base,GOOGLE_CLIENT_ID:'id-value-123',FRONTEND_URL:'https://onebrains.pages.dev'});
+  expect(status.ready).toBe(false);
+  expect(status.missing).toEqual(['GOOGLE_CLIENT_SECRET','TOKEN_ENCRYPTION_KEY']);
+  expect(status.callback).toBe('https://onebrains.pages.dev/api/auth/google/callback');
+  expect(JSON.stringify(status)).not.toContain('id-value-123');
+ });
+ it('derives the callback from the site origin so no redirect secret is needed',()=>{
+  expect(loginRedirect({...base,FRONTEND_URL:'https://onebrains.pages.dev'})).toBe('https://onebrains.pages.dev/api/auth/google/callback');
+  expect(loginRedirect({...base,FRONTEND_URL:'https://a.example, https://b.example'})).toBe('https://a.example/api/auth/google/callback');
+  expect(loginRedirect({...base,APP_ORIGIN:'http://localhost:3000',FRONTEND_URL:'https://a.example'})).toBe('http://localhost:3000/api/auth/google/callback');
+  expect(loginRedirect({...base,GOOGLE_LOGIN_REDIRECT:'https://custom.example/api/auth/google/callback',FRONTEND_URL:'https://a.example'})).toBe('https://custom.example/api/auth/google/callback');
+  expect(loginRedirect(base)).toBeNull();
+ });
+ it('fails closed on an unsafe explicit callback instead of silently deriving another',()=>{
+  const status=googleSignInStatus({...env,GOOGLE_LOGIN_REDIRECT:'http://evil.example/api/auth/google/callback',FRONTEND_URL:'https://onebrains.pages.dev'});
+  expect(status.ready).toBe(false);expect(status.missing).toEqual(['GOOGLE_LOGIN_REDIRECT']);expect(status.callback).toBeNull();
+ });
+ it('treats a malformed encryption key as missing (it would fail at sign-in time)',()=>{
+  expect(validEncryptionKey(btoa('01234567890123456789012345678901'))).toBe(true);
+  expect(validEncryptionKey('not base64!')).toBe(false);
+  expect(validEncryptionKey(btoa('too short'))).toBe(false);
+  expect(validEncryptionKey(undefined)).toBe(false);
+ });
+ it('signs in with the derived callback when GOOGLE_LOGIN_REDIRECT is not set',async()=>{
+  const {GOOGLE_LOGIN_REDIRECT:_unused,...rest}=env;
+  const start=await startGoogleLogin({...rest,FRONTEND_URL:'https://onebrains.pages.dev'});
+  expect(new URL(start.url).searchParams.get('redirect_uri')).toBe('https://onebrains.pages.dev/api/auth/google/callback');
+ });
+ it('publishes readiness on /capabilities without leaking secrets',async()=>{
+  const secrets={GOOGLE_CLIENT_ID:'public-client-id',GOOGLE_CLIENT_SECRET:'super-secret-value',TOKEN_ENCRYPTION_KEY:btoa('01234567890123456789012345678901')};
+  const r=await app.request('/api/platform/capabilities',{},{DB:env.DB,FRONTEND_URL:'https://onebrains.pages.dev',API_RATE_LIMITER:{limit:async()=>({success:true})},...secrets});
+  const body:any=await r.json();
+  expect(r.status).toBe(200);expect(body.configured).toBe(true);expect(body.encryptedConnections).toBe(true);
+  expect(body.googleSignIn).toEqual({ready:true,missing:[],callback:'https://onebrains.pages.dev/api/auth/google/callback'});
+  const dumped=JSON.stringify(body);
+  expect(dumped).not.toContain('super-secret-value');expect(dumped).not.toContain(secrets.TOKEN_ENCRYPTION_KEY);
+  const off:any=await (await app.request('/api/platform/capabilities',{},{DB:env.DB,FRONTEND_URL:'https://onebrains.pages.dev',API_RATE_LIMITER:{limit:async()=>({success:true})}})).json();
+  expect(off.configured).toBe(false);expect(off.googleSignIn.missing).toEqual(['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','TOKEN_ENCRYPTION_KEY']);
  });
 });

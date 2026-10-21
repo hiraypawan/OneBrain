@@ -30,11 +30,23 @@ the browser voice kept only as a fallback.
 
 1. **Provider chain — `POST /api/speech/tts`** (`frontend/app/api/speech/tts/route.ts`,
    helpers in `frontend/lib/tts-server.ts`):
-   - the caller's own AI key (their quota, their plan) → natural speech with
+   - the caller's own Gemini key (their quota, their plan) → natural speech with
      Indian-language support;
-   - a keyless community audio model → sound for zero-setup users;
+   - a keyless read-aloud voice (Google Translate's public text-to-speech:
+     English with an Indian accent via `translate.google.co.in`, Hindi,
+     Marathi, Bengali, Gujarati, Punjabi, Tamil, Telugu, Kannada, Malayalam,
+     Urdu and more) → sound for zero-setup users. Text goes out in ≤180-character
+     pieces (the endpoint's limit is 200), fetched three at a time and joined
+     in order; a blocked request falls back to the `batchexecute` RPC that gTTS
+     uses; any missing piece returns the whole reply to the browser voice;
    - otherwise `{ fallback: true }`, and the client uses the browser voice.
+   Each tier has a time budget (user key 12 s, keyless 7 s) inside the
+   client's own timeout, and the client asks for each tier once (`tier:
+   "user"` / `"keyless"`), so a slow key is never paid for twice.
    Host provider keys are never read, so hosting cost stays at zero.
+   *(Until 2026-10-21 the keyless tier was Pollinations `openai-audio`, which
+   was withdrawn upstream — "Model not found" — so every zero-setup reply had
+   silently dropped to the browser voice.)*
 2. **Client audio engine** (`frontend/lib/tts.ts`, `frontend/lib/audio.ts`):
    audio is cached in Cache Storage by text+language, played through one shared
    `<audio>` element, published to the Media Session (lock screen, headset
@@ -46,17 +58,40 @@ the browser voice kept only as a fallback.
    are — is used with nothing to configure. On Chromium the reply is routed
    through `setSinkId`; on iOS/Safari the system alone decides, and it already
    plays through the connected Bluetooth device.
-4. **Audio unlock on first gesture** (`primeAudioOutputOnGesture`): one tap
-   anywhere unlocks the shared element for the whole session, which is what iOS
-   requires before later programmatic playback.
+4. **Audio unlock on real gestures** (`unlockAudioOutput`,
+   `primeAudioOutputOnGesture`). iOS WebKit *drops* `speechSynthesis.speak()` —
+   no event, nothing queued — until one `speak()` has run **during** a user
+   gesture (`SpeechSynthesis::speak`, `RequireUserGestureForSpeechStart`), and
+   the `<audio>` element needs `play()` *called* inside a gesture once. The
+   unlock primes the speech engine and calls `play()` **synchronously** in the
+   handler (never after an `await`), listens only to activation-triggering
+   events (`click`, `touchend`, `pointerup` for touch/pen, `keydown`,
+   `mousedown` — a touch `pointerdown` does not count), and keeps trying on
+   later taps until both are confirmed. *(Before 2026-10-21 the engine was
+   primed after `await el.play()` and only on the first `pointerdown`, so on
+   iPhone it was never unlocked: "Speech was queued but never started".)*
+   A playing reply is never paused or replaced by an unlock.
 5. **Hardened browser-voice fallback** (`speakChunksWithBrowserVoice`):
-   the `cancel()`/`speak()` race is no longer possible, `voice` and `lang` are
-   always kept consistent, a stall is detected in 5 s and retried once with the
-   engine default voice, and Chrome's long-speech pause is resumed.
+   the engine is cancelled only when it is actually busy (and then given time
+   to settle), `voice` and `lang` are always kept consistent — with the engine's
+   exact tag (`en-IN`, not `en-in`) — a stall is detected in 5 s and retried
+   once with the engine default voice, and Chrome's long-speech pause is
+   resumed. On iPhone/iPad the recognizer is closed while the built-in voice
+   talks (iOS turns "system speech" down while the mic is open), and when
+   nothing is capturing a `playback` audio session is requested (iOS 17+) so
+   the Ring/Silent switch does not mute it; a one-time tip mentions Silent mode.
+   Whatever the audio voice could not finish is spoken by the browser voice
+   (never the already-heard part again), so a partial outage is not silence.
+   Replies are fetched progressively: a short first piece (≤220 characters)
+   so the first words come quickly, then ≤900-character pieces fetched while
+   the previous one plays.
 6. **Automated browsers are skipped deliberately**: headless/WebDriver sessions have no audio device and must not send reply text to a provider, so they go straight to the browser voice (`navigator.webdriver`). An operator can force the same with `NEXT_PUBLIC_ENABLE_CLOUD_SPEECH=0`.
 7. **Honest reporting and a one-tap retry**: every outcome is logged as a
    `tts-*` background event, and when audio could not play the notice offers
-   **Hear it**, which replays the prepared audio from a real tap (always allowed).
+   **Hear it** ("Say that again" / "Play it now" on the voice screen). It is
+   available for every reply — not only when audio was cached — and unlocks
+   sound inside the tap before replaying the cached audio (when it covers the
+   whole reply) or speaking the reply again.
    Silent Mode keeps its explicit "text only" notice.
 
 ## What to verify on a real device
@@ -78,8 +113,13 @@ says so out loud on screen.
 
 ## Limits
 
-- Community-tier speech is a third-party service: quality and availability are
-  not guaranteed, and offline use falls back to the browser voice.
+- The keyless read-aloud voice is an unofficial third-party endpoint: quality
+  and availability are not guaranteed (Google may rate-limit shared server
+  addresses), and offline use falls back to the browser voice. A user's own
+  Gemini key is the dependable natural-voice option.
+- On iPhone, the built-in voice can still be quiet or on the earpiece while a
+  voice session holds the microphone; the read-aloud audio path does not have
+  that problem, which is why it is tried first.
 - A pinned output device is honoured only where the browser supports
   `setSinkId` (Chromium). Everywhere else the OS decides.
 - Reply language coverage depends on the provider; the browser voice still
