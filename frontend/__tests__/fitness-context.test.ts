@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatLogsForContext, type FitnessLog } from '../lib/fitness';
+import { formatLogsForContext, type FitnessLog } from '../lib/features/fitness';
 
 const HOUR = 3600000;
 const log = (over: Partial<FitnessLog> = {}): FitnessLog => ({

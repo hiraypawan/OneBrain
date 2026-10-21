@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   detectEmailIntent, extractEmailSlots, missingSlots, slotQuestion,
   fillSlotFromAnswer, buildDraft, retone, mailtoHref,
-} from '../lib/email';
+} from '../lib/features/email';
 
 describe('detectEmailIntent', () => {
   it('detects leave applications', () => {

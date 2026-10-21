@@ -1,7 +1,7 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {NextRequest} from 'next/server';
 import {GET} from '../app/api/platform/[...path]/route';
-import {shouldRestoreSession,SESSION_HINT} from '../lib/session-hint';
+import {shouldRestoreSession,SESSION_HINT} from '../lib/platform/session-hint';
 afterEach(()=>{vi.unstubAllGlobals();vi.unstubAllEnvs();vi.restoreAllMocks();vi.resetModules();});
 describe('request economy without cached authorization',()=>{
  it('skips guest hydration and delegates Account/Connected checks to their own verifier',()=>{
@@ -25,13 +25,13 @@ describe('request economy without cached authorization',()=>{
  });
  it('reuses only public capabilities; identity reads are never cached',async()=>{
   const fetch=vi.fn().mockImplementation(async()=>new Response('{"ok":true}'));vi.stubGlobal('fetch',fetch);
-  const {platformApi}=await import('../lib/platform');
+  const {platformApi}=await import('../lib/platform/platform');
   await platformApi('/capabilities');await platformApi('/capabilities');expect(fetch).toHaveBeenCalledOnce();
   await platformApi('/me');await platformApi('/me');expect(fetch).toHaveBeenCalledTimes(3);
  });
  it('does not automatically retry overloads and never blocks explicit sign-out on a client cooldown',async()=>{
   const fetch=vi.fn().mockResolvedValueOnce(new Response('{"error":"Capacity unavailable"}',{status:503,headers:{'Retry-After':'60'}})).mockImplementation(async()=>new Response('{"ok":true}'));vi.stubGlobal('fetch',fetch);
-  const {platformApi}=await import('../lib/platform');
+  const {platformApi}=await import('../lib/platform/platform');
   await expect(platformApi('/me')).rejects.toThrow('Capacity unavailable');
   await expect(platformApi('/spaces')).rejects.toThrow('Wait before retrying');expect(fetch).toHaveBeenCalledOnce();
   await platformApi('/logout','POST',{});expect(fetch).toHaveBeenCalledTimes(2);

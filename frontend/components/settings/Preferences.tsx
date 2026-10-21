@@ -1,7 +1,7 @@
 "use client";
 import { useAssistantStore } from "@/store/assistant";
-import { normalizeProactive } from "@/lib/proactive";
-import { environmentTuning } from "@/lib/environment";
+import { normalizeProactive } from "@/lib/features/proactive";
+import { environmentTuning } from "@/lib/voice/environment";
 export function ConversationPreferences() {
   const state = useAssistantStore(),
     prefs = normalizeProactive(state.settings.proactive);

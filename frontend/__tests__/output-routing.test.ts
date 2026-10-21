@@ -5,7 +5,7 @@ import {
   refreshOutputRouting,
   resolvedOutput,
   startOutputRouting,
-} from '../lib/audio';
+} from '../lib/voice/audio';
 
 const DEVICES = [
   { kind: 'audioinput', deviceId: 'mic-1', label: 'Phone microphone' },

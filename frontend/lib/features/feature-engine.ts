@@ -8,8 +8,8 @@
 import { aiKeyConfig, useAssistantStore } from '@/store/assistant';
 import { useWorkspaceStore } from '@/store/workspace';
 import { useFeaturesStore, type FeatureCard } from '@/store/features';
-import { askBrain, isLiveAnswer } from './brain';
-import { fetchWikipedia } from './knowledge';
+import { askBrain, isLiveAnswer } from '../ai/brain';
+import { fetchWikipedia } from '../ai/knowledge';
 import {
   detectEmailIntent, extractEmailSlots, missingSlots, slotQuestion,
   fillSlotFromAnswer, buildDraft, retone, mailtoHref, draftSpokenSummary,
@@ -24,8 +24,8 @@ import {
   type TrackLens, type TrackRangeKind,
 } from './track';
 import { didYouMean, isAffirmative, isNegative, askableTranscript } from './fuzzy';
-import { suggestStationCorrection } from './pronunciation';
-import { parseVoiceCommand, parseMediaCommand } from './commands';
+import { suggestStationCorrection } from '../voice/pronunciation';
+import { parseVoiceCommand, parseMediaCommand } from '../voice/commands';
 import { parseReminderIntent } from './reminders';
 import { INTENT_HINTS, type IntentHint } from './intents';
 import { buildTodoList, speakTodoSummary, todoCounts } from './todo';
@@ -37,7 +37,7 @@ import {
   detectResearchIntent, planEntitySearches, parseSynthesis, ungroundedBrief,
   RESEARCH_SYSTEM, type ResearchSource,
 } from './research';
-import { gatherSources } from './websearch';
+import { gatherSources } from '../ai/websearch';
 import { detectTransitIntent, runTransit } from './transit';
 import {
   parseDateRef, detectRecallIntent, summarizeRange, formatCitation,
@@ -45,7 +45,7 @@ import {
 import {
   detectPersonaIntent, personaById, personaPrompt, offlineTutorCorrections,
   formatCorrections, offlineCoachReply, extractModeNote,
-} from './personas';
+} from '../ai/personas';
 import {
   detectTranslatorIntent, detectLang, translationPrompt, TRANSLATE_SYSTEM,
   offlineTranslate, pairById, LANG_NAMES,
@@ -69,7 +69,7 @@ import {
 } from './briefing';
 import { detectScribeIntent, extractMinutes, minutesToTasks, spokenMinutes } from './scribe';
 import { fetchConnectedOpenTasks } from './connected-brief';
-import { planAllows, quotaMessage, FREE_LIMITS } from './plans';
+import { planAllows, quotaMessage, FREE_LIMITS } from '../platform/plans';
 
 export interface FeatureTurn {
   messages: { text: string; meta?: string }[];
@@ -703,7 +703,7 @@ export async function handleFeatureTurn(
     const rawKey = unlockM[1];
     const signedIn = !!useAssistantStore.getState().isAuthenticated;
     if (signedIn) {
-      const { redeemKeyOnServer } = await import('./entitlements');
+      const { redeemKeyOnServer } = await import('../platform/entitlements');
       const result = await redeemKeyOnServer(rawKey);
       if (!result.ok) {
         const msg = `The server refused that key: ${result.error}`;
@@ -713,7 +713,7 @@ export async function handleFeatureTurn(
       const msg = `${result.entitlement.plan.toUpperCase()} redeemed on your account. It now applies on every device you sign in on.`;
       return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'unlocked' } };
     }
-    const { validateBetaKey } = await import('./plans');
+    const { validateBetaKey } = await import('../platform/plans');
     const plan = validateBetaKey(rawKey);
     if (!plan) {
       const msg = 'That key did not validate. Check the code — format OB-PRO-XXXXXX — or sign in and redeem it on your account.';
@@ -783,7 +783,7 @@ async function serverQuotaRefusal(
 ): Promise<string | null> {
   try {
     if (!useAssistantStore.getState().isAuthenticated) return null;
-    const { consumeOnServer } = await import('./entitlements');
+    const { consumeOnServer } = await import('../platform/entitlements');
     const result = await consumeOnServer(feature, units);
     if (!result.serverAnswered || result.allowed) return null;
     return result.message || `Your account allowance for ${feature} is reached. Nothing was charged.`;
@@ -1231,7 +1231,7 @@ async function storyTurn(text: string, action: 'enter' | 'continue' | 'new', kid
 /**
  * Live transit: Mumbai local, metro, Indian Railways and flights.
  * Every number here comes from a fetched source, and the card always shows
- * which one and when — see lib/transit.ts for what each provider can and
+ * which one and when — see lib/features/transit.ts for what each provider can and
  * cannot honestly claim.
  */
 async function transitTurn(intent: ReturnType<typeof detectTransitIntent> & object): Promise<FeatureTurn> {
@@ -1273,7 +1273,7 @@ async function researchTurn(query: string): Promise<FeatureTurn> {
   }
   lastBriefQuery = query;
   // Deep research = search the live web, then actually READ the best results
-  // (lib/websearch.ts). Keyless: scraped search engines plus the app's own
+  // (lib/ai/websearch.ts). Keyless: scraped search engines plus the app's own
   // /api/web route, with keyless CORS-open providers as fallback.
   const gathered = await gatherSources(query, { readPages: deep ? 4 : 2 });
   const sources: ResearchSource[] = gathered.sources.map((src) => ({

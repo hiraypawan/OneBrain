@@ -11,7 +11,7 @@ import {
   youtubeSearchUrlFor,
   type MediaKind,
   type MediaTrack,
-} from '@/lib/media';
+} from '@/lib/features/media';
 
 /**
  * Music, podcasts and video playback state.

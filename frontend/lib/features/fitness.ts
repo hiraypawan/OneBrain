@@ -3,7 +3,7 @@
 // Pure parsers + totals + streaks + recovery advice. Calorie figures are rough
 // home-style estimates and are ALWAYS labeled as such — never medical advice.
 
-import { findNumber } from './numbers';
+import { findNumber } from '../voice/numbers';
 
 export type FitnessKind = 'workout' | 'food' | 'expense' | 'sleep' | 'energy' | 'water' | 'weight';
 

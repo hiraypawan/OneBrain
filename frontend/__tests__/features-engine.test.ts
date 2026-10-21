@@ -1,10 +1,10 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleFeatureTurn, observeTranscript } from '../lib/feature-engine';
+import { handleFeatureTurn, observeTranscript } from '../lib/features/feature-engine';
 import { useFeaturesStore } from '../store/features';
 import { useAssistantStore } from '../store/assistant';
-import { INITIAL_WITNESS } from '../lib/witness';
-import { EMPTY_QUOTA } from '../lib/plans';
+import { INITIAL_WITNESS } from '../lib/features/witness';
+import { EMPTY_QUOTA } from '../lib/platform/plans';
 import { mintTestBetaKey } from './helpers/beta-keys';
 
 beforeEach(async () => {

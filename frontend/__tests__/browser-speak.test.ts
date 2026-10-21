@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { speakChunksWithBrowserVoice, utteranceVoicePlan, type VoiceChoice } from '../lib/speech';
+import { speakChunksWithBrowserVoice, utteranceVoicePlan, type VoiceChoice } from '../lib/voice/speech';
 
 beforeEach(() => {
   vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);

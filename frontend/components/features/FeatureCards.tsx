@@ -3,14 +3,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useFeaturesStore, type FeatureCard } from '@/store/features';
 import { useAssistantStore } from '@/store/assistant';
 import { useWorkspaceStore } from '@/store/workspace';
-import { mailtoHref, retone, type EmailTone } from '@/lib/email';
-import { formatLogLine } from '@/lib/fitness';
-import { trackHref } from '@/lib/track';
-import { formatClock } from '@/lib/workout';
-import { PAIRS, LANG_NAMES } from '@/lib/translate';
-import { episodesToday, BEDTIME_CAP } from '@/lib/story';
-import { evidenceText, smsHref } from '@/lib/witness';
-import { validateBetaKey, PLANS, FREE_LIMITS } from '@/lib/plans';
+import { mailtoHref, retone, type EmailTone } from '@/lib/features/email';
+import { formatLogLine } from '@/lib/features/fitness';
+import { trackHref } from '@/lib/features/track';
+import { formatClock } from '@/lib/features/workout';
+import { PAIRS, LANG_NAMES } from '@/lib/features/translate';
+import { episodesToday, BEDTIME_CAP } from '@/lib/features/story';
+import { evidenceText, smsHref } from '@/lib/features/witness';
+import { validateBetaKey, PLANS, FREE_LIMITS } from '@/lib/platform/plans';
 import { Icon } from '@/components/ui/Icon';
 
 async function copyText(text: string): Promise<boolean> {
@@ -606,7 +606,7 @@ function PlanCard({ card }: { card: Extract<FeatureCard, { kind: 'plan' }> }) {
     setBusy(true);
     try {
       if (signedIn) {
-        const { redeemKeyOnServer } = await import('@/lib/entitlements');
+        const { redeemKeyOnServer } = await import('@/lib/platform/entitlements');
         const result = await redeemKeyOnServer(trimmed);
         if (!result.ok) {
           setMsg(result.error);

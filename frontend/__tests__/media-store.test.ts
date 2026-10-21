@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMediaStore } from '../store/media';
 import { useAssistantStore } from '../store/assistant';
 import { useFeaturesStore } from '../store/features';
-import type { MediaTrack } from '../lib/media';
+import type { MediaTrack } from '../lib/features/media';
 
 const song = (id: string, url = `https://cdn.example.test/${id}.mp4`): MediaTrack => ({
   kind: 'song',

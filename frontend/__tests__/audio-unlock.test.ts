@@ -10,7 +10,7 @@ import {
   speechCeilingMs,
   unlockAudioOutput,
   SILENT_WAV,
-} from '../lib/audio';
+} from '../lib/voice/audio';
 
 // ---------------------------------------------------------------------------
 // A small model of iOS WebKit, so the unlock is tested against the real rule:

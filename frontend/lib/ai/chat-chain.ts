@@ -1,9 +1,9 @@
 // A3 split: the chat chain's request helper, moved out of the voice hook so
-// useAssistant keeps only the React wiring. Brain chain lives in @/lib/brain so
+// useAssistant keeps only the React wiring. Brain chain lives in @/lib/ai/brain so
 // feature modes share it (identical behavior for normal chat: Wikipedia ->
 // Puter -> API route -> offline). The provider is recorded so the UI can say
 // honestly who answered.
-import { askBrainDetailed } from "@/lib/brain";
+import { askBrainDetailed } from "@/lib/ai/brain";
 import { useFeaturesStore } from "@/store/features";
 import { useAssistantStore } from "@/store/assistant";
 

@@ -1,7 +1,7 @@
-import { SESSION_HINT } from '@/lib/session-hint';
+import { SESSION_HINT } from '@/lib/platform/session-hint';
 import { NextRequest } from 'next/server';
-import { authRequest,localRedirect,signInFailureCode,STATE_COOKIE,SESSION_COOKIE } from '@/lib/google-auth-server';
-import { NEXT_COOKIE,safeReturnPath } from '@/lib/auth-return';
+import { authRequest,localRedirect,signInFailureCode,STATE_COOKIE,SESSION_COOKIE } from '@/lib/server/google-auth-server';
+import { NEXT_COOKIE,safeReturnPath } from '@/lib/platform/auth-return';
 export const dynamic='force-dynamic';
 class Fail extends Error{constructor(readonly code:string){super(code);}}
 export async function GET(request:NextRequest){

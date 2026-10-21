@@ -9,7 +9,7 @@ import {
   timerRemaining,
   pauseTimer,
   resumeTimer,
-} from "@/lib/utilities";
+} from "@/lib/features/utilities";
 import { safeCalculation } from "@/lib/workspace/model";
 import "@/app/operations/operations.css";
 export default function Utilities() {

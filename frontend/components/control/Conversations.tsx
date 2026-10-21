@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAssistantStore } from "@/store/assistant";
-import { db } from "@/lib/db";
+import { db } from "@/lib/storage/db";
 import { DeleteButton } from "@/components/rare/delete-button";
 
 export default function ConversationsPage() {

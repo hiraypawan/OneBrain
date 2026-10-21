@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { classifyResult, createFinalCollector, normalizeTranscript } from '../lib/transcript-gate';
+import { classifyResult, createFinalCollector, normalizeTranscript } from '../lib/voice/transcript-gate';
 
 describe('classifyResult', () => {
   it('accepts scored finals and drops scored noise', () => {
@@ -134,7 +134,7 @@ describe('createFinalCollector', () => {
   });
 });
 
-import { createUtteranceAssembler, mergeSegment, clampSilenceMs } from '../lib/transcript-gate';
+import { createUtteranceAssembler, mergeSegment, clampSilenceMs } from '../lib/voice/transcript-gate';
 
 function asm(opts: Record<string, unknown> = {}) {
   let t = 0;

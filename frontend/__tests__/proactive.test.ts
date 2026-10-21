@@ -8,7 +8,7 @@ import {
   inQuietHours,
   localDay,
   suitableTopic,
-} from "../lib/proactive";
+} from "../lib/features/proactive";
 import type { BrainItem } from "../lib/workspace/model";
 const now = new Date(2026, 8, 10, 12, 0).getTime();
 const prefs = { ...DEFAULT_PROACTIVE, enabled: true };

@@ -72,7 +72,7 @@ plain-language fix-it message instead of failing silently.
 - `frontend/app/active/page.tsx` — voice screen (client-only, hydration-proof)
 - `frontend/hooks/useAssistant.ts` — mic/AI/voice engine
 - `frontend/hooks/useBackgroundKeepalive.ts` — suspend/resume tracking
-- `frontend/lib/gemini.ts|puter.ts|speech.ts|voiceprint.ts|reminders.ts|digest.ts|background.ts|db.ts|sync.ts|localAuth.ts` — pure, tested logic
+- `frontend/lib/ai/gemini.ts|puter.ts|speech.ts|voiceprint.ts|reminders.ts|digest.ts|background.ts|db.ts|sync.ts|localAuth.ts` — pure, tested logic
 - `frontend/store/assistant.ts` — state (persisted prefs, session data)
 - `frontend/public/sw.js` — offline cache + notification actions (prod)
 - `backend/src/{db.ts,routes/*,middleware/*}` — SQLite API

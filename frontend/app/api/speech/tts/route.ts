@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
+import { readJsonBody, bodyError, RequestBodyError } from '@/lib/server/request-body';
 import {
   MAX_TEXT,
   MAX_KEY,
@@ -8,7 +8,7 @@ import {
   userKeySpeech,
   keylessSpeech,
   type SpeechBytes,
-} from '@/lib/tts-server';
+} from '@/lib/server/tts-server';
 
 // Time budgets. The client gives the keyless tier ~9 s and the user-key tier
 // ~14 s, so each tier must answer comfortably inside that — a response that
@@ -18,7 +18,7 @@ const KEYLESS_BUDGET_MS = 7_000;
 
 type Tier = 'user' | 'keyless';
 
-// Real spoken audio for OneBrain replies — see lib/tts-server.ts for why the
+// Real spoken audio for OneBrain replies — see lib/server/tts-server.ts for why the
 // app cannot rely on browser speechSynthesis alone. Host provider keys are
 // never read here: only the caller's own key (their plan, their quota) and a
 // keyless read-aloud voice. When neither produces audio the client falls back

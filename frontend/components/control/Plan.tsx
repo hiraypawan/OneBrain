@@ -3,9 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useFeaturesStore } from '@/store/features';
 import { useWorkspaceStore } from '@/store/workspace';
 import { useAssistantStore } from '@/store/assistant';
-import { validateBetaKey, PLANS, FREE_LIMITS, planAllows } from '@/lib/plans';
-import { fetchEntitlements, redeemKeyOnServer } from '@/lib/entitlements';
-import { dayKey } from '@/lib/fitness';
+import { validateBetaKey, PLANS, FREE_LIMITS, planAllows } from '@/lib/platform/plans';
+import { fetchEntitlements, redeemKeyOnServer } from '@/lib/platform/entitlements';
+import { dayKey } from '@/lib/features/fitness';
 
 const SOURCE_LABEL: Record<string, string> = {
   server: 'Decided by your account (server)',

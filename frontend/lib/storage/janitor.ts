@@ -1,5 +1,5 @@
 import { db } from './db';
-import { digestMessages } from './digest';
+import { digestMessages } from '../ai/digest';
 
 // Storage janitor: phones fill up. Keep the latest KEEP messages, fold the
 // pruned remainder into per-month digest rows, then delete the rows.

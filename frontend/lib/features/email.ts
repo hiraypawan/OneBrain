@@ -3,7 +3,7 @@
 // Pure + tested. Never sends anything itself; mailto: keeps the user as the
 // sender, matching the approval policy.
 
-import { findNumber } from './numbers';
+import { findNumber } from '../voice/numbers';
 import { parseDateRef } from './timetravel';
 
 export type EmailTone = 'formal' | 'friendly' | 'hinglish';

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectLang, detectTranslatorIntent, translationPrompt, offlineTranslate, PAIRS,
-} from '../lib/translate';
+} from '../lib/features/translate';
 
 describe('detectLang', () => {
   it('detects scripts', () => {

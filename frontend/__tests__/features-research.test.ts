@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectResearchIntent, planEntitySearches, parseSynthesis, ungroundedBrief,
-} from '../lib/research';
+} from '../lib/features/research';
 
 describe('detectResearchIntent', () => {
   it('detects research requests', () => {

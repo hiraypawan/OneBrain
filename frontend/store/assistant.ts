@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import { defaultSettings, normalizeSettings } from '../lib/settings';
-import type { AssistantStatus, Conversation, Message, Reminder, User, UserSettings } from '@/lib/types';
-import { db, getRecentMessages, getConversationMessages, deleteConversationLocal, clearAllLocal } from '@/lib/db';
-import type { BgState, BgEvent } from '@/lib/background';
-import type { EnvironmentClass } from '@/lib/environment';
-import type { SpeechProgress } from '@/lib/barge-in';
-import { pushBgEvent } from '@/lib/background';
-import { SUMMARY_KEEP_MESSAGES } from '@/lib/summarize';
+import { defaultSettings, normalizeSettings } from '../lib/storage/settings';
+import type { AssistantStatus, Conversation, Message, Reminder, User, UserSettings } from '@/lib/core/types';
+import { db, getRecentMessages, getConversationMessages, deleteConversationLocal, clearAllLocal } from '@/lib/storage/db';
+import type { BgState, BgEvent } from '@/lib/voice/background';
+import type { EnvironmentClass } from '@/lib/voice/environment';
+import type { SpeechProgress } from '@/lib/voice/barge-in';
+import { pushBgEvent } from '@/lib/voice/background';
+import { SUMMARY_KEEP_MESSAGES } from '@/lib/ai/summarize';
 
 interface AssistantState {
   user: User | null;
@@ -62,7 +62,7 @@ interface AssistantState {
   summaryState: { mark: number; at: number | null };
   setSummaryState: (s: { mark: number; at: number | null }) => void;
   /**
-   * What the microphone is sitting in (lib/environment.ts). Session-only:
+   * What the microphone is sitting in (lib/voice/environment.ts). Session-only:
    * the room the user was in yesterday is not a fact about today.
    */
   micEnvironment: EnvironmentClass | null;
@@ -193,7 +193,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
         : 0;
       if (!summary && memoryEnabled && mapped.length > 20) {
         try {
-          const { extractiveSummary } = await import('@/lib/summarize');
+          const { extractiveSummary } = await import('@/lib/ai/summarize');
           summaryMark = Math.max(0, mapped.length - 20);
           summary = extractiveSummary(mapped.slice(0, summaryMark));
           if (summary && convos[0]?.id) {
@@ -378,7 +378,7 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       createdAt: m.createdAt,
       meta: m.meta,
     }));
-    const { extractiveSummary } = await import('@/lib/summarize');
+    const { extractiveSummary } = await import('@/lib/ai/summarize');
     const hasSavedSummary = !!row?.summary;
     const rebuiltMark = Math.max(0, messages.length - 20);
     const summary = row?.summary || (messages.length > 20 ? extractiveSummary(messages.slice(0, rebuiltMark)) : null);

@@ -18,8 +18,8 @@
 // Nothing in here fabricates a time, a platform or a delay. When a source
 // cannot be reached the reply says exactly that and gives the official link.
 
-import { readPage, webSearch, type FetchLike, type WebSource } from './websearch';
-import { correctProperNouns, resolveStationName } from './pronunciation';
+import { readPage, webSearch, type FetchLike, type WebSource } from '../ai/websearch';
+import { correctProperNouns, resolveStationName } from '../voice/pronunciation';
 
 export type TransitKind = 'train-live' | 'pnr' | 'suburban' | 'metro' | 'flights' | 'between';
 

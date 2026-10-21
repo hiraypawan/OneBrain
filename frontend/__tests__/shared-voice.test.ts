@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
-import {sharedIntent} from '../lib/shared-voice';
-import {prepareVoiceInput} from '../lib/voice-input';
+import {sharedIntent} from '../lib/features/shared-voice';
+import {prepareVoiceInput} from '../lib/voice/voice-input';
 describe('explicit shared voice intents',()=>{
  it('does not infer uploads from ordinary conversation or local captures',()=>{expect(sharedIntent('remember Rahul')).toBeNull();expect(sharedIntent('task: Call Rahul')).toBeNull();expect(sharedIntent('Share everything')).toBeNull();});
  it('requires an explicit bounded command and preserves the reviewed content',()=>{expect(sharedIntent('shared task: Call Rahul')).toEqual({kind:'task',title:'Call Rahul',body:'Call Rahul'});expect(sharedIntent('server reminder: Send proposal')?.kind).toBe('reminder');expect(()=>sharedIntent('shared note: '+'x'.repeat(6001))).toThrow();});

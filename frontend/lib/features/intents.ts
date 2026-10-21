@@ -1,5 +1,5 @@
 // Canonical phrases the deterministic engine actually handles. Used by the
-// "did you mean…?" path (lib/fuzzy) to recover from a single misheard word, and
+// "did you mean…?" path (lib/features/fuzzy) to recover from a single misheard word, and
 // by the hint chips so the two never drift apart. `say` is re-run through the
 // SAME transcript path a spoken line takes — nothing here is special-cased.
 //

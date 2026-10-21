@@ -2,7 +2,7 @@
 // speaks cues through the existing TTS engine and auto-logs the finished
 // workout to the fitness timeline. Pure schedule generation + tested.
 
-import { findAllNumbers } from './numbers';
+import { findAllNumbers } from '../voice/numbers';
 
 export interface WorkoutRound {
   label: string;

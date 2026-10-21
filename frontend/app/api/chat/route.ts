@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { askGemini, askPollinations, fallback, verbosityBudget } from '@/lib/gemini';
-import { askOpenAICompatible, sanitizeBaseUrl, sanitizeModel } from '@/lib/openai-compatible';
-import { buildTurnPrompt, normalizeHistory } from '@/lib/prompt';
-import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
-import type { ChatHistory } from '@/lib/gemini';
-import { looksFactual, fetchWikipedia } from '@/lib/knowledge';
-import { looksLive, liveFacts } from '@/lib/websearch';
+import { askGemini, askPollinations, fallback, verbosityBudget } from '@/lib/ai/gemini';
+import { askOpenAICompatible, sanitizeBaseUrl, sanitizeModel } from '@/lib/ai/openai-compatible';
+import { buildTurnPrompt, normalizeHistory } from '@/lib/ai/prompt';
+import { readJsonBody, bodyError, RequestBodyError } from '@/lib/server/request-body';
+import type { ChatHistory } from '@/lib/ai/gemini';
+import { looksFactual, fetchWikipedia } from '@/lib/ai/knowledge';
+import { looksLive, liveFacts } from '@/lib/ai/websearch';
 
 export async function POST(req: NextRequest) {
   let input: Record<string, unknown>;
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
   // Explicit user key, keyless community API, then offline fallback.
   // Never spend host keys or silently overflow into a paid provider.
-  // Same prompt builder as the browser path (lib/prompt.ts): clock, how to
+  // Same prompt builder as the browser path (lib/ai/prompt.ts): clock, how to
   // understand voice turns, reply language, length, who they are, live facts.
   let facts = typeof input.facts === 'string' ? input.facts : '';
   if (!systemOverride && !facts) {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { dueReminders, markFired, localDayKey, parseReminderIntent } from '../lib/reminders';
-import type { Reminder } from '../lib/types';
+import { dueReminders, markFired, localDayKey, parseReminderIntent } from '../lib/features/reminders';
+import type { Reminder } from '../lib/core/types';
 
 const mk = (over: Partial<Reminder> = {}): Reminder => ({
   id: 'r1', title: 'Test', time: '09:00', active: true, ...over,

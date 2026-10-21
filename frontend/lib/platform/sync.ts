@@ -1,4 +1,4 @@
-import { db } from './db';
+import { db } from '../storage/db';
 import { useAssistantStore } from '@/store/assistant';
 
 const API = () => (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');

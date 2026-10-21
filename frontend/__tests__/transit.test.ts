@@ -20,8 +20,8 @@ import {
   runTransit,
   CITY_TRANSIT,
   NTES_HUMAN_URL,
-} from '../lib/transit';
-import type { FetchLike } from '../lib/websearch';
+} from '../lib/features/transit';
+import type { FetchLike } from '../lib/ai/websearch';
 
 const NTES_HTML = `
 <html><body>
@@ -288,7 +288,7 @@ describe('runTransit dispatch', () => {
 // an honest spoken line, not a crash and not an invented schedule.
 describe('feature router wiring', () => {
   it('routes a spoken train question to a transit card', async () => {
-    const { handleFeatureTurn } = await import('../lib/feature-engine');
+    const { handleFeatureTurn } = await import('../lib/features/feature-engine');
     vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
     const turn = await handleFeatureTurn('12951 train status kahan pahunchi');
     expect(turn?.card).toMatchObject({ kind: 'transit' });
@@ -300,7 +300,7 @@ describe('feature router wiring', () => {
   });
 
   it('routes a Mumbai local question to a transit card, not to the AI fallback', async () => {
-    const { handleFeatureTurn } = await import('../lib/feature-engine');
+    const { handleFeatureTurn } = await import('../lib/features/feature-engine');
     vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
     const turn = await handleFeatureTurn('mumbai local central line aaj delay hai kya');
     expect(turn?.card).toMatchObject({ kind: 'transit' });
@@ -309,7 +309,7 @@ describe('feature router wiring', () => {
   });
 
   it('still lets ordinary chat fall through to the brain', async () => {
-    const { handleFeatureTurn } = await import('../lib/feature-engine');
+    const { handleFeatureTurn } = await import('../lib/features/feature-engine');
     vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
     expect(await handleFeatureTurn('namaste, kaise ho')).toBeNull();
     vi.unstubAllGlobals();

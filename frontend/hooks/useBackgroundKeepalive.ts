@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect } from "react";
 import { useAssistantStore } from "@/store/assistant";
-import { resolveBgState, type BgState } from "@/lib/background";
+import { resolveBgState, type BgState } from "@/lib/voice/background";
 
 // Best-effort resume detection, not a guarantee of background microphone access.
 // Periodic background sync cannot keep a microphone or a page alive.

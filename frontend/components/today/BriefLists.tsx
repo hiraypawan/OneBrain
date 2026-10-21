@@ -1,9 +1,9 @@
 "use client";
 import { Icon } from "@/components/ui/Icon";
 import { SYMBOLS } from "@/components/workspace/ContextMap";
-import type { BriefFact } from "@/lib/today-brief";
+import type { BriefFact } from "@/lib/features/today-brief";
 import type { ActionReceipt, BrainItem } from "@/lib/workspace/model";
-import type { TodoCounts } from "@/lib/todo";
+import type { TodoCounts } from "@/lib/features/todo";
 
 /**
  * The three lists Today is allowed to have: what is due, what you just saved,

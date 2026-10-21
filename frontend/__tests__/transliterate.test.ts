@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transliterate, normalizeHinglish, hasDevanagari } from '../lib/transliterate';
+import { transliterate, normalizeHinglish, hasDevanagari } from '../lib/voice/transliterate';
 
 describe('transliterate', () => {
   it('converts common Hindi to Roman Hinglish', () => {

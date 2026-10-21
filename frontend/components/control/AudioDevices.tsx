@@ -14,14 +14,14 @@ import {
   watchAudioDevices,
   type AudioDevice,
   type OutputDevice,
-} from "@/lib/audio";
+} from "@/lib/voice/audio";
 import {
   diagnoseTts,
   pickTtsVoice,
   splitForSpeech,
   ttsLangFor,
   waitForVoices,
-} from "@/lib/speech";
+} from "@/lib/voice/speech";
 import { useAssistantStore } from "@/store/assistant";
 
 const SAMPLE = "OneBrain voice test. If you can hear this, your output device is working.";

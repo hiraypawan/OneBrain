@@ -7,8 +7,8 @@
 // storage, and every section is labeled so the model cannot mistake a saved
 // note for an instruction.
 
-import type { FitnessLog } from './fitness';
-import { formatLogsForContext } from './fitness';
+import type { FitnessLog } from '../features/fitness';
+import { formatLogsForContext } from '../features/fitness';
 
 /** Cheap, deterministic token estimate. Latin text is ~4 chars per token; Devanagari (Hindi/Marathi) packs more information per grapheme, so those characters are counted as denser. Deliberately pessimistic so the budget never over-promises how much context fits. */
 export function estimateTokens(text: string): number {

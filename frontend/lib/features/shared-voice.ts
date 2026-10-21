@@ -1,4 +1,4 @@
-import { platformApi } from './platform';
+import { platformApi } from '../platform/platform';
 export interface SharedPreview {requestId:string;spaceId:string;spaceName:string;userId:string;kind:string;title:string;body:string;firstRun:number}
 export function sharedIntent(input:string){
  const m=input.trim().match(/^(?:shared (note|task|idea|project)|server (reminder))\s*:\s*([\s\S]+)$/i);

@@ -26,7 +26,7 @@ export interface UserSettings {
   /** Opt-out for the music/podcast player. On by default, never implied. */
   musicEnabled?: boolean;
   speechAliases?: Record<string,string>;
-  proactive?: import('./proactive').ProactivePreferences;
+  proactive?: import('../features/proactive').ProactivePreferences;
   silentMode?: boolean;
   /** Quiet time (ms) after you stop talking before OneBrain answers. 700–4000, default 1600. */
   endOfSpeechMs?: number;
@@ -34,7 +34,7 @@ export interface UserSettings {
   labsEnabled?: boolean;
   /**
    * Let you talk over a spoken reply. Only interruption phrases are accepted
-   * while it speaks (see lib/barge-in.ts), so the microphone cannot turn the
+   * while it speaks (see lib/voice/barge-in.ts), so the microphone cannot turn the
    * assistant's own voice into a new question. On by default.
    */
   bargeIn?: boolean;

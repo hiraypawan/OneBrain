@@ -5,11 +5,11 @@
 // preference and this page can never drift from it.
 
 import Link from 'next/link';
-import { loginHref } from '@/lib/auth-return';
+import { loginHref } from '@/lib/platform/auth-return';
 import { useAssistantStore } from '@/store/assistant';
 import { useFeaturesStore } from '@/store/features';
-import { plainMoney } from '@/lib/track';
-import { PLANS } from '@/lib/plans';
+import { plainMoney } from '@/lib/features/track';
+import { PLANS } from '@/lib/platform/plans';
 
 const planLabel = (id: string) => PLANS.find((p) => p.id === id)?.name || 'Free';
 

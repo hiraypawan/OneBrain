@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectScribeIntent, extractMinutes, minutesToTasks, spokenMinutes } from '../lib/scribe';
+import { detectScribeIntent, extractMinutes, minutesToTasks, spokenMinutes } from '../lib/features/scribe';
 
 describe('detectScribeIntent', () => {
   it('detects scribe requests', () => {

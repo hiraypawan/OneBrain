@@ -344,7 +344,7 @@ export { splitForSpeech, splitForProgressiveSpeech } from './speech-split';
 // Engine behaviours that made this path look like "the app is broken":
 //   1. iOS WebKit silently DROPS speak() — no event, nothing queued — until one
 //      speak() has run inside a user gesture. That unlock lives in
-//      lib/audio.ts (unlockAudioOutput / primeAudioOutputOnGesture); this file
+//      lib/voice/audio.ts (unlockAudioOutput / primeAudioOutputOnGesture); this file
 //      only reports it truthfully when it happens ('stalled').
 //   2. cancel() immediately followed by speak() can drop the utterance on
 //      Safari. So the engine is only cancelled when it is actually busy, and
@@ -504,7 +504,7 @@ export async function speakChunksWithBrowserVoice(
     });
 
   // Music ducking: the browser voice also owns the speaker, so announce the
-  // whole reply, not just the synthesized-blob path in lib/audio.ts.
+  // whole reply, not just the synthesized-blob path in lib/voice/audio.ts.
   signalSpeechPlayback('start');
   let spokenChars = 0;
   try {

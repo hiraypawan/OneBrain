@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { commitVault, VAULT_STORAGE } from "@/lib/vault-storage";
-import { db } from "@/lib/db";
+import { commitVault, VAULT_STORAGE } from "@/lib/storage/vault-storage";
+import { db } from "@/lib/storage/db";
 import {
   createVault,
   encryptVault,
@@ -9,7 +9,7 @@ import {
   validateEnvelope,
   type VaultEnvelope,
   type VaultEntry,
-} from "@/lib/vault";
+} from "@/lib/storage/vault";
 import "@/app/operations/operations.css";
 const STORAGE = VAULT_STORAGE;
 export default function Vault() {

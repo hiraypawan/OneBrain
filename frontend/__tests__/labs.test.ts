@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CATALOG } from '../components/control/catalog';
-import { normalizeSettings, defaultSettings } from '../lib/settings';
+import { normalizeSettings, defaultSettings } from '../lib/storage/settings';
 
 describe('Labs keeps half-finished features out of the way', () => {
   it('marks exactly the unfinished sections', () => {

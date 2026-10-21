@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseMediaCommand, parseVoiceCommand } from '../lib/commands';
+import { parseMediaCommand, parseVoiceCommand } from '../lib/voice/commands';
 import {
   mapSaavn, mapItunesPodcast, firstEnclosureUrl, mapInvidious,
   pickFirstPlayable, youtubeEmbedUrl, nextPlayableIndex, describeMediaError,
   mediaSourceLabel, searchMedia, youtubeSearchUrlFor, AUTOPLAY_BLOCKED_NOTICE,
-} from '../lib/media';
+} from '../lib/features/media';
 
 describe('parseVoiceCommand', () => {
   it('matches exact controls across languages', () => {

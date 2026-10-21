@@ -4,8 +4,8 @@ import { useFeaturesStore } from '@/store/features';
 import {
   dayTotals, dayKey, computeStreaks, recoveryLine, formatLogLine,
   type FitnessKind, type FitnessLog,
-} from '@/lib/fitness';
-import { fitnessCsv, trackHref } from '@/lib/track';
+} from '@/lib/features/fitness';
+import { fitnessCsv, trackHref } from '@/lib/features/track';
 
 const KIND_LABEL: Record<FitnessKind, string> = {
   workout: 'Workout', food: 'Food', expense: 'Expense', sleep: 'Sleep',
@@ -42,7 +42,7 @@ export function Fitness() {
     return [...map.entries()].slice(0, 30);
   }, [logs]);
 
-  // One CSV builder for the whole log (lib/track) — the Track tab's filtered
+  // One CSV builder for the whole log (lib/features/track) — the Track tab's filtered
   // export and this one are the same file format, so a spreadsheet never has to
   // learn two dialects.
   const exportCsv = () => {

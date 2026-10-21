@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { digestMessages, type Digest } from "@/lib/digest";
-import { db } from "@/lib/db";
+import { digestMessages, type Digest } from "@/lib/ai/digest";
+import { db } from "@/lib/storage/db";
 
 export default function Timeline() {
   const [error, setError] = useState("");

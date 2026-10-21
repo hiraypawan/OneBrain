@@ -51,7 +51,7 @@ Stories (Labs): PARTIAL (hidden by Advanced->Labs) | UNVERIFIED
 Email drafts (Labs): PARTIAL (hidden by Labs) | UNVERIFIED
 
 --- OVERALL GAPS / ACTIONS ---
-FIXED IN CODE: frontend/lib/context-envelope.ts:130 (fitness log split)
+FIXED IN CODE: frontend/lib/ai/context-envelope.ts:130 (fitness log split)
 UNFIXABLE IN SANDBOX: All live providers (transit/web/media), real device tests, Google OAuth live consent, Playwright/browser matrix
 UNCOMPLETE SCOPE: 175/175 not complete (README line 5; IMPLEMENTATION-STATUS.md line 8)
 TEST/BUILD STATUS: 881 passed (2 skipped), Next 15.5.25 production build clean, ESLint clean

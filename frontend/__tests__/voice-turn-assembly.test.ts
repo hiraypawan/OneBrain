@@ -19,7 +19,7 @@ import {
   looksIncomplete,
   INCOMPLETE_EXTENSION_MS_DEFAULT,
   MAX_SILENCE_MS_DEFAULT,
-} from '../lib/transcript-gate';
+} from '../lib/voice/transcript-gate';
 
 function asm(opts: Record<string, unknown> = {}) {
   let t = 0;

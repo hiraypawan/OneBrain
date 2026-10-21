@@ -1,5 +1,5 @@
-import type { UserSettings } from './types';
-import { DEFAULT_PROACTIVE, normalizeProactive } from './proactive';
+import type { UserSettings } from '../core/types';
+import { DEFAULT_PROACTIVE, normalizeProactive } from '../features/proactive';
 
 export const defaultSettings: UserSettings = {
   memoryEnabled: true, puterEnabled: false, puterFallbackEnabled: false, puterSpeechEnabled: false, puterModel: '', puterProvider: '', voiceSpeed: 1, language: 'hinglish', verbosity: 'short',

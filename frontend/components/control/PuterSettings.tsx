@@ -1,7 +1,7 @@
 "use client";
 import Script from "next/script";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listPuterModels, puterSessionReady, type PuterModelOption } from "@/lib/puter";
+import { listPuterModels, puterSessionReady, type PuterModelOption } from "@/lib/ai/puter";
 import { useAssistantStore } from "@/store/assistant";
 
 function currentPuter(): any {

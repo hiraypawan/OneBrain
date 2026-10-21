@@ -8,7 +8,7 @@
 // audio bytes play everywhere and obey the OS output selection — neckband,
 // earbuds, desk speaker, phone speaker — with no choosing required.
 
-import { puterReady } from './puter';
+import { puterReady } from '../ai/puter';
 
 export type SpeechSource = 'user-key' | 'community' | 'puter';
 

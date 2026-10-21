@@ -11,27 +11,27 @@ import {
   localDay,
   type ProactiveCandidate,
   type ProactiveHistory,
-} from "@/lib/proactive";
-import { previewShared, saveShared, sharedIntent, type SharedPreview } from "@/lib/shared-voice";
-import { prepareVoiceInput } from "@/lib/voice-input";
+} from "@/lib/features/proactive";
+import { previewShared, saveShared, sharedIntent, type SharedPreview } from "@/lib/features/shared-voice";
+import { prepareVoiceInput } from "@/lib/voice/voice-input";
 import {
   createUtteranceAssembler,
   type UtteranceAssembler,
-} from "@/lib/transcript-gate";
+} from "@/lib/voice/transcript-gate";
 import { useWorkspaceStore } from "@/store/workspace";
 import { interpretLocal } from "@/lib/workspace/voice";
 import {
   workspaceContextBlock,
   type CaptureDraft,
 } from "@/lib/workspace/model";
-import { db, getRecentMessages } from "@/lib/db";
+import { db, getRecentMessages } from "@/lib/storage/db";
 import { aiKeyConfig, useAssistantStore } from "@/store/assistant";
-import { fetchChat } from "@/lib/chat-chain";
+import { fetchChat } from "@/lib/ai/chat-chain";
 import {
   handleFeatureTurn,
   observeTranscript,
   type FeatureTurn,
-} from "@/lib/feature-engine";
+} from "@/lib/features/feature-engine";
 import { useFeaturesStore } from "@/store/features";
 import {
   cleanForSpeech,
@@ -43,7 +43,7 @@ import {
   speakChunksWithBrowserVoice,
   ttsLangFor,
   waitForVoices,
-} from "@/lib/speech";
+} from "@/lib/voice/speech";
 import {
   micConstraints,
   diagnoseMicError,
@@ -58,14 +58,14 @@ import {
   startOutputRouting,
   stopSpeechPlayback,
   unlockAudioOutput,
-} from "@/lib/audio";
-import { synthesizeSpeech } from "@/lib/tts";
-import { digestMessages } from "@/lib/digest";
-import { buildProfileBlock } from "@/lib/profile";
-import { recallRelevant, formatRecall } from "@/lib/recall";
-import { rollingSummaryStep } from "@/lib/summarize";
-import { buildContextEnvelope, envelopeForPrompt } from "@/lib/context-envelope";
-import { fitHistory } from "@/lib/context";
+} from "@/lib/voice/audio";
+import { synthesizeSpeech } from "@/lib/voice/tts";
+import { digestMessages } from "@/lib/ai/digest";
+import { buildProfileBlock } from "@/lib/ai/profile";
+import { recallRelevant, formatRecall } from "@/lib/ai/recall";
+import { rollingSummaryStep } from "@/lib/ai/summarize";
+import { buildContextEnvelope, envelopeForPrompt } from "@/lib/ai/context-envelope";
+import { fitHistory } from "@/lib/ai/context";
 import {
   showActiveNotification,
   dismissActiveNotification,
@@ -75,13 +75,13 @@ import {
   rangeFromPitch,
   isDifferentSpeaker,
   shouldIgnoreTranscript,
-} from "@/lib/voiceprint";
+} from "@/lib/voice/voiceprint";
 import {
   effectiveEndOfSpeechMs,
   environmentTuning,
   ownerRequiredHere,
   resetNoiseFloor,
-} from "@/lib/environment";
+} from "@/lib/voice/environment";
 import {
   classifyWhileSpeaking,
   isProgressStale,
@@ -89,13 +89,13 @@ import {
   recordInterruption,
   resumeOffer,
   resumePlan,
-} from "@/lib/barge-in";
-import { normalizeHinglish } from "@/lib/transliterate";
-import { correctProperNouns, pickBestAlternative, stationGrammar } from "@/lib/pronunciation";
-import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/commands";
+} from "@/lib/voice/barge-in";
+import { normalizeHinglish } from "@/lib/voice/transliterate";
+import { correctProperNouns, pickBestAlternative, stationGrammar } from "@/lib/voice/pronunciation";
+import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/voice/commands";
 import { useVoicePrint } from "@/hooks/useVoicePrint";
 import { useMediaStore } from "@/store/media";
-import { parseReminderIntent } from "@/lib/reminders";
+import { parseReminderIntent } from "@/lib/features/reminders";
 
 // iPhone/iPad, once per page: on older iOS the built-in voice is muted by
 // Silent mode, and that silence raises no error the app could report — so say
@@ -501,7 +501,7 @@ export function useAssistant() {
         // ------------------------------------------------------------------
         // 2. Browser voice fallback, hardened for the engine bugs that made
         //    replies silent: iOS refusing speech until a tap (unlocked in
-        //    lib/audio.ts), the cancel()/speak() race, and mismatched
+        //    lib/voice/audio.ts), the cancel()/speak() race, and mismatched
         //    voice+lang pairs.
         // ------------------------------------------------------------------
         const synth = window.speechSynthesis;
@@ -1136,7 +1136,7 @@ export function useAssistant() {
         // Rolling summary on a short turn window (was: every 20 user
         // messages, which left the first 19 turns carrying the whole
         // transcript and then folded everything at once). Policy in
-        // lib/summarize.
+        // lib/ai/summarize.
         try {
           const after = useAssistantStore.getState();
           const step = rollingSummaryStep(

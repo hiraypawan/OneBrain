@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useAssistantStore } from "@/store/assistant";
-import { detectPitch, learnBaseline, rangeFromPitch } from "@/lib/voiceprint";
-import { micConstraints } from "@/lib/audio";
+import { detectPitch, learnBaseline, rangeFromPitch } from "@/lib/voice/voiceprint";
+import { micConstraints } from "@/lib/voice/audio";
 // Deliberately does not mount the conversation engine or request audio on render.
 export function VoiceEnrollment() {
   const { settings, updateSettings, voiceBaseline, setVoiceBaseline } =

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseDateRef, detectRecallIntent, summarizeRange, formatCitation,
-} from '../lib/timetravel';
+} from '../lib/features/timetravel';
 
 // Tuesday 15 Sep 2026 (matches "today" for stable weekday math).
 const NOW = new Date('2026-09-15T10:00:00');

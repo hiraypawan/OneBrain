@@ -1,12 +1,12 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fuzzySuggestion, handleFeatureTurn } from '../lib/feature-engine';
-import { askableTranscript } from '../lib/fuzzy';
-import { INTENT_HINTS } from '../lib/intents';
-import { parseTrackCommand } from '../lib/track';
+import { fuzzySuggestion, handleFeatureTurn } from '../lib/features/feature-engine';
+import { askableTranscript } from '../lib/features/fuzzy';
+import { INTENT_HINTS } from '../lib/features/intents';
+import { parseTrackCommand } from '../lib/features/track';
 import { useFeaturesStore } from '../store/features';
 import { useAssistantStore } from '../store/assistant';
-import { EMPTY_QUOTA } from '../lib/plans';
+import { EMPTY_QUOTA } from '../lib/platform/plans';
 
 
 beforeEach(async () => {

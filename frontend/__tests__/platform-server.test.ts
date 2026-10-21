@@ -1,6 +1,6 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {getCloudflareContext} from '@opennextjs/cloudflare';
-import {platformFetch} from '../lib/platform-server';
+import {platformFetch} from '../lib/server/platform-server';
 vi.mock('@opennextjs/cloudflare',()=>({getCloudflareContext:vi.fn()}));
 beforeEach(()=>{vi.mocked(getCloudflareContext).mockReset();vi.stubGlobal('fetch',vi.fn(async()=>new Response('{}')));});
 afterEach(()=>{vi.unstubAllGlobals();vi.unstubAllEnvs();});

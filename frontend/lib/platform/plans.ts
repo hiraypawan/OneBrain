@@ -5,7 +5,7 @@
 //   1. Signed-out / offline use, where nothing else can decide.
 //   2. Instant UI while the server answer is in flight.
 // A key validated here unlocks features IN THIS BROWSER ONLY. Server features
-// need a key redeemed on an account (`lib/entitlements.ts`). No checkout and no
+// need a key redeemed on an account (`lib/platform/entitlements.ts`). No checkout and no
 // payment collection exist anywhere in this product.
 
 export type PlanId = 'free' | 'pro' | 'family';

@@ -1,4 +1,4 @@
-import { levenshtein } from './fuzzy';
+import { levenshtein } from '../features/fuzzy';
 
 // Core pronunciation fix: the Web Speech engine returns ONE language's guess
 // (en-IN / hi-IN / mr-IN) and only the top alternative. Indian proper nouns

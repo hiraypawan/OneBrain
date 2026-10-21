@@ -4,7 +4,7 @@
 // session or an offline server degrades to local-only data instead of failing
 // the reply, and the reply is labelled only when server tasks actually joined.
 
-import { platformApi } from './platform';
+import { platformApi } from '../platform/platform';
 
 export interface ConnectedTask {
   title: string;

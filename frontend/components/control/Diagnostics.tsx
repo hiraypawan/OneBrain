@@ -2,8 +2,8 @@
 import { SettingsShell } from "@/components/settings/SettingsShell";
 import { useEffect, useState } from "react";
 import { useAssistantStore } from "@/store/assistant";
-import { formatBgEvent } from "@/lib/background";
-import { db } from "@/lib/db";
+import { formatBgEvent } from "@/lib/voice/background";
+import { db } from "@/lib/storage/db";
 
 export default function Debug() {
   const [info, setInfo] = useState<any>({});

@@ -102,7 +102,7 @@ export function learnBaseline(
 export type IgnoreVerdict = 'answer' | 'drop-notice' | 'drop-silent';
 
 /**
- * Environment-aware gate, supplied by lib/environment.ts. When it is absent the
+ * Environment-aware gate, supplied by lib/voice/environment.ts. When it is absent the
  * original behaviour is kept exactly, so older callers and tests do not move.
  */
 export interface VoiceGateTuning {

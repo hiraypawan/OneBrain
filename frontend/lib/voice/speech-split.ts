@@ -1,7 +1,7 @@
 // Sentence-aware text splitting for spoken replies.
 //
-// Shared by the browser voice (lib/speech.ts) and the server read-aloud voice
-// (lib/tts-server.ts), so it is pure: no DOM, no audio, safe in a route.
+// Shared by the browser voice (lib/voice/speech.ts) and the server read-aloud voice
+// (lib/server/tts-server.ts), so it is pure: no DOM, no audio, safe in a route.
 
 // Break a cleaned reply into utterance-sized pieces. Chrome's speechSynthesis
 // goes quiet mid-sentence on long utterances (~15 s on desktop; Android may

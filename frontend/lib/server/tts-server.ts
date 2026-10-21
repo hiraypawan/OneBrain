@@ -20,7 +20,7 @@
 // on it, and the client always has a working fallback, so a provider outage
 // degrades to the browser voice instead of silence.
 
-import { splitForSpeech } from './speech-split';
+import { splitForSpeech } from '../voice/speech-split';
 
 export const MAX_TEXT = 1500;
 export const MAX_KEY = 256;

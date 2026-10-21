@@ -1,7 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
 import { useAssistantStore } from "@/store/assistant";
-import { loginHref } from "@/lib/auth-return";
+import { loginHref } from "@/lib/platform/auth-return";
 export function AccountLink() {
   const authenticated = useAssistantStore((s) => s.isAuthenticated);
   const path = usePathname();

@@ -11,7 +11,7 @@ import {
   type SharedRecord,
   type Connection,
   type Job,
-} from "@/lib/platform";
+} from "@/lib/platform/platform";
 import "@/app/operations/operations.css";
 const mergeRows = <T extends {id:string},>(a:T[],b:T[]) => [...new Map([...a,...b].map(r=>[r.id,r])).values()];
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);

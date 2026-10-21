@@ -16,16 +16,16 @@ import { useBackgroundKeepalive } from "@/hooks/useBackgroundKeepalive";
 import { useAssistantStore } from "@/store/assistant";
 import { useFeaturesStore } from "@/store/features";
 import { useWorkspaceStore } from "@/store/workspace";
-import { normalizeProactive } from "@/lib/proactive";
-import { buildTodoList, todoCounts } from "@/lib/todo";
-import { todayStrip } from "@/lib/track";
-import { unlockAudioOutput } from "@/lib/audio";
+import { normalizeProactive } from "@/lib/features/proactive";
+import { buildTodoList, todoCounts } from "@/lib/features/todo";
+import { todayStrip } from "@/lib/features/track";
+import { unlockAudioOutput } from "@/lib/voice/audio";
 import {
   briefFacts,
   briefLine,
   dateLine,
   greetingFor,
-} from "@/lib/today-brief";
+} from "@/lib/features/today-brief";
 import {
   draftBrainDump,
   draftCapture,

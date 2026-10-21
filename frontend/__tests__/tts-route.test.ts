@@ -11,7 +11,7 @@ import {
   readAloudRpcBody,
   readAloudRpcAudio,
   READ_ALOUD_GET_MAX,
-} from '../lib/tts-server';
+} from '../lib/server/tts-server';
 
 function req(body: unknown, raw = false) {
   return new NextRequest('https://app.example.test/api/speech/tts', {

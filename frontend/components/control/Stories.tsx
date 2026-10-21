@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useFeaturesStore } from '@/store/features';
-import { episodesToday, type AgeBand, type StoryThread } from '@/lib/story';
+import { episodesToday, type AgeBand, type StoryThread } from '@/lib/features/story';
 import { useAssistantStore } from '@/store/assistant';
 
 export function Stories() {

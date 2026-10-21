@@ -14,7 +14,7 @@ import {
   todoCounts,
   todoFingerprint,
   withPriorityNote,
-} from '@/lib/todo';
+} from '@/lib/features/todo';
 
 const NOON = Date.parse('2026-09-16T12:00:00');
 

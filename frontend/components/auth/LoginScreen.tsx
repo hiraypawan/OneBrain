@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { useAssistantStore } from "@/store/assistant";
-import { safeReturnPath } from "@/lib/auth-return";
+import { safeReturnPath } from "@/lib/platform/auth-return";
 
 export function LoginScreen() {
   const params = useSearchParams();

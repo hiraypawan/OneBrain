@@ -1,11 +1,11 @@
 'use client';
 import { useEffect } from 'react';
 import { useAssistantStore } from '@/store/assistant';
-import { dueReminders, markFired, fireReminderNotification } from '@/lib/reminders';
-import { setToken } from '@/lib/sync';
-import { shouldRestoreSession } from '@/lib/session-hint';
-import { platformApi } from '@/lib/platform';
-import { db } from '@/lib/db';
+import { dueReminders, markFired, fireReminderNotification } from '@/lib/features/reminders';
+import { setToken } from '@/lib/platform/sync';
+import { shouldRestoreSession } from '@/lib/platform/session-hint';
+import { platformApi } from '@/lib/platform/platform';
+import { db } from '@/lib/storage/db';
 
 // Loads persisted key + settings AFTER mount, so server HTML and the first
 // client render are identical (no hydration errors), then state fills in.
@@ -46,7 +46,7 @@ export function StoreHydrator() {
         if (!st.settings.memoryEnabled) return;
         const last = Number((await db.kv.get('lastJanitor'))?.value || 0);
         if (Date.now() - last < 7 * 86400000) return;
-        const { janitor } = await import('@/lib/janitor');
+        const { janitor } = await import('@/lib/storage/janitor');
         const report = await janitor({ autoDeleteDays: st.settings.autoDeleteDays });
         await db.kv.put({ key: 'lastJanitor', value: Date.now() });
         if (report.pruned > 0) await useAssistantStore.getState().reloadFromDb();

@@ -2,7 +2,7 @@
 // The one To-Do list. Canvas tasks, reminders and (on request) shared server
 // tasks are merged into a single list with due dates, priorities and a
 // done-state; completing an item writes back to wherever it came from.
-// The merge lives in lib/todo.ts (pure, tested) so the list can never quietly
+// The merge lives in lib/features/todo.ts (pure, tested) so the list can never quietly
 // invent a task.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { useWorkspaceStore } from '@/store/workspace';
 import { useAssistantStore } from '@/store/assistant';
 import { draftCapture } from '@/lib/workspace/model';
-import { platformApi } from '@/lib/platform';
+import { platformApi } from '@/lib/platform/platform';
 import {
   TODO_VIEWS,
   buildTodoList,
@@ -22,7 +22,7 @@ import {
   todoCounts,
   withPriorityNote,
   type TodoView,
-} from '@/lib/todo';
+} from '@/lib/features/todo';
 
 const ORIGIN_CHIP: Record<string, string> = {
   device: 'saved here',

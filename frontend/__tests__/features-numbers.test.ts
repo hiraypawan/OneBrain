@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findNumber, findAllNumbers, wordsToNumber } from '../lib/numbers';
+import { findNumber, findAllNumbers, wordsToNumber } from '../lib/voice/numbers';
 
 describe('wordsToNumber', () => {
   it('parses english words', () => {

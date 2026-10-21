@@ -20,7 +20,7 @@ import {
   looksLive,
   liveFacts,
   type FetchLike,
-} from '../lib/websearch';
+} from '../lib/ai/websearch';
 
 const DDG_HTML = `
 <html><body><div class="results">

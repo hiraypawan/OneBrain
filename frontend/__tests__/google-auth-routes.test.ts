@@ -2,9 +2,9 @@ import {describe,it,expect,vi,beforeEach} from 'vitest';
 import {NextRequest} from 'next/server';
 import {POST} from '../app/api/auth/google/start/route';
 import {GET} from '../app/api/auth/google/callback/route';
-import {authRequest,AuthRequestError,signInFailureCode,STATE_COOKIE,SESSION_COOKIE} from '../lib/google-auth-server';
-import {signInErrorMessage} from '../lib/auth-return';
-vi.mock('../lib/google-auth-server',async()=>({...await vi.importActual<any>('../lib/google-auth-server'),authRequest:vi.fn()}));
+import {authRequest,AuthRequestError,signInFailureCode,STATE_COOKIE,SESSION_COOKIE} from '../lib/server/google-auth-server';
+import {signInErrorMessage} from '../lib/platform/auth-return';
+vi.mock('../lib/server/google-auth-server',async()=>({...await vi.importActual<any>('../lib/server/google-auth-server'),authRequest:vi.fn()}));
 const state='a'.repeat(64),browser='b'.repeat(64),session='c'.repeat(64);
 beforeEach(()=>vi.mocked(authRequest).mockReset());
 describe('Google browser cookie boundary',()=>{

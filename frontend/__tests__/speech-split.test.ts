@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { splitForProgressiveSpeech, splitForSpeech } from '../lib/speech-split';
-import { splitForSpeech as reExported } from '../lib/speech';
+import { splitForProgressiveSpeech, splitForSpeech } from '../lib/voice/speech-split';
+import { splitForSpeech as reExported } from '../lib/voice/speech';
 
 const long = Array.from({ length: 40 }, (_, i) => `This is sentence ${i + 1}, part of a long answer.`).join(' ');
 

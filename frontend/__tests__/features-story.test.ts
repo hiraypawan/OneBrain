@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   detectStoryIntent, episodePrompt, parseStoryState, offlineEpisode,
   episodesToday, titleFromLine, ageGuard, type StoryThread,
-} from '../lib/story';
+} from '../lib/features/story';
 
 const thread = (over: Partial<StoryThread> = {}): StoryThread => ({
   id: 's1', title: 'Test', ageBand: '7-10', language: 'hinglish',

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { looksFactual, cleanWikiText, fetchWikipedia } from '../lib/knowledge';
+import { looksFactual, cleanWikiText, fetchWikipedia } from '../lib/ai/knowledge';
 
 afterEach(() => {
   vi.unstubAllGlobals();

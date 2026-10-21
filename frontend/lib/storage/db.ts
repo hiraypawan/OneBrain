@@ -1,7 +1,7 @@
 import Dexie, { Table } from 'dexie';
-import type { BrainItem, ActionReceipt } from './workspace/model';
-import type { FitnessLog } from './fitness';
-import type { StoryThread } from './story';
+import type { BrainItem, ActionReceipt } from '../workspace/model';
+import type { FitnessLog } from '../features/fitness';
+import type { StoryThread } from '../features/story';
 
 export interface StoredMessage {
   id?: number;

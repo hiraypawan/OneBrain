@@ -4,7 +4,7 @@ import {
   askOpenAICompatible,
   sanitizeBaseUrl,
   sanitizeModel,
-} from '../lib/openai-compatible';
+} from '../lib/ai/openai-compatible';
 import { POST as chat } from '../app/api/chat/route';
 
 afterEach(() => {

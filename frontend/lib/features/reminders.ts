@@ -1,4 +1,4 @@
-import type { Reminder } from './types';
+import type { Reminder } from '../core/types';
 
 export function localDayKey(d: Date = new Date()): string {
   const y = d.getFullYear();

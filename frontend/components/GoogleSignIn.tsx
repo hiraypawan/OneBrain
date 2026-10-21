@@ -1,9 +1,9 @@
 "use client";
 // The ONLY Google sign-in button in the app. It lives on /auth/login; every
-// other "Sign in" entry point links there (see lib/auth-return.ts loginHref).
+// other "Sign in" entry point links there (see lib/platform/auth-return.ts loginHref).
 import { useEffect, useState } from "react";
-import { platformApi } from "@/lib/platform";
-import { safeReturnPath, signInErrorMessage } from "@/lib/auth-return";
+import { platformApi } from "@/lib/platform/platform";
+import { safeReturnPath, signInErrorMessage } from "@/lib/platform/auth-return";
 
 type Availability = "loading" | "ready" | "unconfigured" | "error" | "paused";
 /** Setting names (never values) the server still needs, and the callback to register. */

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fallback, askGemini, askPollinations, buildSystem, foldPrompt } from '../lib/gemini';
-import { askPuter, puterReady } from '../lib/puter';
+import { fallback, askGemini, askPollinations, buildSystem, foldPrompt } from '../lib/ai/gemini';
+import { askPuter, puterReady } from '../lib/ai/puter';
 
 afterEach(() => {
   vi.unstubAllGlobals();

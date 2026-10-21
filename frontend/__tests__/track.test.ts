@@ -21,8 +21,8 @@ import {
   todayStrip,
   trackHref,
   workoutView,
-} from '@/lib/track';
-import { dayKey, type FitnessLog } from '@/lib/fitness';
+} from '@/lib/features/track';
+import { dayKey, type FitnessLog } from '@/lib/features/fitness';
 
 const DAY = 86400000;
 

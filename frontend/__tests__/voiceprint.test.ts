@@ -8,7 +8,7 @@ import {
   shouldIgnoreTranscript,
   synthVowel,
   learnBaseline,
-} from '../lib/voiceprint';
+} from '../lib/voice/voiceprint';
 
 const SR = 16000;
 

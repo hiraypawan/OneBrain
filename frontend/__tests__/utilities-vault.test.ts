@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
-import {addDays,dateDifference,convertUnit,pauseTimer,resumeTimer,timerRemaining} from '../lib/utilities';
-import {createVault,unlockVault,encryptVault,validateEnvelope} from '../lib/vault';
+import {addDays,dateDifference,convertUnit,pauseTimer,resumeTimer,timerRemaining} from '../lib/features/utilities';
+import {createVault,unlockVault,encryptVault,validateEnvelope} from '../lib/storage/vault';
 describe('deterministic everyday utilities',()=>{
  it('converts compatible units without floating point display noise',()=>{expect(convertUnit(2,'km','m')).toBe(2000);expect(convertUnit(1,'lb','g')).toBe(453.59237);expect(convertUnit(32,'F','C')).toBe(0);expect(convertUnit(0,'C','K')).toBe(273.15);});
  it('refuses incompatible dimensions and non-finite inputs',()=>{expect(()=>convertUnit(1,'m','kg')).toThrow();expect(()=>convertUnit(Infinity,'kg','g')).toThrow();expect(()=>convertUnit(-1,'K','C')).toThrow();});

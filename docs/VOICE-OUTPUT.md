@@ -29,7 +29,7 @@ Replies are now **real audio bytes played through an `<audio>` element**, with
 the browser voice kept only as a fallback.
 
 1. **Provider chain — `POST /api/speech/tts`** (`frontend/app/api/speech/tts/route.ts`,
-   helpers in `frontend/lib/tts-server.ts`):
+   helpers in `frontend/lib/server/tts-server.ts`):
    - the caller's own Gemini key (their quota, their plan) → natural speech with
      Indian-language support;
    - a keyless read-aloud voice (Google Translate's public text-to-speech:
@@ -47,7 +47,7 @@ the browser voice kept only as a fallback.
    *(Until 2026-10-21 the keyless tier was Pollinations `openai-audio`, which
    was withdrawn upstream — "Model not found" — so every zero-setup reply had
    silently dropped to the browser voice.)*
-2. **Client audio engine** (`frontend/lib/tts.ts`, `frontend/lib/audio.ts`):
+2. **Client audio engine** (`frontend/lib/voice/tts.ts`, `frontend/lib/voice/audio.ts`):
    audio is cached in Cache Storage by text+language, played through one shared
    `<audio>` element, published to the Media Session (lock screen, headset
    buttons), and pinned with `setSinkId` only when the user explicitly pins a

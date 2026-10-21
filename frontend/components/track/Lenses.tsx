@@ -1,10 +1,10 @@
 'use client';
 // The four Track lenses. Presentational on purpose: every number is produced by
-// lib/track.ts (pure, unit-tested), so a rendering change can never move a total.
+// lib/features/track.ts (pure, unit-tested), so a rendering change can never move a total.
 
 import { useMemo, useState } from 'react';
 import { useFeaturesStore } from '@/store/features';
-import { dayKey, formatLogLine, type FitnessLog } from '@/lib/fitness';
+import { dayKey, formatLogLine, type FitnessLog } from '@/lib/features/fitness';
 import {
   barPct,
   budgetBar,
@@ -23,7 +23,7 @@ import {
   tickLabel,
   workoutView,
   type TrackRange,
-} from '@/lib/track';
+} from '@/lib/features/track';
 
 // ---------------------------------------------------------------- helpers ----
 

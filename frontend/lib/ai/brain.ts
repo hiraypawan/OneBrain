@@ -62,7 +62,7 @@ export async function askBrainDetailed(
   userKey?: string,
   extra?: ChatExtra,
 ): Promise<BrainAnswer> {
-  // One prompt builder for every provider (see lib/prompt.ts). Feature modes
+  // One prompt builder for every provider (see lib/ai/prompt.ts). Feature modes
   // with their own system prompt (translator, research…) keep it verbatim.
   let facts = '';
   if (!extra?.systemOverride) {

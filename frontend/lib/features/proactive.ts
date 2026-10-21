@@ -1,5 +1,5 @@
-import type { Message } from "./types";
-import type { BrainItem } from "./workspace/model";
+import type { Message } from "../core/types";
+import type { BrainItem } from "../workspace/model";
 
 export interface ProactivePreferences {
   enabled: boolean;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { speechCacheKey, synthesizeSpeech } from '../lib/tts';
+import { speechCacheKey, synthesizeSpeech } from '../lib/voice/tts';
 
 afterEach(() => {
   vi.unstubAllGlobals();

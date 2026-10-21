@@ -5,8 +5,8 @@ import {
   pickBestAlternative,
   resolveStationName,
   suggestStationCorrection,
-} from '../lib/pronunciation';
-import { detectTransitIntent } from '../lib/transit';
+} from '../lib/voice/pronunciation';
+import { detectTransitIntent } from '../lib/features/transit';
 
 describe('pronunciation core: Indian station names survive the engine', () => {
   it('maps a truncated Vangani back to Vangani', () => {

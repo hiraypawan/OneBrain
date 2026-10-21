@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { briefFacts, briefLine, dateLine, greetingFor } from '@/lib/today-brief';
-import type { TodayStrip } from '@/lib/track';
-import type { TodoCounts } from '@/lib/todo';
+import { briefFacts, briefLine, dateLine, greetingFor } from '@/lib/features/today-brief';
+import type { TodayStrip } from '@/lib/features/track';
+import type { TodoCounts } from '@/lib/features/todo';
 
 const counts = (over: Partial<TodoCounts> = {}): TodoCounts => ({
   open: 0, dueToday: 0, overdue: 0, done: 0, byOrigin: { device: 0, reminder: 0, server: 0 }, ...over,

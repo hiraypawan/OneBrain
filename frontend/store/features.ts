@@ -1,29 +1,29 @@
 'use client';
 import { create } from 'zustand';
-import { db } from '@/lib/db';
+import { db } from '@/lib/storage/db';
 import { useAssistantStore } from './assistant';
-import type { EmailSlots, EmailDraft, EmailTone } from '@/lib/email';
-import type { FitnessLog } from '@/lib/fitness';
-import type { TrackLens, TrackRangeKind } from '@/lib/track';
-import type { WorkoutPreset, CueSchedule } from '@/lib/workout';
-import type { ResearchBrief } from '@/lib/research';
-import type { TransitResult } from '@/lib/transit';
-import type { RangeSummary, DateRange } from '@/lib/timetravel';
-import type { Minutes } from '@/lib/scribe';
-import type { Commitment, BriefResult, ForgettingResult, RadarResult } from '@/lib/briefing';
-import type { StoryThread } from '@/lib/story';
-import type { WitnessState, WitnessAction } from '@/lib/witness';
-import { INITIAL_WITNESS, witnessReducer } from '@/lib/witness';
-import type { MorningDigest, NightNote } from '@/lib/nightmind';
-import type { PlanId, QuotaUse } from '@/lib/plans';
-import { EMPTY_QUOTA } from '@/lib/plans';
+import type { EmailSlots, EmailDraft, EmailTone } from '@/lib/features/email';
+import type { FitnessLog } from '@/lib/features/fitness';
+import type { TrackLens, TrackRangeKind } from '@/lib/features/track';
+import type { WorkoutPreset, CueSchedule } from '@/lib/features/workout';
+import type { ResearchBrief } from '@/lib/features/research';
+import type { TransitResult } from '@/lib/features/transit';
+import type { RangeSummary, DateRange } from '@/lib/features/timetravel';
+import type { Minutes } from '@/lib/features/scribe';
+import type { Commitment, BriefResult, ForgettingResult, RadarResult } from '@/lib/features/briefing';
+import type { StoryThread } from '@/lib/features/story';
+import type { WitnessState, WitnessAction } from '@/lib/features/witness';
+import { INITIAL_WITNESS, witnessReducer } from '@/lib/features/witness';
+import type { MorningDigest, NightNote } from '@/lib/features/nightmind';
+import type { PlanId, QuotaUse } from '@/lib/platform/plans';
+import { EMPTY_QUOTA } from '@/lib/platform/plans';
 import {
   quotaFromServer,
   resolvePlan,
   type EntitlementCache,
   type PlanSource,
   type ServerEntitlement,
-} from '@/lib/entitlements';
+} from '@/lib/platform/entitlements';
 
 export type FeatureCard =
   | { kind: 'email'; slots: EmailSlots; draft: EmailDraft; userName: string }
@@ -100,7 +100,7 @@ export function normalizeTrackGoals(raw: unknown): TrackGoals {
 
 export interface EmailSession {
   slots: EmailSlots;
-  awaiting: import('@/lib/email').SlotName | null;
+  awaiting: import('@/lib/features/email').SlotName | null;
 }
 
 export interface PersonaSession {

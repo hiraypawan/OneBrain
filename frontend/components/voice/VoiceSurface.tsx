@@ -10,11 +10,11 @@ import { useAssistant } from '@/hooks/useAssistant';
 import { useBackgroundKeepalive } from '@/hooks/useBackgroundKeepalive';
 import { useAssistantStore } from '@/store/assistant';
 import { useFeaturesStore } from '@/store/features';
-import { unlockAudioOutput } from '@/lib/audio';
+import { unlockAudioOutput } from '@/lib/voice/audio';
 import { FeatureCards, FeatureHint } from '@/components/features/FeatureCards';
 import { Icon } from '@/components/ui/Icon';
-import { environmentTuning } from '@/lib/environment';
-import { INTENT_HINTS } from '@/lib/intents';
+import { environmentTuning } from '@/lib/voice/environment';
+import { INTENT_HINTS } from '@/lib/features/intents';
 
 const PROVIDER_LABELS: Record<string, string> = {
   gemini: 'Gemini (your key)',

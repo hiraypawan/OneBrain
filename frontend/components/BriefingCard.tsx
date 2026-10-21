@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { digestMessages } from '@/lib/digest';
-import { db } from '@/lib/db';
+import { digestMessages } from '@/lib/ai/digest';
+import { db } from '@/lib/storage/db';
 
 // Home briefing: time-aware greeting + one routine nudge from local memory.
 export function BriefingCard() {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   detectPersonaIntent, personaById, personaPrompt, offlineTutorCorrections,
   formatCorrections, offlineCoachReply, extractModeNote, PERSONAS,
-} from '../lib/personas';
+} from '../lib/ai/personas';
 
 describe('detectPersonaIntent', () => {
   it('enters personas', () => {

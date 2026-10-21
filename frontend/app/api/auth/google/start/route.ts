@@ -1,6 +1,6 @@
 import { NextRequest,NextResponse } from 'next/server';
-import { authRequest,localRedirect,signInFailureCode,STATE_COOKIE } from '@/lib/google-auth-server';
-import { NEXT_COOKIE,safeReturnPath } from '@/lib/auth-return';
+import { authRequest,localRedirect,signInFailureCode,STATE_COOKIE } from '@/lib/server/google-auth-server';
+import { NEXT_COOKIE,safeReturnPath } from '@/lib/platform/auth-return';
 export const dynamic='force-dynamic';
 async function returnPath(request:NextRequest){
  try{const form=await request.formData();return safeReturnPath(form.get('next'));}catch{return safeReturnPath(request.nextUrl.searchParams.get('next'));}

@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useFeaturesStore } from '@/store/features';
-import { mailtoHref } from '@/lib/email';
+import { mailtoHref } from '@/lib/features/email';
 
 export function Drafts() {
   const drafts = useFeaturesStore((s) => s.emailDrafts);

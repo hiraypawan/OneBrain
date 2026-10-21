@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { safeReturnPath, loginHref, signInErrorMessage, NEXT_COOKIE } from '../lib/auth-return';
+import { safeReturnPath, loginHref, signInErrorMessage, NEXT_COOKIE } from '../lib/platform/auth-return';
 import { POST } from '../app/api/auth/google/start/route';
 import { GET } from '../app/api/auth/google/callback/route';
-import { authRequest, AuthRequestError, STATE_COOKIE } from '../lib/google-auth-server';
-vi.mock('../lib/google-auth-server', async () => ({ ...(await vi.importActual<any>('../lib/google-auth-server')), authRequest: vi.fn() }));
+import { authRequest, AuthRequestError, STATE_COOKIE } from '../lib/server/google-auth-server';
+vi.mock('../lib/server/google-auth-server', async () => ({ ...(await vi.importActual<any>('../lib/server/google-auth-server')), authRequest: vi.fn() }));
 beforeEach(() => vi.mocked(authRequest).mockReset());
 const state = 'a'.repeat(64), browser = 'b'.repeat(64), token = 'c'.repeat(64);
 

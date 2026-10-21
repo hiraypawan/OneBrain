@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useMediaStore } from '@/store/media';
 import { useAssistantStore } from '@/store/assistant';
-import { mediaSourceLabel, type MediaKind } from '@/lib/media';
+import { mediaSourceLabel, type MediaKind } from '@/lib/features/media';
 import { Icon } from '../ui/Icon';
 
 const VOICE_EXAMPLES: { say: string; what: string }[] = [
