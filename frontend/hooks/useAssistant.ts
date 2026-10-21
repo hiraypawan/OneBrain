@@ -91,6 +91,8 @@ import {
   resumePlan,
 } from "@/lib/voice/barge-in";
 import { normalizeHinglish } from "@/lib/voice/transliterate";
+import { activeLocale, localized } from "@/lib/locale/active";
+import { detectPlatform, micBusyHelp, micPermissionHelp, speechSupport, voiceInputNotice } from "@/lib/voice/capabilities";
 import { correctProperNouns, pickBestAlternative, stationGrammar } from "@/lib/voice/pronunciation";
 import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/voice/commands";
 import { useVoicePrint } from "@/hooks/useVoicePrint";
@@ -113,6 +115,8 @@ export interface SpeakOptions {
   spokenBefore?: number;
   /** The full reply this speech belongs to; progress is measured against it. */
   origin?: string;
+  /** BCP-47 tag when the language is known (translator output); otherwise picked from the text + locale. */
+  lang?: string;
 }
 
 export function useAssistant() {
@@ -376,7 +380,8 @@ export function useAssistant() {
       let restoreAudioSession: () => void = () => {};
       try {
         const settings = useAssistantStore.getState().settings;
-        const lang = ttsLangFor(clean, settings.language);
+        const locale = activeLocale();
+        const lang = opts?.lang || ttsLangFor(clean, locale.voice.id, locale.english);
         // ------------------------------------------------------------------
         // 1. REAL audio bytes. Played through an <audio> element this works on
         //    every platform, follows whatever the phone is currently playing
@@ -794,7 +799,7 @@ export function useAssistant() {
             return;
           }
         } catch {
-          st.setMicNotice("Mic start nahi hua — Active button dabao.");
+          st.setMicNotice(localized("Couldn’t start the microphone — tap Active.", "Mic start nahi hua — Active button dabao."));
           return;
         }
         try {
@@ -808,7 +813,7 @@ export function useAssistant() {
       if (cmd === "new") {
         st.setSpeechProgress(null);
         st.newConversation();
-        const msg = "Nayi chat shuru ho gayi. Bolo, kya baat karein?";
+        const msg = localized("New chat started. What would you like to talk about?", "Nayi chat shuru ho gayi. Bolo, kya baat karein?");
         st.addMessage("assistant", msg);
         await ctl.speak(msg);
         if (useAssistantStore.getState().isActive)
@@ -834,7 +839,7 @@ export function useAssistant() {
         if (useAssistantStore.getState().isActive)
           st.setCurrentStatus("listening");
       } else {
-        const msg = "Abhi kuch dohraya nahi hai.";
+        const msg = localized("There’s nothing to repeat yet.", "Abhi kuch dohraya nahi hai.");
         st.addMessage("assistant", msg);
         await ctl.speak(msg);
       }
@@ -1096,7 +1101,7 @@ export function useAssistant() {
           // Fire the search, acknowledge honestly, then let the store report
           // the real outcome ("Playing: …" or why nothing could stream).
           const searching = mediaStore.request(media.query, media.kinds);
-          await speak(`Free sources ko ${media.query} dhundne bol raha hun.`);
+          await speak(localized(`Searching free sources for ${media.query}.`, `Free sources ko ${media.query} dhundne bol raha hun.`));
           await searching;
           if (turnGeneration !== sessionGenerationRef.current) return;
           if (store.isActive) store.setCurrentStatus("listening");
@@ -1149,7 +1154,7 @@ export function useAssistant() {
             after.setSessionSummary(step.summary);
           }
         } catch {}
-        await speak(feat.speak);
+        await speak(feat.speak, feat.speakLang ? { lang: feat.speakLang } : undefined);
         if (store.isActive) store.setCurrentStatus("listening");
         return;
       }
@@ -1251,7 +1256,7 @@ export function useAssistant() {
         profile,
         recall,
         verbosity: st.settings.verbosity,
-        language: st.settings.language,
+        language: activeLocale().voice.id,
         ...aiKeyConfig(),
         onChunk: (text) => {
           if (sessionGenerationRef.current === generation) {
@@ -1467,7 +1472,7 @@ export function useAssistant() {
           useAssistantStore
             .getState()
             .setMicNotice(
-              "Mic wapas nahi mila. Stop dabakar dobara Active karo.",
+              localized("Lost the microphone. Tap Stop, then Active again.", "Mic wapas nahi mila. Stop dabakar dobara Active karo."),
             );
           return;
         }
@@ -1531,7 +1536,8 @@ export function useAssistant() {
         (window as any).webkitSpeechRecognition;
       if (!SR)
         throw new Error(
-          "Speech recognition is unavailable in this browser. You can still type below.",
+          voiceInputNotice(detectPlatform(), speechSupport()) ||
+            "Speech recognition is unavailable in this browser. You can still type below.",
         );
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error(
@@ -1588,23 +1594,18 @@ export function useAssistant() {
       useAssistantStore.getState().markSessionStart();
       useAssistantStore
         .getState()
-        .logBgEvent("session-start", store.settings.language);
+        .logBgEvent("session-start", activeLocale().voice.id);
       (window as any).__onebrain_start = () =>
         controlsRef.current.startActive();
 
-      // 2. Speech recognition loop (Web Speech API, free + Hinglish).
-      // Recognition language follows Settings so Marathi/Hindi/English each
-      // get their own acoustic model instead of one wrong guess.
+      // 2. Speech recognition loop (Web Speech API, free).
+      // The recognizer language follows the resolved locale (Settings, or the
+      // device language + country on "auto"), so a UK user gets the en-GB
+      // acoustic model, a Hinglish speaker the Hindi one, and so on.
+      const locale = activeLocale();
       if (SR) {
         const recog = new SR();
-        const recogLang: Record<string, string> = {
-          hinglish: "hi-IN",
-          marathi: "mr-IN",
-        };
-        recog.lang =
-          recogLang[store.settings.language] ||
-          store.settings.language ||
-          "en-IN";
+        recog.lang = locale.voice.recognition;
         recog.continuous = true;
         recog.interimResults = true;
         // Ask for n-best hypotheses: the top guess drops proper nouns
@@ -1618,7 +1619,8 @@ export function useAssistant() {
           const SG =
             (window as any).SpeechGrammarList ||
             (window as any).webkitSpeechGrammarList;
-          if (SG) {
+          // The gazetteer is Indian stations and cities: only bias toward it there.
+          if (SG && locale.indian) {
             const grammars = new SG();
             grammars.addFromString(stationGrammar(), 1);
             (recog as any).grammars = grammars;
@@ -1672,8 +1674,11 @@ export function useAssistant() {
             // ("Vangani" -> "vani") in every language model, so restore
             // station/city names from the phonetic gazetteer before the
             // transcript reaches intents, transit or the AI.
-            const roman = normalizeHinglish(text);
-            const repaired = correctProperNouns(roman);
+            // Both steps are India-specific (Devanagari -> Roman, Indian
+            // place names) and would corrupt other languages ("en", "se").
+            const indian = activeLocale().indian;
+            const roman = indian ? normalizeHinglish(text) : text;
+            const repaired = indian ? correctProperNouns(roman) : { text: roman, corrections: [] };
             if (repaired.corrections.length) {
               try {
                 useAssistantStore
@@ -1733,7 +1738,10 @@ export function useAssistant() {
               }
             } catch {}
             if (!hyps.length && res?.[0]) hyps.push(String(res[0].transcript || ''));
-            const bestText = hyps.length > 1 ? pickBestAlternative(hyps) : hyps[0] || '';
+            // Station-name rescoring is for Indian place names; elsewhere the
+            // engine's own first guess is the best one.
+            const bestText =
+              hyps.length > 1 && activeLocale().indian ? pickBestAlternative(hyps) : hyps[0] || '';
             const alt = res?.[0];
             if (!alt && !bestText) continue;
             const altForScore = {
@@ -1824,13 +1832,13 @@ export function useAssistant() {
             useAssistantStore
               .getState()
               .setMicNotice(
-                "Mic permission blocked — address bar ke lock icon se Allow karo.",
+                localized(micPermissionHelp(detectPlatform()), "Mic permission blocked — address bar ke lock icon se Allow karo."),
               );
           } else if (err === "audio-capture") {
             useAssistantStore
               .getState()
               .setMicNotice(
-                "🎤 Mic busy hai — laptop (multipoint) ya koi aur app use kar raha hai.",
+                localized(`🎤 ${micBusyHelp(detectPlatform())}`, "🎤 Mic busy hai — laptop (multipoint) ya koi aur app use kar raha hai."),
               );
           } else if (err === "network") {
             // Chrome's recognizer is a cloud service: tell the user instead

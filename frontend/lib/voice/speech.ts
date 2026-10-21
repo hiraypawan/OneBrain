@@ -1,6 +1,8 @@
 // Scrub chat text into speakable sentences: no emojis, no markdown,
 // no URLs - speech engines read every character literally.
 import { signalSpeechPlayback } from './audio';
+import { voiceLanguageById } from '../locale/voice-languages';
+import { looksEnglish, scriptLanguage, type ScriptLanguage } from '../locale/text-language';
 
 export function cleanForSpeech(input: string): string {
   let t = input || '';
@@ -55,11 +57,15 @@ export function splitReply(answer: string): { spoken: string; english: string | 
   return { spoken: spoken || english, english };
 }
 
-// Pick a TTS voice locale matching the reply's script, so Marathi answers
-// don't come out in an English voice (and vice versa).
-export function ttsLangFor(text: string, preferred: string): string {
+// Pick the voice that should read this text. Non-Latin scripts choose their
+// own language (a Marathi answer never comes out in an English voice);
+// Latin-script text uses the user's voice language, except English text
+// inside a non-English setting, which gets the user's English accent.
+// `language` is a resolved voice-language id (see lib/locale), never "auto".
+export function ttsLangFor(text: string, language: string, englishTag = 'en-US'): string {
+  const voice = voiceLanguageById(language);
   const t = text || '';
-  if (/[\u0900-\u097F]/.test(t)) return preferred === 'marathi' ? 'mr-IN' : 'hi-IN';
+  if (/[\u0900-\u097F]/.test(t)) return voice?.id === 'marathi' ? 'mr-IN' : 'hi-IN';
   if (/[\u0A00-\u0A7F]/.test(t)) return 'pa-IN';
   if (/[\u0A80-\u0AFF]/.test(t)) return 'gu-IN';
   if (/[\u0980-\u09FF]/.test(t)) return 'bn-IN';
@@ -68,13 +74,34 @@ export function ttsLangFor(text: string, preferred: string): string {
   if (/[\u0C00-\u0C7F]/.test(t)) return 'te-IN';
   if (/[\u0C80-\u0CFF]/.test(t)) return 'kn-IN';
   if (/[\u0D00-\u0D7F]/.test(t)) return 'ml-IN';
-  if (/[\u0600-\u06FF]/.test(t)) return 'ar-SA';
-  if (/[\u4E00-\u9FFF]/.test(t)) return 'zh-CN';
-  if (/[\u3040-\u30FF]/.test(t)) return 'ja-JP';
-  if (/[\uAC00-\uD7AF]/.test(t)) return 'ko-KR';
+  const script = scriptLanguage(t);
+  if (script) return voice?.reply === script ? voice.tts : SCRIPT_VOICE[script];
   if (/[\u0400-\u04FF]/.test(t)) return 'ru-RU';
-  return preferred === 'hi-IN' ? 'hi-IN' : 'en-IN';
+  if (!voice) return englishTag;
+  switch (voice.reply) {
+    case 'english':
+      return voice.tts;
+    case 'hinglish':
+    case 'marathi':
+      return 'en-IN'; // Roman-script Hinglish/Marathi reads best in an Indian English voice
+    case 'hindi':
+      return 'hi-IN';
+    case 'japanese':
+    case 'korean':
+    case 'chinese':
+    case 'arabic':
+      return englishTag; // Latin text in a non-Latin-script setting is English
+    default:
+      return looksEnglish(t, voice.reply) ? englishTag : voice.tts;
+  }
 }
+
+const SCRIPT_VOICE: Record<ScriptLanguage, string> = {
+  japanese: 'ja-JP',
+  korean: 'ko-KR',
+  chinese: 'zh-CN',
+  arabic: 'ar-SA',
+};
 
 // Code points to drop: [start, end] pairs as hex numbers (no giant regex).
 const DROP_RANGES: Array<[number, number]> = [
@@ -158,11 +185,49 @@ const RELATED_LANGS: Record<string, string[]> = {
  * Pick the best installed voice for `lang`, never returning "nothing" when
  * *some* voice exists: silence is worse than a slightly wrong accent.
  */
+// Novelty and retro voices shipped with macOS/iOS ("Albert", "Bubbles", the
+// Eloquence set "Eddy", "Flo"…). Engines often list them first alphabetically,
+// so without this a US reply could come out as "Albert". Last resort only.
+const NOVELTY_VOICE =
+  /\b(albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|deranged|hysterical|princess|fred|junior|kathy|ralph|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley)\b/i;
+
+/**
+ * How natural a voice sounds, from what engines put in the name. Edge's
+ * "Online (Natural)" and Apple's Premium/Enhanced voices are neural; Chrome's
+ * "Google …" voices are network voices; bare OS voices are the robotic ones.
+ */
+export function voiceQuality(v: VoiceLike & { localService?: boolean }): number {
+  const name = String(v?.name || '');
+  let score = 0;
+  if (/natural|neural/i.test(name)) score += 50;
+  if (/premium/i.test(name)) score += 45;
+  if (/enhanced/i.test(name)) score += 40;
+  if (/^google\b/i.test(name)) score += 30;
+  if (/\bonline\b|network/i.test(name)) score += 20;
+  // Apple's good built-in voices per English accent.
+  if (/\b(samantha|alex|ava|zoe|allison|susan|tom|daniel|kate|serena|oliver|karen|lee|catherine|moira|tessa|rishi|veena)\b/i.test(name)) score += 15;
+  if (/espeak|robot/i.test(name)) score -= 50;
+  if (v?.localService === false) score += 5;
+  if (v?.default) score += 3;
+  return score;
+}
+
+// When the exact accent is missing, the nearest one: an Australian hears a
+// New Zealand or British voice before an American one.
+const CLOSE_ACCENTS: Record<string, string[]> = {
+  'en-au': ['en-nz', 'en-gb'], 'en-nz': ['en-au', 'en-gb'], 'en-gb': ['en-ie', 'en-au'],
+  'en-ie': ['en-gb'], 'en-za': ['en-gb'], 'en-in': ['en-gb'], 'en-sg': ['en-gb'],
+  'en-ca': ['en-us'], 'en-us': ['en-ca'], 'es-mx': ['es-us'], 'es-us': ['es-mx'],
+  'fr-ca': ['fr-fr'], 'pt-pt': ['pt-br'], 'pt-br': ['pt-pt'], 'zh-tw': ['zh-hk', 'zh-cn'],
+};
+
 export function pickTtsVoice<V extends VoiceLike>(
   voices: V[] | null | undefined,
   lang: string,
 ): VoiceChoice<V> {
-  const list = Array.isArray(voices) ? voices.filter(Boolean) : [];
+  const all = Array.isArray(voices) ? voices.filter(Boolean) : [];
+  const usable = all.filter((v) => !NOVELTY_VOICE.test(String(v?.name || '')));
+  const list = usable.length ? usable : all;
   const want = normLang(lang);
   const wantBase = baseLang(want);
   const none: VoiceChoice<V> = { voice: null, match: 'none', lang: null, name: null };
@@ -174,32 +239,46 @@ export function pickTtsVoice<V extends VoiceLike>(
     lang: normLang(voice?.lang) || want || null,
     name: String(voice?.name || 'System voice'),
   });
+  /** The most natural-sounding voice; ties keep the engine's own order. */
+  const best = (candidates: V[]): V =>
+    candidates.reduce((a, b) => (voiceQuality(b) > voiceQuality(a) ? b : a));
 
-  // 1. Exact tag: `mr-IN` when `mr-IN` is installed.
-  const exact = list.find((v) => normLang(v?.lang) === want);
-  if (exact) return found(exact, 'exact');
+  // 1. Exact tag: `en-AU` when an `en-AU` voice is installed (the most natural one).
+  const exact = list.filter((v) => normLang(v?.lang) === want);
+  if (exact.length) return found(best(exact), 'exact');
 
-  // 2. Same language, other script/region: `hi-Latn-IN` for `hi-IN`.
-  const sameLang =
-    list.find((v) => baseLang(v?.lang) === wantBase && normLang(v?.lang).startsWith(wantBase + '-')) ||
-    list.find((v) => baseLang(v?.lang) === wantBase);
-  if (sameLang) return found(sameLang, 'language');
+  // 2. Same language: nearest accent first, then a tag with a region/script
+  //    (`hi-Latn-IN`) over a bare one, then naturalness.
+  const same = list.filter((v) => baseLang(v?.lang) === wantBase);
+  if (same.length) {
+    const close = CLOSE_ACCENTS[want] || [];
+    const rank = (v: V) => {
+      const tag = normLang(v?.lang);
+      const i = close.indexOf(tag);
+      return i !== -1 ? i : tag.startsWith(`${wantBase}-`) ? close.length : close.length + 1;
+    };
+    const sorted = [...same].sort((a, b) => rank(a) - rank(b) || voiceQuality(b) - voiceQuality(a));
+    return found(sorted[0], 'language');
+  }
 
   // 3. Related script family (Marathi -> Hindi).
   for (const rel of RELATED_LANGS[wantBase] || []) {
-    const hit =
-      list.find((v) => normLang(v?.lang) === `${rel}-in`) ||
-      list.find((v) => baseLang(v?.lang) === rel);
-    if (hit) return found(hit, 'related');
+    const regional = list.filter((v) => normLang(v?.lang) === `${rel}-in`);
+    const family = list.filter((v) => baseLang(v?.lang) === rel);
+    if (regional.length || family.length) return found(best(regional.length ? regional : family), 'related');
   }
 
-  // 4. Any voice at all — prefer an Indian English one so names/pronunciation
-  //    stay close, then the engine default, then whatever is first.
-  const any =
-    list.find((v) => normLang(v?.lang) === 'en-in') ||
-    list.find((v) => baseLang(v?.lang) === 'en') ||
-    list.find((v) => v?.default === true) ||
-    list[0];
+  // 4. Any voice at all — English from the same region first (Tamil -> Indian
+  //    English keeps names close), then the most natural English, then the
+  //    engine default, then whatever is first.
+  const region = want.split('-').slice(1).find((p) => p.length === 2);
+  const regionalEnglish = region ? list.filter((v) => normLang(v?.lang) === `en-${region}`) : [];
+  const english = list.filter((v) => baseLang(v?.lang) === 'en');
+  const any = regionalEnglish.length
+    ? best(regionalEnglish)
+    : english.length
+      ? best(english)
+      : list.find((v) => v?.default === true) || list[0];
   return found(any, 'any');
 }
 
@@ -364,7 +443,7 @@ export function utteranceVoicePlan<V extends VoiceLike>(
   const voice = (choice?.voice as V) || null;
   // Keep the exact tag the engine published ("en-IN", not our normalised
   // "en-in"): BCP-47 is case-insensitive, but Apple's voice lookup is not.
-  const requested = String(requestedLang || '').trim() || 'en-IN';
+  const requested = String(requestedLang || '').trim() || 'en-US';
   const voiceLang = String(voice?.lang || choice?.lang || '').trim();
   if (voice) return { voice, lang: voiceLang || requested };
   return { voice: null, lang: requested };

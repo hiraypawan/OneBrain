@@ -3,6 +3,9 @@
 // the morning digest reframes worries and converts ideas to task drafts.
 // Includes distress detection with supportive response + helpline.
 
+import { activeLocale } from '../locale/active';
+import type { ResolvedLocale } from '../locale/resolve';
+
 export type NightTag = 'worry' | 'idea' | 'gratitude' | 'dream' | 'plan' | 'vent';
 
 export interface NightNote {
@@ -38,18 +41,45 @@ export function isNightHour(now: Date = new Date()): boolean {
 }
 
 // Self-harm / crisis language (EN + Roman Hindi). Supportive, never clinical.
-const DISTRESS_RE = /(suicide|khudkushi|khud khushi|kill myself|end my life|marna chahta|marna chahti|mar jana|jeene ka mann nahi|jeena nahi|no reason to live|self[\s-]?harm|khud ko nuksan)/i;
+// Errs on the side of caring: a false positive costs one kind message.
+const DISTRESS_RE = /(suicid|khudkushi|khud khushi|kill myself|end my life|end it all|want to die|wanna die|better off dead|don'?t want to (live|be alive)|no reason to live|self[\s-]?harm|marna chahta|marna chahti|mar jana|jeene ka mann nahi|jeena nahi|khud ko nuksan)/i;
 
 export function distressCheck(text: string): boolean {
   return DISTRESS_RE.test(String(text || ''));
 }
 
+/** The original Hinglish reply for India: kept word for word. */
 export const SUPPORTIVE_REPLY =
   'Sunno — tum akele nahi ho, aur yeh raat guzar jayegi. ' +
   'Main AI hun, counselor nahi, isliye please kisi bharosemand se baat karo. ' +
   'India mein muft madad: teleMANAS 14416 (24x7), ya iCall 9152987821 subah 8 se raat 10 tak. ' +
   'Agar abhi khatra lag raha hai to turant 112 par call karo. ' +
   'Maine tumhara note save kar liya hai — subah hum is par baat karenge.';
+
+/**
+ * What to say when someone sounds in crisis: warm, short, honest that this
+ * is an AI, and with a real helpline for *their* country (lib/locale). Where
+ * no number is well established we point to findahelpline.com rather than
+ * risk a wrong one.
+ */
+export function supportiveReply(
+  locale: Pick<ResolvedLocale, 'country' | 'info' | 'hinglish'> = activeLocale(),
+): string {
+  if (locale.country === 'IN' && locale.hinglish) return SUPPORTIVE_REPLY;
+  const open =
+    'Please hear this: you are not alone, and this night will pass. ' +
+    'I’m an AI, not a counsellor, so please talk to someone you trust. ';
+  const help =
+    locale.country === 'IN'
+      ? 'Free help in India: Tele-MANAS on 14416, any time, or iCall on 9152987821 from 8 am to 10 pm. '
+      : locale.info?.helpline
+        ? `You can reach ${locale.info.helpline.name} — ${locale.info.helpline.contact}. `
+        : 'You can find a free, confidential helpline for your country at findahelpline.com. ';
+  const emergency = locale.info?.emergency
+    ? `If you might be in danger right now, call ${locale.info.emergency} immediately. `
+    : 'If you might be in danger right now, call your local emergency number immediately. ';
+  return `${open}${help}${emergency}I’ve saved your note — we can talk about it in the morning.`;
+}
 
 export interface MorningDigest {
   spoken: string;

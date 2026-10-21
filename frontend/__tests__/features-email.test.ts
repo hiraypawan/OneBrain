@@ -3,6 +3,7 @@ import {
   detectEmailIntent, extractEmailSlots, missingSlots, slotQuestion,
   fillSlotFromAnswer, buildDraft, retone, mailtoHref,
 } from '../lib/features/email';
+import { DEFAULT_TEST_DEVICE, useDevice, useHinglishSpeaker } from './helpers/locale';
 
 describe('detectEmailIntent', () => {
   it('detects leave applications', () => {
@@ -40,8 +41,12 @@ describe('slot flow', () => {
   it('lists missing slots and asks conversationally', () => {
     const miss = missingSlots({ kind: 'leave', tone: 'formal' });
     expect(miss).toEqual(['to', 'days', 'fromDate', 'reason']);
+    expect(slotQuestion('days', 'leave')).toMatch(/How many days/);
+    expect(slotQuestion('to', 'leave')).toMatch(/Who should it go to/);
+    useHinglishSpeaker();
     expect(slotQuestion('days', 'leave')).toMatch(/Kitne din/);
     expect(slotQuestion('to', 'leave')).toMatch(/Kisko/);
+    useDevice(DEFAULT_TEST_DEVICE);
   });
   it('fills slots from answers', () => {
     expect(fillSlotFromAnswer('to', 'mere manager Ramesh'))?.toMatchObject({ to: 'Ramesh' });

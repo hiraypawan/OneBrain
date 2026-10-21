@@ -3,6 +3,14 @@
 // reducer + formatters; the React runner owns timers and speech.
 // Free forever — safety is trust infrastructure, not a paywall item.
 
+import { formatDate, formatDateTime } from '../locale/format';
+import { localized } from '../locale/active';
+
+/** The spoken check-in question (English, or Hinglish for Hinglish speakers). Both answers work: “safe”, “I’m safe”, “sab theek”. */
+export function witnessCheckInQuestion(): string {
+  return localized('All okay? Say “safe”.', 'Sab theek? Bolo safe.');
+}
+
 export type WitnessPhase = 'idle' | 'active' | 'alert';
 
 export interface WitnessLogEntry {
@@ -67,7 +75,7 @@ export function witnessReducer(s: WitnessState, a: WitnessAction): WitnessState 
       return { ...s, log: [...s.log, tx(a.at, a.text)].slice(-500) };
     case 'checkin-due':
       if (s.phase !== 'active') return s;
-      return { ...s, log: [...s.log, ev(a.at, 'Check-in asked: “Sab theek? Bolo safe.”')].slice(-500) };
+      return { ...s, log: [...s.log, ev(a.at, `Check-in asked: “${witnessCheckInQuestion()}”`)].slice(-500) };
     case 'responded':
       if (s.phase === 'idle') return s;
       return {
@@ -121,12 +129,10 @@ export function detectWitnessIntent(text: string): WitnessIntent {
 
 export function evidenceText(s: WitnessState): string {
   const lines = s.log.map((e) => {
-    const ts = new Intl.DateTimeFormat('en-IN', {
-      day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
-    }).format(new Date(e.at));
+    const ts = formatDate(e.at, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', second: '2-digit' });
     return `[${ts}] ${e.kind === 'event' ? '•' : '“'}${e.text}${e.kind === 'event' ? '' : '”'}`;
   });
-  const started = s.startedAt ? new Date(s.startedAt).toLocaleString('en-IN') : 'unknown';
+  const started = s.startedAt ? formatDateTime(s.startedAt) : 'unknown';
   return `OneBrain Witness Log — started ${started}\nMissed check-ins: ${s.misses}\n\n${lines.join('\n')}\n\n— Recorded on-device by OneBrain witness mode.`;
 }
 

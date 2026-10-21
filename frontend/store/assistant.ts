@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { defaultSettings, normalizeSettings } from '../lib/storage/settings';
+import { setLocaleSettings } from '../lib/locale/active';
 import type { AssistantStatus, Conversation, Message, Reminder, User, UserSettings } from '@/lib/core/types';
 import { db, getRecentMessages, getConversationMessages, deleteConversationLocal, clearAllLocal } from '@/lib/storage/db';
 import type { BgState, BgEvent } from '@/lib/voice/background';
@@ -460,6 +461,12 @@ export const useAssistantStore = create<AssistantState>((set) => ({
     } catch {}
   },
 }));
+
+// The active locale (lib/locale) follows the language/country settings.
+setLocaleSettings(useAssistantStore.getState().settings);
+useAssistantStore.subscribe((s, previous) => {
+  if (s.settings !== previous.settings) setLocaleSettings(s.settings);
+});
 
 // Save key + settings on every change (client only).
 if (typeof window !== 'undefined') {

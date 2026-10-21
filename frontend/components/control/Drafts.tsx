@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useFeaturesStore } from '@/store/features';
 import { mailtoHref } from '@/lib/features/email';
+import { formatDate } from '@/lib/locale/format';
 
 export function Drafts() {
   const drafts = useFeaturesStore((s) => s.emailDrafts);
@@ -26,7 +27,7 @@ export function Drafts() {
         {!drafts.length && <p>No drafts yet.</p>}
         {drafts.map((d) => (
           <details key={d.id}>
-            <summary>{d.subject} · {d.tone} · {new Date(d.createdAt).toLocaleDateString('en-IN')}</summary>
+            <summary>{d.subject} · {d.tone} · {formatDate(d.createdAt, { day: 'numeric', month: 'short', year: 'numeric' })}</summary>
             <p><small>To: {d.toEmail || d.to || '(add in mail app)'} · Kind: {d.kind}</small></p>
             <p className="feat-pre">{d.body}</p>
             <div className="sheet-actions">

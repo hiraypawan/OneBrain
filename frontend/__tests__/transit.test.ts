@@ -2,6 +2,7 @@
 // flights — and, more importantly, what it must NOT claim when a source does
 // not answer. Every provider call is injected, so this runs offline.
 import { describe, it, expect, vi } from 'vitest';
+import { DEFAULT_TEST_DEVICE, useDevice, useHinglishSpeaker } from './helpers/locale';
 import {
   detectTransitIntent,
   matchCity,
@@ -168,7 +169,8 @@ describe('train live status', () => {
   it('says it could not verify instead of inventing a delay', async () => {
     const r = await trainLiveStatus('12951', { fetchImpl: mockFetch(() => ({ ok: false, status: 503 })) });
     expect(r.live).toBe(false);
-    expect(r.spoken).toMatch(/nahi mil paya/);
+    expect(r.spoken).toMatch(/couldn’t get the live status/);
+    expect(r.spoken).toMatch(/won’t guess the delay/);
     expect(r.sources[0].url).toBe(NTES_HUMAN_URL);
   });
 });
@@ -196,7 +198,13 @@ describe('live flights', () => {
   it('never guesses a status when no feed answers', async () => {
     const r = await liveFlights(CITY_TRANSIT[0], { fetchImpl: mockFetch(() => ({ ok: false, status: 503 })) });
     expect(r.live).toBe(false);
+    expect(r.spoken).toMatch(/won’t guess/);
+  });
+  it('says the same in Hinglish to a Hinglish speaker', async () => {
+    useHinglishSpeaker();
+    const r = await liveFlights(CITY_TRANSIT[0], { fetchImpl: mockFetch(() => ({ ok: false, status: 503 })) });
     expect(r.spoken).toMatch(/guess nahi karunga/);
+    useDevice(DEFAULT_TEST_DEVICE);
   });
 });
 
@@ -227,7 +235,7 @@ describe('Mumbai local, metro, PNR and route lookups', () => {
     );
     expect(r.live).toBe(false);
     expect(r.sources.map((s) => s.domain)).toEqual(['cr.indianrailways.gov.in', 'wr.indianrailways.gov.in']);
-    expect(r.spoken).toMatch(/bana kar nahi bataunga/);
+    expect(r.spoken).toMatch(/won’t make up timings/);
   });
   it('reads metro timings from the live web and says the operator can change them', async () => {
     const fetchImpl = mockFetch((url) =>
@@ -242,7 +250,7 @@ describe('Mumbai local, metro, PNR and route lookups', () => {
   it('links the official PNR portal rather than claiming a confirmation', () => {
     const r = pnrResult('1234567890');
     expect(r.live).toBe(false);
-    expect(r.spoken).toContain('guess nahi karunga');
+    expect(r.spoken).toContain('won’t guess');
     expect(r.sources[0].url).toContain('pnr=1234567890');
   });
   it('gathers trains between stations from the web and says to verify', async () => {

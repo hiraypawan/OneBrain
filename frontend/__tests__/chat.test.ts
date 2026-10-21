@@ -7,13 +7,14 @@ afterEach(() => {
 });
 
 describe('fallback (offline brain)', () => {
-  it('greets in Hinglish', () => {
+  it('greets in the language of the greeting', () => {
     expect(fallback('hello kaun ho')).toMatch(/Namaste/);
     expect(fallback('हेलो कौन हो आप')).toMatch(/Namaste/);
+    expect(fallback('hello there')).toMatch(/^Hi!/);
   });
 
   it('echoes anything else with a key hint', () => {
-    expect(fallback('random xyz')).toMatch(/Samajh gaya/);
+    expect(fallback('random xyz')).toMatch(/Understood/);
     expect(fallback('random xyz')).toMatch(/AI key/);
   });
 });

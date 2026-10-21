@@ -16,8 +16,11 @@ export interface ChatExtra {
   profile?: string;
   recall?: string;
   verbosity?: string;
-  /** The user's language setting; the reply language is detected per turn. */
+  /** The user's resolved voice language; the reply language is detected per turn. */
   language?: string;
+  /** ISO country code and IANA time zone of the user (see lib/locale). */
+  country?: string;
+  timeZone?: string;
   /** Replaces the default system prompt (personas, translator, research). */
   systemOverride?: string;
   /** Pro lane: longer provider timeout + skip the offline apology delay. */
@@ -90,6 +93,8 @@ export async function askBrainDetailed(
         recall: extra?.recall,
         verbosity: extra?.verbosity,
         language: extra?.language,
+        country: extra?.country,
+        timeZone: extra?.timeZone,
         facts,
       });
   // Puter is used only after a user explicitly connects it in settings. The
@@ -151,6 +156,8 @@ export async function askBrainDetailed(
           recall: extra?.recall || undefined,
           verbosity: extra?.verbosity || undefined,
           language: extra?.language || undefined,
+          country: extra?.country || undefined,
+          timeZone: extra?.timeZone || undefined,
           facts: facts || undefined,
           systemOverride: extra?.systemOverride || undefined,
         }),

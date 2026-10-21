@@ -4,6 +4,8 @@
 // home-style estimates and are ALWAYS labeled as such — never medical advice.
 
 import { findNumber } from '../voice/numbers';
+import { activeLocale, localized } from '../locale/active';
+import { CURRENCY_PREFIX, currencyFromText, formatMoney, formatTime, lbToKg, usesPounds } from '../locale/format';
 
 export type FitnessKind = 'workout' | 'food' | 'expense' | 'sleep' | 'energy' | 'water' | 'weight';
 
@@ -75,20 +77,22 @@ const FOODS: { re: RegExp; label: string; kcal: number; unit: string }[] = [
   { re: /breakfast|nashta/, label: 'Breakfast', kcal: 300, unit: 'meal' },
 ];
 
-const MONEY_RE = /(?:₹\s*|\brs\.?\s*|\binr\s*|\$\s*|\busd\s*)?(\d[\d,]*(?:\.\d+)?)/i;
+// "£12", "$20", "₹200", "rs 50", "usd 15"…
+const MONEY_WITH_SYMBOL = new RegExp(String.raw`(${CURRENCY_PREFIX}\s*)(\d[\d,]*(?:\.\d+)?)`, 'i');
+// "20 dollars", "15 quid", "200 rupees", "30 euros"
+const MONEY_WITH_WORD = /(\d[\d,]*(?:\.\d+)?)\s*(dollars?|bucks|pounds?|quid|euros?|rupees?|rs\b\.?|yen)/i;
+// Currency markers to strip when the rest of an expense becomes its label.
+const CURRENCY_TOKENS =
+  /₹|£|€|¥|\$|\b(?:rs|inr|usd|gbp|eur|aud|cad|nzd|sgd|dollars?|bucks|pounds?|quid|euros?|rupees?)\b\.?/gi;
 
 function moneyAmount(t: string): { amount: number; currency: string } | null {
-  const withSymbol = t.match(/(₹\s*|\brs\.?\s*|\binr\s*|\$\s*|\busd\s*|€\s*|\beur\s*)(\d[\d,]*(?:\.\d+)?)/i);
-  if (withSymbol) {
-    const amount = Number(withSymbol[2].replace(/,/g, ''));
-    if (!Number.isFinite(amount)) return null;
-    const sym = withSymbol[1];
-    return {
-      amount,
-      currency: /\$|usd/i.test(sym) ? 'USD' : /€|eur/i.test(sym) ? 'EUR' : 'INR',
-    };
-  }
-  return null;
+  const symbol = t.match(MONEY_WITH_SYMBOL);
+  const word = symbol ? null : t.match(MONEY_WITH_WORD);
+  const amountText = symbol ? symbol[2] : word?.[1];
+  if (!amountText) return null;
+  const amount = Number(amountText.replace(/,/g, ''));
+  if (!Number.isFinite(amount)) return null;
+  return { amount, currency: currencyFromText(symbol ? symbol[1] : word![2]) };
 }
 
 export function parseFitnessLog(text: string): ParseResult {
@@ -126,10 +130,14 @@ export function parseFitnessLog(text: string): ParseResult {
       };
     }
   }
-  // --- Weight ---
+  // --- Weight (stored in kg; "lb"/"pounds", or a US user, means pounds) ---
   if (/(weight|vajan|vazan|wajan)/.test(lower)) {
     const n = findNumber(t);
-    if (n && n.value > 20 && n.value < 300) {
+    const pounds = /\b(lbs?|pounds?)\b/.test(lower) || (!/\b(kgs?|kilos?|kilograms?)\b/.test(lower) && usesPounds());
+    if (n && pounds && n.value > 40 && n.value < 660) {
+      return { status: 'ok', log: { kind: 'weight', label: `Weight ${n.value} lb`, qty: lbToKg(n.value), unit: 'kg' } };
+    }
+    if (n && !pounds && n.value > 20 && n.value < 300) {
       return { status: 'ok', log: { kind: 'weight', label: `Weight ${n.value} kg`, qty: n.value, unit: 'kg' } };
     }
   }
@@ -141,15 +149,18 @@ export function parseFitnessLog(text: string): ParseResult {
     if (amount !== null) {
       const item = t
         .replace(/(kharcha|kharach|spent|spend|paid|diya|diye|payment kiya|lag gaye)/gi, '')
-        .replace(/₹|rs\.?|inr|\$|usd/gi, '')
-        .replace(/\d[\d,]*/g, '')
+        .replace(CURRENCY_TOKENS, '')
+        .replace(/\d[\d,]*(?:\.\d+)?/g, '')
         .replace(/\s+/g, ' ')
-        .trim();
+        .trim()
+        .replace(/^(?:on|for|at)\s+/i, '');
+      const currency = sym?.currency || activeLocale().currency;
+      const shown = formatMoney(amount, currency);
       return {
         status: 'ok',
         log: {
-          kind: 'expense', label: item ? `Spent ₹${amount} — ${item}` : `Spent ₹${amount}`,
-          qty: amount, unit: 'INR', amount, currency: sym?.currency || 'INR',
+          kind: 'expense', label: item ? `Spent ${shown} — ${item}` : `Spent ${shown}`,
+          qty: amount, unit: currency, amount, currency,
           detail: item || undefined,
         },
       };
@@ -215,7 +226,10 @@ export function parseFitnessLog(text: string): ParseResult {
   const bare = lower.match(/^(log|note|add)?\s*(\d+)\s*$/) || lower.match(/^(log|note)\s+(.+)$/);
   if (bare && /^\s*(\d+)\s*$/.test(t)) {
     const v = Number(t.trim());
-    return { status: 'ambiguous', value: v, candidates: ['pushups (reps)', 'rupees (kharcha)', 'water (glasses)'], raw: t.trim() };
+    return {
+      status: 'ambiguous', value: v, raw: t.trim(),
+      candidates: ['pushups (reps)', localized('money (spent)', 'rupees (kharcha)'), 'water (glasses)'],
+    };
   }
   return { status: 'none' };
 }
@@ -225,8 +239,13 @@ export function resolveAmbiguous(value: number, answer: string): ParseResult {
   const a = String(answer || '').toLowerCase();
   if (/(pushup|dand|reps|situp|squat|pullup|exercise|kasrat)/.test(a))
     return { status: 'ok', log: { kind: 'workout', label: `${value} Pushups`, qty: value, unit: 'reps' } };
-  if (/(rup|rs|inr|kharcha|spent|paise|money)/.test(a))
-    return { status: 'ok', log: { kind: 'expense', label: `Spent ₹${value}`, qty: value, unit: 'INR', amount: value, currency: 'INR' } };
+  if (/(rup|rs|inr|kharcha|spent|spend|paid|paise|money|cash|dollar|buck|pound|quid|euro)/.test(a)) {
+    const currency = currencyFromText(a);
+    return {
+      status: 'ok',
+      log: { kind: 'expense', label: `Spent ${formatMoney(value, currency)}`, qty: value, unit: currency, amount: value, currency },
+    };
+  }
   if (/(paani|water|glass)/.test(a))
     return { status: 'ok', log: { kind: 'water', label: `Water ${value} glass`, qty: value, unit: 'glass' } };
   if (/(roti|kha|khana|food|calor)/.test(a))
@@ -343,16 +362,19 @@ export function recoveryLine(input: {
 }
 
 export function formatLogLine(l: FitnessLog): string {
-  const time = new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(l.createdAt));
+  const time = formatTime(l.createdAt);
   const icon = l.kind === 'workout' ? '💪' : l.kind === 'food' ? '🍛' : l.kind === 'expense' ? '💸'
     : l.kind === 'sleep' ? '😴' : l.kind === 'energy' ? '⚡' : l.kind === 'water' ? '💧' : '⚖️';
   return `${icon} ${l.label} · ${time}`;
 }
 
 export function spokenConfirm(l: Omit<FitnessLog, 'id' | 'createdAt' | 'source'>): string {
-  if (l.kind === 'workout') return `Logged — ${l.label}. Shabaash!`;
+  if (l.kind === 'workout') return `Logged — ${l.label}. ${localized('Nice work!', 'Shabaash!')}`;
   if (l.kind === 'food') return l.calories ? `Logged — ${l.label}, roughly ${l.calories} calories.` : `Logged — ${l.label}.`;
-  if (l.kind === 'expense') return `Logged — kharcha ₹${l.amount}.`;
+  if (l.kind === 'expense') {
+    const money = formatMoney(l.amount ?? l.qty ?? 0, l.currency);
+    return localized(`Logged — spent ${money}.`, `Logged — kharcha ${money}.`);
+  }
   if (l.kind === 'sleep') return `Logged — ${l.label}.`;
   if (l.kind === 'energy') return `Noted — energy ${l.detail}. I'll factor it into today's plan.`;
   if (l.kind === 'water') return `Logged — ${l.label}.`;
@@ -372,7 +394,7 @@ export function formatLogsForContext(logs: FitnessLog[], limit = 12): string {
     const day = `${d.getDate()}/${d.getMonth() + 1}`;
     const extra =
       l.kind === 'expense'
-        ? ` ₹${l.amount ?? l.qty ?? ''}`
+        ? ` ${formatMoney(l.amount ?? l.qty ?? 0, l.currency)}`
         : l.kind === 'food' && l.calories
           ? ` ~${l.calories}kcal`
           : l.qty != null && l.unit

@@ -3,6 +3,8 @@
 // summaries over messages + saved records. Pure + tested. No inference of
 // identity or external facts — only the user's own stored history.
 
+import { formatDate } from '../locale/format';
+
 export interface DateRange {
   start: number; // inclusive ms
   end: number; // exclusive ms
@@ -17,11 +19,7 @@ function dayStart(d: Date): Date {
 }
 
 function fmtDay(d: Date): string {
-  return new Intl.DateTimeFormat('en-IN', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  }).format(d);
+  return formatDate(d, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 const WEEKDAYS: Record<string, number> = {
@@ -197,14 +195,7 @@ export interface RangeSummary {
 }
 
 export function formatCitation(ts: number): string {
-  return new Intl.DateTimeFormat('en-IN', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(new Date(ts));
+  return formatDate(ts, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
 /** Summarize what the user said/saved inside a range. Honest when empty. */

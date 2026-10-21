@@ -2,6 +2,7 @@
 import { useAssistantStore } from "@/store/assistant";
 import { normalizeProactive } from "@/lib/features/proactive";
 import { environmentTuning } from "@/lib/voice/environment";
+import { LanguageRegion } from "@/components/settings/LanguageRegion";
 export function ConversationPreferences() {
   const state = useAssistantStore(),
     prefs = normalizeProactive(state.settings.proactive);
@@ -211,20 +212,7 @@ export function VoicePreferences({
         </select>
       </label>
       {includeMemory && <MemoryPreference />}
-      <label>
-        Recognition language
-        <select
-          value={state.settings.language}
-          onChange={(e) => state.updateSettings({ language: e.target.value })}
-        >
-          <option value="en-IN">English (India)</option>
-          <option value="en-US">English (US)</option>
-          <option value="hinglish">Hindi / Hinglish</option>
-          <option value="hi-IN">Hindi</option>
-          <option value="marathi">Marathi</option>
-          <option value="es-ES">Spanish</option>
-        </select>
-      </label>
+      <LanguageRegion />
       <p className="settings-footnote">
         Restart listening after changing language. Browser recognition may
         process audio remotely. Voice-based speaker profiles are not

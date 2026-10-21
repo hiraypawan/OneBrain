@@ -4,6 +4,7 @@
 // night notes. Pure + tested.
 
 import { parseDateRef } from './timetravel';
+import { formatMoney } from '../locale/format';
 
 export interface Commitment {
   id: string;
@@ -119,7 +120,7 @@ export function compileCloseDay(d: BriefData): BriefResult {
   if (d.openTasks.length) sections.push({ title: '➡️ Rolls to tomorrow', lines: d.openTasks.slice(0, 5).map((t) => t.title) });
   const pending = d.commitments.filter((c) => !c.done);
   if (pending.length) sections.push({ title: '🤝 Still owed', lines: pending.slice(0, 3).map((c) => c.text) });
-  if (d.fitness.spendToday > 0) sections.push({ title: '💸 Spent today', lines: [`₹${d.fitness.spendToday} logged`] });
+  if (d.fitness.spendToday > 0) sections.push({ title: '💸 Spent today', lines: [`${formatMoney(d.fitness.spendToday)} logged`] });
   const top3 = d.openTasks.slice(0, 3).map((t) => t.title);
   const spoken = d.doneToday.length
     ? `Day closed! You finished ${d.doneToday.length} thing${d.doneToday.length === 1 ? '' : 's'} — ${d.doneToday.slice(0, 2).join(' and ')}. ` +

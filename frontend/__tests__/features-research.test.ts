@@ -37,6 +37,6 @@ describe('ungroundedBrief', () => {
     const b = ungroundedBrief('EV scooters');
     expect(b.grounded).toBe(false);
     expect(b.bullets.length).toBeGreaterThan(0);
-    expect(b.spoken).toMatch(/nahi bataunga/);
+    expect(b.spoken).toMatch(/won’t quote prices or specs/);
   });
 });

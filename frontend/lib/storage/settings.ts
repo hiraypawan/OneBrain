@@ -1,8 +1,17 @@
 import type { UserSettings } from '../core/types';
 import { DEFAULT_PROACTIVE, normalizeProactive } from '../features/proactive';
+import { AUTO_LANGUAGE, isLanguageSetting } from '../locale/voice-languages';
+import { normalizeCountry } from '../locale/countries';
+
+/**
+ * Bump when stored settings need a one-time migration in normalizeSettings.
+ * 2: language defaults to "auto" (device language + country) instead of Hinglish.
+ */
+export const SETTINGS_VERSION = 2;
 
 export const defaultSettings: UserSettings = {
-  memoryEnabled: true, puterEnabled: false, puterFallbackEnabled: false, puterSpeechEnabled: false, puterModel: '', puterProvider: '', voiceSpeed: 1, language: 'hinglish', verbosity: 'short',
+  memoryEnabled: true, puterEnabled: false, puterFallbackEnabled: false, puterSpeechEnabled: false, puterModel: '', puterProvider: '', voiceSpeed: 1,
+  language: AUTO_LANGUAGE, country: '', settingsVersion: SETTINGS_VERSION, verbosity: 'short',
   theme: 'dark', nightMode: false, autoDeleteDays: 0, ownerOnly: false,
   proactive: DEFAULT_PROACTIVE, silentMode: false, musicEnabled: true, endOfSpeechMs: 1600, labsEnabled: false, bargeIn: true,
 };
@@ -24,7 +33,12 @@ export function normalizeSettings(value: unknown): UserSettings {
     puterModel: typeof p.puterModel === 'string' ? p.puterModel.trim().slice(0, 160) : '',
     puterProvider: typeof p.puterProvider === 'string' && /^[a-z0-9._:-]{1,80}$/i.test(p.puterProvider.trim()) ? p.puterProvider.trim() : '',
     voiceSpeed: finite('voiceSpeed', 1, 0.5, 2),
-    language: typeof p.language === 'string' && ['en-IN', 'en-US', 'hinglish', 'hi-IN', 'marathi', 'es-ES'].includes(p.language) ? p.language : 'hinglish',
+    // Before v2 every user got 'hinglish' as the default, so an unversioned
+    // 'hinglish' is that default, not a choice: move it to "auto" once.
+    language: isLanguageSetting(p.language) && !(p.settingsVersion === undefined && p.language === 'hinglish')
+      ? p.language : AUTO_LANGUAGE,
+    country: normalizeCountry(p.country) ?? '',
+    settingsVersion: SETTINGS_VERSION,
     verbosity: p.verbosity === 'medium' || p.verbosity === 'long' ? p.verbosity : 'short',
     theme: p.theme === 'light' ? 'light' : 'dark', nightMode: p.nightMode === true,
     autoDeleteDays: Math.floor(finite('autoDeleteDays', 0, 0, 3650)), ownerOnly: p.ownerOnly === true,

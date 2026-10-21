@@ -6,13 +6,16 @@ import { setToken } from '@/lib/platform/sync';
 import { shouldRestoreSession } from '@/lib/platform/session-hint';
 import { platformApi } from '@/lib/platform/platform';
 import { db } from '@/lib/storage/db';
+import { startLocaleDetection } from '@/lib/locale/active';
 
 // Loads persisted key + settings AFTER mount, so server HTML and the first
 // client render are identical (no hydration errors), then state fills in.
-// Also: restores backend session, runs the reminder watchdog + cloud sync.
+// Also: restores backend session, runs the reminder watchdog + cloud sync,
+// and starts locale detection (country, language, time zone — lib/locale).
 export function StoreHydrator() {
   useEffect(() => {
     let alive = true;
+    startLocaleDetection();
     // Feature store (plan, fitness, stories, commitments) loads alongside.
     try {
       void import('@/store/features').then((m) => m.useFeaturesStore.getState().load());

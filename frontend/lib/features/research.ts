@@ -4,6 +4,8 @@
 // must cite only fetched sources. Offline or source-less -> honest message,
 // never invented specs/prices.
 
+import { activeLocale, localized } from '../locale/active';
+
 export interface ResearchSource {
   title: string;
   url: string;
@@ -97,14 +99,24 @@ export function ungroundedBrief(query: string): ResearchBrief {
   const asOf = new Date().toISOString().slice(0, 10);
   return {
     query,
-    spoken: `Maine ${query} ke liye live sources nahi nikaal paye — isliye main keemat ya specs nahi bataunga, warna galat ho sakta hai. Screen par checklist hai; internet par dobara poochna, main poora brief bana dunga.`,
+    spoken: localized(
+      `I couldn’t get live sources for ${query}, so I won’t quote prices or specs — they could be wrong. There’s a checklist on screen; ask again when you’re online and I’ll build the full brief.`,
+      `Maine ${query} ke liye live sources nahi nikaal paye — isliye main keemat ya specs nahi bataunga, warna galat ho sakta hai. Screen par checklist hai; internet par dobara poochna, main poora brief bana dunga.`,
+    ),
     picks: [],
-    bullets: [
-      'Compare ex-showroom vs on-road price — difference bada hota hai.',
-      'Range/claims: company figure nahi, real-user reviews dekho.',
-      'Service network apne sheher mein check karo.',
-      'Warranty + battery replacement cost zaroor poochho.',
-    ],
+    bullets: activeLocale().hinglish
+      ? [
+          'Compare ex-showroom vs on-road price — difference bada hota hai.',
+          'Range/claims: company figure nahi, real-user reviews dekho.',
+          'Service network apne sheher mein check karo.',
+          'Warranty + battery replacement cost zaroor poochho.',
+        ]
+      : [
+          'Compare the advertised price with the final price after taxes and fees.',
+          'For range and performance claims, trust real-user reviews over the maker’s figures.',
+          'Check that service and support are available where you live.',
+          'Ask about the warranty and what repairs or replacement parts cost.',
+        ],
     sources: [],
     asOf,
     grounded: false,

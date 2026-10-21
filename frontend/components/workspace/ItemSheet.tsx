@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState, useId } from "react";
 import { Icon } from "@/components/ui/Icon";
 import type { BrainItem, ItemKind } from "@/lib/workspace/model";
+import { activeLocale } from "@/lib/locale/active";
+import { currencyChoices } from "@/lib/locale/countries";
 
 /**
  * The dialog primitives Today and Your space share, extracted when Today became
@@ -137,7 +139,7 @@ export function ItemDetail({
       : "";
   const [due, setDue] = useState(localDate),
     [amount, setAmount] = useState(String(item.amount ?? "")),
-    [currency, setCurrency] = useState(item.currency || "INR");
+    [currency, setCurrency] = useState(item.currency || activeLocale().currency);
   return (
     <Overlay notice={notice} title="The full context" close={close}>
       <div className="item-detail">
@@ -187,7 +189,7 @@ export function ItemDetail({
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
               >
-                {["INR", "USD", "EUR"].map((c) => (
+                {currencyChoices(activeLocale().currency, currency).map((c) => (
                   <option key={c}>{c}</option>
                 ))}
               </select>

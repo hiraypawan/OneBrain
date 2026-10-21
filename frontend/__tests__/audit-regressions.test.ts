@@ -223,7 +223,8 @@ describe('API request and spending boundaries', () => {
     // those keys configured.
     expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(2);
     for (const call of fetch.mock.calls)
-      expect(String((call as unknown[])[0])).toMatch(/^https:\/\/(text\.pollinations\.ai|translate\.google\.(com|co\.in))\//);
+      // translate.google.<accent domain>: us, co.uk, com.au, co.in… (lib/server/tts-server.ts)
+      expect(String((call as unknown[])[0])).toMatch(/^https:\/\/(text\.pollinations\.ai|translate\.google\.(?:[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2}))\//);
     const dumped = JSON.stringify(fetch.mock.calls);
     expect(dumped).not.toContain('test-only-host-key');
     expect(dumped).not.toContain('generativelanguage');

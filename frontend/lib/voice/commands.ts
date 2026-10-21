@@ -103,10 +103,10 @@ export type MediaAction =
 export function parseMediaCommand(text: string): MediaAction | null {
   const t = norm(text);
 
-  const pauseRe = /^(pause|pause karo|roko|gaana band|song band|music band|rukko)$/;
+  const pauseRe = /^(pause|pause karo|roko|gaana band|song band|music band|rukko|pause (the )?(music|song|video))$/;
   if (pauseRe.test(t)) return { action: 'pause' };
 
-  const resumeRe = /^(resume|phir se chalao|continue (the )?(song|music|gaana|video))$/;
+  const resumeRe = /^(resume|phir se chalao|continue (the )?(song|music|gaana|video)|resume (the )?(music|song|video))$/;
   if (resumeRe.test(t)) return { action: 'resume' };
 
   // "next song" / "agli gaana" — the results list is a queue, not one item.

@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
 import { useFeaturesStore } from '@/store/features';
-import { episodesToday, type AgeBand, type StoryThread } from '@/lib/features/story';
-import { useAssistantStore } from '@/store/assistant';
+import { defaultStoryTitle, episodesToday, storyLanguageFor, type AgeBand, type StoryThread } from '@/lib/features/story';
+import { activeLocale, localized } from '@/lib/locale/active';
+import { formatDateTime } from '@/lib/locale/format';
 
 export function Stories() {
   const stories = useFeaturesStore((s) => s.stories);
@@ -16,11 +17,10 @@ export function Stories() {
   const [notice, setNotice] = useState('');
 
   const create = () => {
-    const lang = useAssistantStore.getState().settings.language;
-    const storyLang = (lang === 'marathi' ? 'marathi' : lang === 'hi-IN' ? 'hindi' : lang.startsWith('en') ? 'english' : 'hinglish') as StoryThread['language'];
+    const storyLang = storyLanguageFor(activeLocale().voice.reply);
     const t: StoryThread = {
       id: `story-${Date.now()}`,
-      title: title.trim() || 'Jungle Doston ki Kahani',
+      title: title.trim() || defaultStoryTitle(storyLang),
       ageBand: age,
       language: storyLang,
       characters: [],
@@ -32,7 +32,7 @@ export function Stories() {
     saveStory(t);
     setTitle('');
     setOpenId(t.id);
-    setNotice('Story created! Say “kahani sunao” on Today to hear episode 1.');
+    setNotice(localized('Story created! Say “tell me a bedtime story” on Today to hear episode 1.', 'Story created! Say “kahani sunao” on Today to hear episode 1.'));
   };
 
   return (
@@ -72,7 +72,7 @@ export function Stories() {
             {s.threads.length > 0 && <p><small>Open threads: {s.threads.join('; ')}</small></p>}
             {s.episodes.map((e, i) => (
               <article key={i}>
-                <small>Episode {i + 1} · {new Date(e.at).toLocaleString('en-IN')}{e.offline ? ' · offline' : ''}</small>
+                <small>Episode {i + 1} · {formatDateTime(e.at)}{e.offline ? ' · offline' : ''}</small>
                 <p>{e.text}</p>
               </article>
             ))}

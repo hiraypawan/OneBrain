@@ -14,7 +14,8 @@ import { unlockAudioOutput } from '@/lib/voice/audio';
 import { FeatureCards, FeatureHint } from '@/components/features/FeatureCards';
 import { Icon } from '@/components/ui/Icon';
 import { environmentTuning } from '@/lib/voice/environment';
-import { INTENT_HINTS } from '@/lib/features/intents';
+import { quickPhrases, visibleHints } from '@/lib/features/intents';
+import { useLocale } from '@/hooks/useLocale';
 
 const PROVIDER_LABELS: Record<string, string> = {
   gemini: 'Gemini (your key)',
@@ -34,16 +35,8 @@ function providerLabel(provider: string): string {
 
 /** Phrases worth tapping when your hands are busy — all of them run through the
  *  same transcript path a spoken line takes, so nothing is a secret door. */
-const QUICK_SAYS = [
-  'what expenses did I do today',
-  'kharcha 200 chai',
-  '20 pushups kar liye',
-  'morning brief',
-  'show my open tasks',
-  'stop listening',
-];
-
 export function VoiceSurface() {
+  const locale = useLocale();
   const assistant = useAssistant();
   useBackgroundKeepalive(assistant.recover);
   const state = useAssistantStore();
@@ -251,14 +244,14 @@ export function VoiceSurface() {
       <section className="voice-quick" aria-label="Quick phrases">
         <h2>Or tap a phrase</h2>
         <div className="voice-chips">
-          {QUICK_SAYS.map((text) => (
+          {quickPhrases(locale).map((text) => (
             <button key={text} onClick={() => turn(text)}>{text}</button>
           ))}
         </div>
         <details className="voice-more">
           <summary>Everything OneBrain understands without guessing</summary>
           <ul>
-            {INTENT_HINTS.map((hint) => (
+            {visibleHints(locale).map((hint) => (
               <li key={hint.say}>
                 <button onClick={() => turn(hint.say)}>“{hint.say}”</button>
                 <span>{hint.label}</span>

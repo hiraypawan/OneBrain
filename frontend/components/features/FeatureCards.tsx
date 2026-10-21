@@ -12,6 +12,8 @@ import { episodesToday, BEDTIME_CAP } from '@/lib/features/story';
 import { evidenceText, smsHref } from '@/lib/features/witness';
 import { validateBetaKey, PLANS, FREE_LIMITS } from '@/lib/platform/plans';
 import { Icon } from '@/components/ui/Icon';
+import { formatDateTime } from '@/lib/locale/format';
+import { useLocale } from '@/hooks/useLocale';
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -239,7 +241,7 @@ function WorkoutCard({ say }: { say: (t: string) => void }) {
 
 function TransitCard({ card }: { card: Extract<FeatureCard, { kind: 'transit' }> }) {
   const r = card.result;
-  const when = new Date(r.asOf).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+  const when = formatDateTime(r.asOf);
   return (
     <div>
       <span className="eyebrow">
@@ -374,6 +376,7 @@ function TranslatorCard({ card, say }: { card: Extract<FeatureCard, { kind: 'tra
 }
 
 function StoryCard({ card, say }: { card: Extract<FeatureCard, { kind: 'story' }>; say: (t: string) => void }) {
+  const hinglish = useLocale().hinglish;
   const t = card.thread;
   return (
     <div>
@@ -384,9 +387,9 @@ function StoryCard({ card, say }: { card: Extract<FeatureCard, { kind: 'story' }
         {episodesToday(t)}/{BEDTIME_CAP} bedtime episodes today · ages {t.ageBand}
       </p>
       <div className="feat-row">
-        <button className="primary-button" onClick={() => say('aage sunao')}>Aage sunao</button>
-        <button className="text-button" onClick={() => say('nayi kahani')}>New story</button>
-        <button className="text-button" onClick={() => say('kahani band')}>Goodnight</button>
+        <button className="primary-button" onClick={() => say(hinglish ? 'aage sunao' : 'continue')}>{hinglish ? 'Aage sunao' : 'Continue'}</button>
+        <button className="text-button" onClick={() => say(hinglish ? 'nayi kahani' : 'new story')}>New story</button>
+        <button className="text-button" onClick={() => say(hinglish ? 'kahani band' : 'goodnight')}>Goodnight</button>
       </div>
     </div>
   );
@@ -686,13 +689,17 @@ function TrackCard({ card }: { card: Extract<FeatureCard, { kind: 'track' }> }) 
   );
 }
 
-const SAY_GROUPS: { label: string; items: { say: string; hint: string }[] }[] = [
+/** Example phrases in the user's own phrasing (lib/locale); both phrasings always work. */
+function sayGroups(hinglish: boolean): { label: string; items: { say: string; hint: string }[] }[] {
+  return [
   {
     label: 'Save something',
     items: [
       { say: 'task: Send the proposal by Friday', hint: 'Becomes a task you review before it is saved' },
-      { say: 'note: Idea for the Diwali campaign', hint: 'Saved on this browser, no AI needed' },
-      { say: '20 pushups kar liye', hint: 'Voice-logged fitness, works in Hinglish' },
+      { say: hinglish ? 'note: Idea for the Diwali campaign' : 'note: Idea for the spring campaign', hint: 'Saved on this browser, no AI needed' },
+      hinglish
+        ? { say: '20 pushups kar liye', hint: 'Voice-logged fitness, works in Hinglish' }
+        : { say: 'did 20 pushups', hint: 'Voice-logged fitness' },
     ],
   },
   {
@@ -707,19 +714,20 @@ const SAY_GROUPS: { label: string; items: { say: string; hint: string }[] }[] = 
     label: 'Play music',
     items: [
       { say: 'play kesariya', hint: 'Free sources; a mini-player stays at the bottom' },
-      { say: 'gaana band', hint: 'Pause the song (“stop” still ends listening)' },
+      { say: hinglish ? 'gaana band' : 'pause music', hint: 'Pause the song (“stop” still ends listening)' },
     ],
   },
   {
     label: 'Start a mode',
     items: [
-      { say: 'leave application likh do', hint: 'Drafts an email you review before sending' },
+      { say: hinglish ? 'leave application likh do' : 'write a leave email', hint: 'Drafts an email you review before sending' },
       { say: 'translator mode', hint: 'Two-way translation with a free trial window' },
-      { say: 'kahani sunao', hint: 'Story mode for kids, remembers its characters' },
+      { say: hinglish ? 'kahani sunao' : 'tell me a bedtime story', hint: 'Story mode for kids, remembers its characters' },
       { say: 'witness mode on', hint: 'Safety companion that logs what you say' },
     ],
   },
 ];
+}
 
 /**
  * "What can I actually do here?" — the answer, grouped and tappable.
@@ -730,7 +738,8 @@ const SAY_GROUPS: { label: string; items: { say: string; hint: string }[] }[] = 
  */
 export function FeatureHint({ say }: { say?: (text: string) => void }) {
   const [open, setOpen] = useState(false);
-  const groups = open ? SAY_GROUPS : SAY_GROUPS.slice(0, 2);
+  const all = sayGroups(useLocale().hinglish);
+  const groups = open ? all : all.slice(0, 2);
   return (
     <section className="say-card" aria-label="Things you can say or tap">
       <div className="say-head">

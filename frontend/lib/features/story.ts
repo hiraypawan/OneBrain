@@ -2,6 +2,8 @@
 // memory system. Strict age-band guards, bedtime caps, parent dashboard
 // data. Offline fallback weaves known characters into a template episode.
 
+import type { ReplyLanguage } from '../locale/voice-languages';
+
 export type AgeBand = '3-6' | '7-10' | '11+';
 
 export interface StoryEpisode {
@@ -14,12 +16,33 @@ export interface StoryThread {
   id: string;
   title: string;
   ageBand: AgeBand;
-  language: 'hinglish' | 'hindi' | 'english' | 'marathi';
+  /** 'hinglish' | 'hindi' | 'marathi' | 'english', or another language's English name ("Spanish"). */
+  language: string;
   characters: string[];
   threads: string[];
   episodes: StoryEpisode[];
   createdAt: number;
   updatedAt: number;
+}
+
+/** Hinglish/Hindi/Marathi stories keep the original Indian voice and characters. */
+const INDIAN_STORY = new Set(['hinglish', 'hindi', 'marathi']);
+
+const STORY_LANGUAGE_NAME: Partial<Record<ReplyLanguage, string>> = {
+  spanish: 'Spanish', french: 'French', german: 'German', italian: 'Italian', portuguese: 'Portuguese',
+  dutch: 'Dutch', swedish: 'Swedish', danish: 'Danish', norwegian: 'Norwegian', finnish: 'Finnish',
+  polish: 'Polish', turkish: 'Turkish', japanese: 'Japanese', korean: 'Korean', chinese: 'Chinese', arabic: 'Arabic',
+};
+
+/** The language a new story is told in, from the user's voice language. */
+export function storyLanguageFor(reply: ReplyLanguage): string {
+  if (reply === 'hinglish' || reply === 'hindi' || reply === 'marathi') return reply;
+  return STORY_LANGUAGE_NAME[reply] ?? 'english';
+}
+
+/** Default title for a brand-new story. */
+export function defaultStoryTitle(language: string): string {
+  return INDIAN_STORY.has(language) ? 'Jungle Doston ki Kahani' : 'The Jungle Friends';
 }
 
 export const BEDTIME_CAP = 3; // episodes per day per thread (parent can change)
@@ -40,7 +63,7 @@ export function detectStoryIntent(text: string): StoryIntent {
     return { action: 'new' };
   if (/(aage sunao|continue|phir kya hua|next part|aage batao|aur sunao)/.test(t))
     return { action: 'continue' };
-  if (/(kahani sunao|story sunao|kissa sunao|story mode|kahani batao|bedtime story)/.test(t))
+  if (/(kahani sunao|story sunao|kissa sunao|story mode|kahani batao|bedtime story|tell me a story|story time)/.test(t))
     return { action: 'enter' };
   return null;
 }
@@ -64,7 +87,7 @@ export function episodePrompt(thread: StoryThread, kidSaid?: string): string {
     ? `\nLast episode ended: "${thread.episodes[thread.episodes.length - 1].text.slice(0, 400)}"`
     : '\nThis is episode 1: introduce the world and characters.';
   return (
-    `You are a beloved storyteller for a ${thread.ageBand}-year-old, telling the tale in ${thread.language === 'hinglish' ? 'Hinglish (Roman Hindi + simple English)' : thread.language}. ` +
+    `You are a beloved storyteller for a ${thread.ageBand}-year-old, telling the tale in ${thread.language === 'hinglish' ? 'Hinglish (Roman Hindi + simple English)' : thread.language === 'english' ? 'simple English' : thread.language}. ` +
     `${ageGuard(thread.ageBand)}\n` +
     `Story: "${thread.title}". Characters so far: ${thread.characters.join(', ') || 'none yet — invent 1-2 lovable ones'}. ` +
     `Open plot threads: ${thread.threads.join('; ') || 'none yet'}.${last}\n` +
@@ -93,9 +116,21 @@ export function parseStoryState(text: string): { characters: string[]; threads: 
 
 /** Offline episode: template woven with known characters. Honest label. */
 export function offlineEpisode(thread: StoryThread): string {
+  const n = thread.episodes.length + 1;
+  if (!INDIAN_STORY.has(thread.language)) {
+    const hero = thread.characters[0] || 'Benny the Rabbit';
+    const friend = thread.characters[1] || 'Pip the Sparrow';
+    return (
+      `Episode ${n}: ${hero} and ${friend} went for a walk by the river today. ` +
+      `On the way they found something shiny — the very puzzle they left unfinished last time! ` +
+      `They thought it through together, found their courage, and walked on smiling. ` +
+      `What happened next? We'll find out in the next episode. ` +
+      `The lesson: hard things feel easier with friends. ` +
+      `(This story was told offline — there are more colourful stories when you're online.)`
+    );
+  }
   const hero = thread.characters[0] || 'Chintu Khargosh';
   const friend = thread.characters[1] || 'Minti Chidiya';
-  const n = thread.episodes.length + 1;
   return (
     `Episode ${n}: ${hero} aur ${friend} aaj nadi kinare sair par nikle. ` +
     `Raste mein unhe ek chamakti hui cheez mili — arre, yeh to wahi pehli jo pichli baar adhuri reh gayi thi! ` +
@@ -113,6 +148,11 @@ export function episodesToday(thread: StoryThread, now = Date.now()): number {
 }
 
 export function storySpokenIntro(thread: StoryThread, isNew: boolean): string {
+  if (!INDIAN_STORY.has(thread.language)) {
+    const prev = thread.episodes[thread.episodes.length - 1];
+    if (isNew) return `Story time! "${thread.title}". Get comfy — I'll remember all your friends from the story.`;
+    return prev ? `Last time: ${prev.text.slice(0, 140)}… Let's find out what happens next!` : `Let's begin "${thread.title}"!`;
+  }
   if (isNew)
     return `Kahani shuru! "${thread.title}". Aaram se suno — main tumhare doston ko yaad rakhunga.`;
   const last = thread.episodes[thread.episodes.length - 1];

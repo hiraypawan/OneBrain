@@ -1,5 +1,6 @@
 'use client';
 import { create } from 'zustand';
+import { isSupportedCurrency } from '../lib/locale/countries';
 import { db } from '@/lib/storage/db';
 import { useAssistantStore } from './assistant';
 import type { EmailSlots, EmailDraft, EmailTone } from '@/lib/features/email';
@@ -80,7 +81,8 @@ export const DEFAULT_TRACK_GOALS: TrackGoals = {
   waterGoal: 8,
   sleepGoal: 7,
   budget: 0,
-  budgetCurrency: 'INR',
+  // '' = the user's own currency (lib/locale), decided when a budget is set.
+  budgetCurrency: '',
 };
 
 export function normalizeTrackGoals(raw: unknown): TrackGoals {
@@ -92,9 +94,7 @@ export function normalizeTrackGoals(raw: unknown): TrackGoals {
     waterGoal: num(g.waterGoal, 1, 20, DEFAULT_TRACK_GOALS.waterGoal),
     sleepGoal: num(g.sleepGoal, 4, 12, DEFAULT_TRACK_GOALS.sleepGoal),
     budget: num(g.budget, 0, 100000000, DEFAULT_TRACK_GOALS.budget),
-    budgetCurrency: ['INR', 'USD', 'EUR'].includes(String(g.budgetCurrency))
-      ? String(g.budgetCurrency)
-      : DEFAULT_TRACK_GOALS.budgetCurrency,
+    budgetCurrency: isSupportedCurrency(g.budgetCurrency) ? g.budgetCurrency : DEFAULT_TRACK_GOALS.budgetCurrency,
   };
 }
 

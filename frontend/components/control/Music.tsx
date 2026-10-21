@@ -4,16 +4,29 @@ import { useMediaStore } from '@/store/media';
 import { useAssistantStore } from '@/store/assistant';
 import { mediaSourceLabel, type MediaKind } from '@/lib/features/media';
 import { Icon } from '../ui/Icon';
+import { useLocale } from '@/hooks/useLocale';
 
-const VOICE_EXAMPLES: { say: string; what: string }[] = [
-  { say: 'play kesariya', what: 'Search and start a song' },
-  { say: 'hanuman chalisa sunao', what: 'Works in Hindi, Hinglish or Marathi' },
-  { say: 'play some podcast on cricket', what: 'Podcasts instead of songs' },
-  { say: 'gaana band', what: 'Pause playback' },
-  { say: 'phir se chalao', what: 'Resume playback' },
-  { say: 'next song', what: 'Next result in the list' },
-  { say: 'stop song', what: 'Close the player' },
-];
+// Spoken examples in the user's own phrasing (lib/locale). Both sets always work.
+function voiceExamples(hinglish: boolean): { say: string; what: string }[] {
+  return hinglish
+    ? [
+        { say: 'play kesariya', what: 'Search and start a song' },
+        { say: 'hanuman chalisa sunao', what: 'Works in Hindi, Hinglish or Marathi' },
+        { say: 'play some podcast on cricket', what: 'Podcasts instead of songs' },
+        { say: 'gaana band', what: 'Pause playback' },
+        { say: 'phir se chalao', what: 'Resume playback' },
+        { say: 'next song', what: 'Next result in the list' },
+        { say: 'stop song', what: 'Close the player' },
+      ]
+    : [
+        { say: 'play bohemian rhapsody', what: 'Search and start a song' },
+        { say: 'play some podcast on history', what: 'Podcasts instead of songs' },
+        { say: 'pause music', what: 'Pause playback' },
+        { say: 'resume music', what: 'Resume playback' },
+        { say: 'next song', what: 'Next result in the list' },
+        { say: 'stop song', what: 'Close the player' },
+      ];
+}
 
 const KINDS: { id: MediaKind; label: string }[] = [
   { id: 'song', label: 'Songs' },
@@ -29,6 +42,7 @@ const KINDS: { id: MediaKind; label: string }[] = [
  * phone on a train. Both drive the same store, so nothing can disagree.
  */
 export function Music() {
+  const locale = useLocale();
   const status = useMediaStore((s) => s.status);
   const current = useMediaStore((s) => s.current);
   const list = useMediaStore((s) => s.list);
@@ -168,7 +182,7 @@ export function Music() {
       <section className="settings-section">
         <h3>What you can say</h3>
         <ul className="phrase-list">
-          {VOICE_EXAMPLES.map((example) => (
+          {voiceExamples(locale.hinglish).map((example) => (
             <li key={example.say}>
               <strong>“{example.say}”</strong>
               <span>{example.what}</span>

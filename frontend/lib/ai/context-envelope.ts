@@ -9,6 +9,7 @@
 
 import type { FitnessLog } from '../features/fitness';
 import { formatLogsForContext } from '../features/fitness';
+import { formatDate } from '../locale/format';
 
 /** Cheap, deterministic token estimate. Latin text is ~4 chars per token; Devanagari (Hindi/Marathi) packs more information per grapheme, so those characters are counted as denser. Deliberately pessimistic so the budget never over-promises how much context fits. */
 export function estimateTokens(text: string): number {
@@ -60,11 +61,9 @@ const cap = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` 
 function taskLine(t: EnvelopeTask, now: number): { text: string; urgent: number } {
   const due = t.due ? Date.parse(t.due) : NaN;
   const overdue = Number.isFinite(due) && due < now;
-  const dueText = Number.isFinite(due)
-    ? overdue
-      ? ` (overdue ${new Date(due).toLocaleDateString('en-IN')})`
-      : ` (due ${new Date(due).toLocaleDateString('en-IN')})`
-    : '';
+  // "21 Oct 2026" / "Oct 21, 2026": never the ambiguous 21/10 vs 10/21.
+  const dueDate = Number.isFinite(due) ? formatDate(due, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const dueText = Number.isFinite(due) ? (overdue ? ` (overdue ${dueDate})` : ` (due ${dueDate})`) : '';
   return {
     text: `- ${cap(t.title, 90)}${dueText}`,
     urgent: overdue ? 0 : t.due ? 1 : 2,

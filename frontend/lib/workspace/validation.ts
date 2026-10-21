@@ -1,4 +1,5 @@
 import type { BrainItem, CaptureDraft } from "./model";
+import { SUPPORTED_CURRENCIES, isSupportedCurrency } from "../locale/countries";
 export const ITEM_KINDS = [
   "note",
   "task",
@@ -11,7 +12,8 @@ export const ITEM_KINDS = [
   "shopping",
   "habit",
 ] as const;
-export const CURRENCIES = ["INR", "USD", "EUR"] as const;
+/** Currencies a record may use (see lib/locale/countries.ts). */
+export const CURRENCIES = SUPPORTED_CURRENCIES;
 export function validateCapture(draft: CaptureDraft): void {
   if (!ITEM_KINDS.includes(draft.kind))
     throw new Error("Choose a supported record type.");
@@ -35,11 +37,8 @@ export function validateCapture(draft: CaptureDraft): void {
     throw new Error(
       "Use an amount from 0 to 1 trillion with at most two decimal places.",
     );
-  if (
-    draft.currency !== undefined &&
-    !CURRENCIES.includes(draft.currency as (typeof CURRENCIES)[number])
-  )
-    throw new Error("Choose INR, USD, or EUR.");
+  if (draft.currency !== undefined && !isSupportedCurrency(draft.currency))
+    throw new Error("Choose a supported currency.");
   if (draft.amount !== undefined && !draft.currency)
     throw new Error("Choose a currency for the amount.");
 }

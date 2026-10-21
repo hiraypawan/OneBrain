@@ -165,10 +165,10 @@ export async function userKeySpeech(
 // withdrawn — it now answers "Model not found" — so every zero-setup user lost
 // spoken replies and fell back to the browser voice, which iPhones refuse to
 // start until the page has been tapped. Google Translate's read-aloud voice
-// needs no key, answers in well under a second, and speaks the languages this
-// app uses: English with an Indian accent (served from translate.google.co.in,
-// as gTTS does with tld="co.in"), Hindi, Marathi, Bengali, Gujarati, Punjabi,
-// Tamil, Telugu, Kannada, Malayalam, Urdu and more.
+// needs no key, answers in well under a second, and speaks every language this
+// app uses — English in the user's own accent (US, UK, Australian, Canadian,
+// Indian, Irish, South African: one Google domain each, as gTTS documents),
+// Spanish, French, Portuguese, German, Japanese, Hindi, Marathi and more.
 //
 // It is an unofficial endpoint, so: requests stay within its 200-character
 // limit, everything is time-boxed, nothing is retried in a loop, and any
@@ -192,18 +192,30 @@ export const READ_ALOUD_RPC_MAX = 100;
 const READ_ALOUD_PARALLEL = 3;
 const READ_ALOUD_REQUEST_MS = 4_500;
 
+// Accent by Google domain, as documented by gTTS ("Localized accents"). The
+// plain .com domain picks an accent from the *server's* network location, so
+// regional languages always name their domain explicitly.
+const READ_ALOUD_ACCENT: Record<string, Record<string, string>> = {
+  en: { us: 'us', gb: 'co.uk', uk: 'co.uk', au: 'com.au', nz: 'com.au', ca: 'ca', in: 'co.in', ie: 'ie',
+    za: 'co.za', ng: 'com.ng', sg: 'co.uk', '': 'us' },
+  fr: { ca: 'ca', '': 'fr' },
+  pt: { pt: 'pt', '': 'com.br' },
+  es: { es: 'es', us: 'us', mx: 'com.mx', ar: 'com.mx', co: 'com.mx', cl: 'com.mx', pe: 'com.mx', '': 'es' },
+};
+
 /** Google read-aloud language + host for a BCP-47 tag; null when unsupported. */
 export function readAloudTarget(lang: string): { tl: string; host: string } | null {
   const norm = String(lang || '').trim().toLowerCase().replace(/_/g, '-');
   const [rawBase = '', region = ''] = norm.split('-');
-  if (!rawBase) return { tl: 'en', host: 'translate.google.co.in' };
+  if (!rawBase) return { tl: 'en', host: 'translate.google.us' };
   if (rawBase === 'zh') {
     return { tl: region === 'tw' || region === 'hk' ? 'zh-TW' : 'zh-CN', host: 'translate.google.com' };
   }
   const base = READ_ALOUD_ALIASES[rawBase] || rawBase;
   if (!READ_ALOUD_LANGS.has(base)) return null;
-  const indianEnglish = base === 'en' && (!region || region === 'in');
-  return { tl: base, host: indianEnglish ? 'translate.google.co.in' : 'translate.google.com' };
+  const accents = READ_ALOUD_ACCENT[base];
+  const tld = accents ? (Object.prototype.hasOwnProperty.call(accents, region) ? accents[region] : accents['']) : 'com';
+  return { tl: base, host: `translate.google.${tld}` };
 }
 
 /** The read-aloud GET URL for one piece of text. */

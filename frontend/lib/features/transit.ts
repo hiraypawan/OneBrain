@@ -20,6 +20,7 @@
 
 import { readPage, webSearch, type FetchLike, type WebSource } from '../ai/websearch';
 import { correctProperNouns, resolveStationName } from '../voice/pronunciation';
+import { activeLocale, localized } from '../locale/active';
 
 export type TransitKind = 'train-live' | 'pnr' | 'suburban' | 'metro' | 'flights' | 'between';
 
@@ -202,6 +203,16 @@ export function detectTransitIntent(text: string): TransitIntent | null {
     return { kind: 'between', query: t, from, to };
   }
   return null;
+}
+
+/**
+ * Transit lookups cover Indian rail, metros and airports. Outside India they
+ * run only when the line names an Indian city or Indian rail terms; anything
+ * else ("trains to Boston") is better answered by the AI with live web search.
+ */
+export function transitAppliesTo(text: string, indian: boolean): boolean {
+  if (indian) return true;
+  return Boolean(matchCity(text)) || /\b(pnr|irctc|indian railways?|mumbai local)\b/i.test(String(text || ''));
 }
 
 export function matchCity(text: string): CityTransit | null {
@@ -499,7 +510,7 @@ export async function liveFlights(
     return {
       kind: 'flights',
       title: `Live flights · ${city.city}`,
-      spoken: `Live flight data ke sources abhi jawab nahi de rahe, isliye main koi time ya status guess nahi karunga. Official site par check karo.`,
+      spoken: localized(`Live flight data sources aren’t responding right now, so I won’t guess any time or status. Check the airline’s official site.`, `Live flight data ke sources abhi jawab nahi de rahe, isliye main koi time ya status guess nahi karunga. Official site par check karo.`),
       lines: [],
       sources: [asSource('Official airport / airline status', `https://www.${ap.code.toLowerCase()}.aero`, errors.join(' · '))],
       live: false,
@@ -515,11 +526,11 @@ export async function liveFlights(
   const list = positioned.slice(0, 6);
   const lines = list.map(
     (a) =>
-      `${a.callsign}${a.altitudeFt != null ? ` · ${Math.round(a.altitudeFt).toLocaleString('en-IN')} ft` : ''}${a.speedKt != null ? ` · ${Math.round(a.speedKt)} kt` : ''} · ${a.km} km from ${ap.code}`,
+      `${a.callsign}${a.altitudeFt != null ? ` · ${Math.round(a.altitudeFt).toLocaleString(activeLocale().formatLocale)} ft` : ''}${a.speedKt != null ? ` · ${Math.round(a.speedKt)} kt` : ''} · ${a.km} km from ${ap.code}`,
   );
   const spoken = callsign && aircraft.length
-    ? `${aircraft[0].callsign} abhi ADS-B par dikh raha hai${list[0]?.altitudeFt != null ? `, ${Math.round(list[0].altitudeFt).toLocaleString('en-IN')} feet par` : ''}. Ye position data hai — gate ya boarding time nahi.`
-    : `${ap.code} ke aas paas abhi ${positioned.length} aircraft ADS-B par dikh rahe hain. Sabse nazdeek ${list[0]?.callsign || 'ek flight'}, ${list[0]?.km ?? 0} km door.`;
+    ? localized(`${aircraft[0].callsign} is visible on ADS-B right now${list[0]?.altitudeFt != null ? `, at ${Math.round(list[0].altitudeFt).toLocaleString(activeLocale().formatLocale)} feet` : ''}. This is position data — not gate or boarding times.`, `${aircraft[0].callsign} abhi ADS-B par dikh raha hai${list[0]?.altitudeFt != null ? `, ${Math.round(list[0].altitudeFt).toLocaleString(activeLocale().formatLocale)} feet par` : ''}. Ye position data hai — gate ya boarding time nahi.`)
+    : localized(`${positioned.length} aircraft are visible on ADS-B near ${ap.code} right now. The closest is ${list[0]?.callsign || 'a flight'}, ${list[0]?.km ?? 0} km away.`, `${ap.code} ke aas paas abhi ${positioned.length} aircraft ADS-B par dikh rahe hain. Sabse nazdeek ${list[0]?.callsign || 'ek flight'}, ${list[0]?.km ?? 0} km door.`);
   return {
     kind: 'flights',
     title: `Live flights · ${city.city} (${ap.code})`,
@@ -547,7 +558,7 @@ export async function trainLiveStatus(
     return {
       kind: 'train-live',
       title: `Train ${trainNo} · live status`,
-      spoken: `Train ${trainNo} ka live status official enquiry portal se nahi mil paya. Ho sakta hai train number galat ho, ya portal busy ho. Main delay guess nahi karunga.`,
+      spoken: localized(`I couldn’t get the live status of train ${trainNo} from the official enquiry portal. The number may be wrong, or the portal may be busy. I won’t guess the delay.`, `Train ${trainNo} ka live status official enquiry portal se nahi mil paya. Ho sakta hai train number galat ho, ya portal busy ho. Main delay guess nahi karunga.`),
       lines: [],
       sources: [asSource('National Train Enquiry System (official)', NTES_HUMAN_URL, 'Spot Your Train')],
       live: false,
@@ -565,8 +576,8 @@ export async function trainLiveStatus(
     upcoming ? `Next scheduled: ${upcoming.station} — arr ${upcoming.schedArr || '-'}, dep ${upcoming.schedDep || '-'}` : '',
   ].filter(Boolean);
   const spoken = parsed.status
-    ? `Train ${trainNo}: ${parsed.status}.${last ? ` Aakhri report ${last.station} se hai.` : ''}`
-    : `Train ${trainNo} ki report ${last?.station || 'official portal'} se mili hai; details screen par hain.`;
+    ? localized(`Train ${trainNo}: ${parsed.status}.${last ? ` The latest report is from ${last.station}.` : ''}`, `Train ${trainNo}: ${parsed.status}.${last ? ` Aakhri report ${last.station} se hai.` : ''}`)
+    : localized(`The report for train ${trainNo} came from ${last?.station || 'the official portal'}; details are on screen.`, `Train ${trainNo} ki report ${last?.station || 'official portal'} se mili hai; details screen par hain.`);
   return {
     kind: 'train-live',
     title: `Train ${trainNo} · live status`,
@@ -604,7 +615,7 @@ export async function suburbanStatus(
     return {
       kind: 'suburban',
       title: `${city.city} local · ${route || line || 'status'}`,
-      spoken: `${city.city} local ka live feed free keyless source par available nahi hai, aur main timing ya delay bana kar nahi bataunga. Screen par official lines aur enquiry links hain.`,
+      spoken: localized(`There’s no free live feed for ${city.city} locals, and I won’t make up timings or delays. Official lines and enquiry links are on screen.`, `${city.city} local ka live feed free keyless source par available nahi hai, aur main timing ya delay bana kar nahi bataunga. Screen par official lines aur enquiry links hain.`),
       lines: city.rail.map((r) => `Line: ${r}`),
       sources: [
         asSource('Central Railway (official)', 'https://cr.indianrailways.gov.in/', 'Mumbai suburban — Central line'),
@@ -615,7 +626,7 @@ export async function suburbanStatus(
       notice: 'No free keyless live feed exists for suburban running. Timings below are schedules from the web, not live positions.',
     };
   }
-  const spoken = `${city.city} local — ${route || line || 'network'} ke liye web se schedule aur live reports nikale hain. Ye official live feed nahi hai, isliye platform par jaane se pehle station board zaroor dekh lena.`;
+  const spoken = localized(`I pulled schedules and live reports from the web for the ${city.city} local — ${route || line || 'network'}. It isn’t the official live feed, so check the station board before you head to the platform.`, `${city.city} local — ${route || line || 'network'} ke liye web se schedule aur live reports nikale hain. Ye official live feed nahi hai, isliye platform par jaane se pehle station board zaroor dekh lena.`);
   return {
     kind: 'suburban',
     title: `${city.city} local · ${route || line || 'network'}`,
@@ -642,7 +653,7 @@ export async function metroTimings(
     return {
       kind: 'metro',
       title: `${label} metro`.trim(),
-      spoken: `${label} metro ke timings live web se nahi mil paye. Main timing guess nahi karunga — operator ki official site check karo.`,
+      spoken: localized(`I couldn’t get ${label} metro timings from the live web. I won’t guess them — check the operator’s official site.`, `${label} metro ke timings live web se nahi mil paye. Main timing guess nahi karunga — operator ki official site check karo.`),
       lines: (city?.metro || []).map((m) => `Line: ${m}`),
       sources: [],
       live: false,
@@ -650,7 +661,7 @@ export async function metroTimings(
       notice: 'No source answered',
     };
   }
-  const spoken = `${label} metro ke liye ${sources.length} sources mile, pehla ${sources[0].domain} se hai. Timings screen par hain — pehli aur aakhri train ka time operator badal sakta hai.`;
+  const spoken = localized(`I found ${sources.length} sources for the ${label} metro; the first is from ${sources[0].domain}. Timings are on screen — the operator can change first and last train times.`, `${label} metro ke liye ${sources.length} sources mile, pehla ${sources[0].domain} se hai. Timings screen par hain — pehli aur aakhri train ka time operator badal sakta hai.`);
   return {
     kind: 'metro',
     title: `${label} metro timings`.trim(),
@@ -672,11 +683,11 @@ export function pnrResult(pnr: string): TransitResult {
   return {
     kind: 'pnr',
     title: `PNR ${pnr}`,
-    spoken: `PNR ${pnr} ka live status free keyless API se verify nahi ho sakta, isliye main seat confirm hai ya nahi ye guess nahi karunga. Official enquiry portal ka link screen par hai — wahan current status milega.`,
+    spoken: localized(`PNR ${pnr} can’t be verified through a free keyless service, so I won’t guess whether your seat is confirmed. The official enquiry portal link is on screen — it has the current status.`, `PNR ${pnr} ka live status free keyless API se verify nahi ho sakta, isliye main seat confirm hai ya nahi ye guess nahi karunga. Official enquiry portal ka link screen par hai — wahan current status milega.`),
     lines: [
       `PNR: ${pnr}`,
-      'Chart preparation ke baad hi coach/berth final hota hai.',
-      'Status badalta rehta hai — official portal hi sahi source hai.',
+      localized('Coach and berth are final only after the chart is prepared.', 'Chart preparation ke baad hi coach/berth final hota hai.'),
+      localized('The status keeps changing — the official portal is the source of truth.', 'Status badalta rehta hai — official portal hi sahi source hai.'),
     ],
     sources: [asSource('Official PNR enquiry (Indian Railways)', url, 'Live PNR status')],
     live: false,
@@ -698,7 +709,7 @@ export async function trainsBetween(
     return {
       kind: 'between',
       title,
-      spoken: `${intent.from} se ${intent.to} ke trains ka live data source se nahi mil paya. Main list bana kar nahi bataunga.`,
+      spoken: localized(`I couldn’t get live train data from ${intent.from} to ${intent.to}. I won’t make up a list.`, `${intent.from} se ${intent.to} ke trains ka live data source se nahi mil paya. Main list bana kar nahi bataunga.`),
       lines: [],
       sources: [asSource('Trains Between Stations (official)', NTES_HUMAN_URL, 'Trains Between Stations')],
       live: false,
@@ -709,7 +720,7 @@ export async function trainsBetween(
   return {
     kind: 'between',
     title,
-    spoken: `${intent.from} se ${intent.to} ke liye ${sources.length} sources mile. List screen par hai — seat availability booking se pehle confirm kar lena.`,
+    spoken: localized(`I found ${sources.length} sources for trains from ${intent.from} to ${intent.to}. The list is on screen — confirm seat availability before booking.`, `${intent.from} se ${intent.to} ke liye ${sources.length} sources mile. List screen par hai — seat availability booking se pehle confirm kar lena.`),
     lines: sources.slice(0, 4).map((s) => `${s.title}${s.snippet ? ` — ${s.snippet.slice(0, 140)}` : ''}`),
     sources,
     live: false,

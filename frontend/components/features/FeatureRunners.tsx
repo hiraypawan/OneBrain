@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import { useFeaturesStore } from '@/store/features';
+import { witnessCheckInQuestion } from '@/lib/features/witness';
+import { localized } from '@/lib/locale/active';
 
 /**
  * Speaks workout cues on schedule and auto-logs the finished workout.
@@ -94,7 +96,12 @@ export function WitnessRunner() {
       if (w.phase === 'alert') {
         if (!alerted.current && speaker) {
           alerted.current = true;
-          void speaker('Alert! Aapne do baar jawab nahi diya. Agar safe ho to bolo safe, warna SMS alert bhejo.').catch(() => {});
+          void speaker(
+            localized(
+              'Alert! You haven’t answered twice. If you’re safe, say “safe” — otherwise send the SMS alert.',
+              'Alert! Aapne do baar jawab nahi diya. Agar safe ho to bolo safe, warna SMS alert bhejo.',
+            ),
+          ).catch(() => {});
           try {
             if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate([300, 200, 300]);
           } catch { /* noop */ }
@@ -106,7 +113,7 @@ export function WitnessRunner() {
       if (since >= w.intervalSec && askedAt.current === null) {
         askedAt.current = Date.now();
         f.witnessDispatch({ type: 'checkin-due', at: Date.now() });
-        void speaker('Sab theek? Bolo safe.').catch(() => {});
+        void speaker(witnessCheckInQuestion()).catch(() => {});
       } else if (askedAt.current !== null && Date.now() - askedAt.current > 60000) {
         askedAt.current = null;
         f.witnessDispatch({ type: 'missed', at: Date.now() });

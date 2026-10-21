@@ -50,7 +50,12 @@ export interface UserSettings {
   /** Provider from the live catalog, pinned alongside a selected chat model. */
   puterProvider?: string;
   voiceSpeed: number;
+  /** Voice language id from lib/locale/voice-languages, or "auto" (follow the device). */
   language: string;
+  /** ISO country override; '' = detect from the device. */
+  country?: string;
+  /** Stored-settings schema version (see SETTINGS_VERSION in lib/storage/settings.ts). */
+  settingsVersion?: number;
   verbosity: 'short' | 'medium' | 'long';
   theme: 'light' | 'dark';
   nightMode: boolean;

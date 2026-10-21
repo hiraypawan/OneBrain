@@ -38,7 +38,7 @@ import {
   RESEARCH_SYSTEM, type ResearchSource,
 } from './research';
 import { gatherSources } from '../ai/websearch';
-import { detectTransitIntent, runTransit } from './transit';
+import { detectTransitIntent, runTransit, transitAppliesTo } from './transit';
 import {
   parseDateRef, detectRecallIntent, summarizeRange, formatCitation,
 } from './timetravel';
@@ -47,17 +47,24 @@ import {
   formatCorrections, offlineCoachReply, extractModeNote,
 } from '../ai/personas';
 import {
-  detectTranslatorIntent, detectLang, translationPrompt, TRANSLATE_SYSTEM,
-  offlineTranslate, pairById, LANG_NAMES,
+  detectTranslatorIntent,
+  translationPrompt,
+  TRANSLATE_SYSTEM,
+  offlineTranslate,
+  pairById,
+  LANG_NAMES,
+  defaultPairId,
+  detectLangInPair,
+  LANG_TTS,
 } from './translate';
 import {
   detectStoryIntent, episodePrompt, parseStoryState, offlineEpisode,
   episodesToday, storySpokenIntro, titleFromLine, BEDTIME_CAP,
-  TRIAL_EPISODES, type StoryThread, type AgeBand,
+  TRIAL_EPISODES, defaultStoryTitle, storyLanguageFor, type StoryThread, type AgeBand,
 } from './story';
 import {
   classifyNightNote, detectNightIntent, compileMorningDigest, lastNightWindow,
-  distressCheck, SUPPORTIVE_REPLY, isNightHour,
+  distressCheck, supportiveReply, isNightHour,
 } from './nightmind';
 import {
   detectWitnessIntent,
@@ -70,10 +77,14 @@ import {
 import { detectScribeIntent, extractMinutes, minutesToTasks, spokenMinutes } from './scribe';
 import { fetchConnectedOpenTasks } from './connected-brief';
 import { planAllows, quotaMessage, FREE_LIMITS } from '../platform/plans';
+import { activeLocale, localized } from '../locale/active';
+import { formatDateTime, formatMoney } from '../locale/format';
 
 export interface FeatureTurn {
   messages: { text: string; meta?: string }[];
   speak: string;
+  /** BCP-47 tag when `speak` is in a known language (translator output); else the voice is picked from the text. */
+  speakLang?: string;
   card?: FeatureCard | null;
 }
 
@@ -190,7 +201,8 @@ export function fuzzySuggestion(text: string): Suggestion<IntentHint> | null {
   // for "Vangani") with no transit anchors never reaches an intent, so ask
   // with the corrected wording — confirming reruns it through transit.
   // Only proposed when the corrected text actually routes somewhere.
-  const stationFix = suggestStationCorrection(t);
+  // Indian station names only mean something to people in India.
+  const stationFix = activeLocale().indian ? suggestStationCorrection(t) : null;
   if (stationFix && detectTransitIntent(stationFix.corrected)) {
     const say = stationFix.corrected;
     return {
@@ -224,9 +236,10 @@ export async function handleFeatureTurn(
     // handled below
   } else if (distressCheck(text)) {
     const note = f.addNightNote(text.slice(0, 500), ['worry']);
+    const supportive = supportiveReply();
     return {
-      messages: [{ text: SUPPORTIVE_REPLY, meta: 'Support · saved privately as a night note' }],
-      speak: SUPPORTIVE_REPLY,
+      messages: [{ text: supportive, meta: 'Support · saved privately as a night note' }],
+      speak: supportive,
       card: { kind: 'night', note, count: 1 },
     };
   }
@@ -243,19 +256,26 @@ export async function handleFeatureTurn(
     if (wit0.action === 'safe') {
       if (f.witness.phase === 'idle') return null;
       f.witnessDispatch({ type: 'responded', at: Date.now() });
-      const msg = 'Theek hai — main nazar rakh raha hun. “Witness mode band” bolo jab safe pohoch jao.';
+      const msg = localized(
+        'Okay — I’m still keeping watch. Say “stop witness” once you’re safe.',
+        'Theek hai — main nazar rakh raha hun. “Witness mode band” bolo jab safe pohoch jao.',
+      );
       return { messages: [{ text: msg }], speak: msg, card: { kind: 'witness' } };
     }
     if (wit0.action === 'stop') {
       if (f.witness.phase === 'idle') return null;
       f.witnessDispatch({ type: 'stop' });
       const n = f.witness.log.filter((e) => e.kind === 'transcript').length;
-      const msg = `Witness mode off. ${n} timestamped note${n === 1 ? '' : 's'} kept on this device — export them from the card before it closes. Khayal rakhna!`;
+      const msg = `Witness mode off. ${n} timestamped note${n === 1 ? '' : 's'} kept on this device — export them from the card before it closes. ${localized('Take care!', 'Khayal rakhna!')}`;
       return { messages: [{ text: msg }], speak: msg, card: { kind: 'witness' } };
     }
     // start
     f.witnessDispatch({ type: 'start', at: Date.now(), intervalSec: wit0.intervalSec });
-    const msg = `Witness mode ON. Main sun raha hun aur har ${Math.round((wit0.intervalSec || 180) / 60)} minute mein poochunga “sab theek?”. Jawab na mile to alert card khul jayega. Safe pohoch kar “witness band” bol dena.`;
+    const everyMin = Math.round((wit0.intervalSec || 180) / 60);
+    const msg = localized(
+      `Witness mode ON. I’m listening, and every ${everyMin} minute${everyMin === 1 ? '' : 's'} I’ll ask “all okay?”. If you don’t answer, the alert card opens. Say “stop witness” when you’re safe.`,
+      `Witness mode ON. Main sun raha hun aur har ${everyMin} minute mein poochunga “sab theek?”. Jawab na mile to alert card khul jayega. Safe pohoch kar “witness band” bol dena.`,
+    );
     return {
       messages: [{ text: msg, meta: 'Safety · on-device transcript · free forever' }],
       speak: msg,
@@ -272,15 +292,18 @@ export async function handleFeatureTurn(
       const now = Date.now();
       if (wIntent.action === 'pause' && !run.pausedAt && !run.finished) {
         f.setWorkout({ ...run, pausedAt: now });
-        return { messages: [{ text: 'Workout paused. Bolo “resume workout” jab taiyaar ho.' }], speak: 'Paused. Saans lo!' };
+        return {
+          messages: [{ text: localized('Workout paused. Say “resume workout” when you’re ready.', 'Workout paused. Bolo “resume workout” jab taiyaar ho.') }],
+          speak: localized('Paused. Catch your breath!', 'Paused. Saans lo!'),
+        };
       }
       if (wIntent.action === 'resume' && run.pausedAt) {
         f.setWorkout({ ...run, pausedAccum: run.pausedAccum + (now - run.pausedAt), pausedAt: null });
-        return { messages: [{ text: 'Workout resumed!' }], speak: 'Wapas! GO!' };
+        return { messages: [{ text: 'Workout resumed!' }], speak: localized('And we’re back! GO!', 'Wapas! GO!') };
       }
       if (wIntent.action === 'stop') {
         f.setWorkout(null);
-        const msg = 'Workout stopped. Kuch kiya wahi jeet hai — kal phir!';
+        const msg = localized('Workout stopped. Something beats nothing — go again tomorrow!', 'Workout stopped. Kuch kiya wahi jeet hai — kal phir!');
         return { messages: [{ text: msg }], speak: msg, card: null };
       }
       if (wIntent.action === 'skip') {
@@ -299,7 +322,10 @@ export async function handleFeatureTurn(
     }
     // start
     if (run && !run.finished) {
-      const msg = 'A workout is already running. Bolo “stop workout” pehle, phir naya shuru karenge.';
+      const msg = localized(
+        'A workout is already running. Say “stop workout” first, then we’ll start a new one.',
+        'A workout is already running. Bolo “stop workout” pehle, phir naya shuru karenge.',
+      );
       return { messages: [{ text: msg }], speak: msg };
     }
     const preset = wIntent.kind === 'preset'
@@ -308,10 +334,13 @@ export async function handleFeatureTurn(
     if (!preset) return null;
     const schedule = buildCues(preset);
     f.setWorkout({ preset, schedule, startedAt: Date.now(), pausedAccum: 0, pausedAt: null, spokenCues: 0, finished: false });
-    const msg = `${preset.name} shuru! ${preset.rounds.length} rounds. Awaz par chalo — pause ke liye “pause workout”, skip ke liye “skip”.`;
+    const msg = localized(
+      `${preset.name} — let’s go! ${preset.rounds.length} rounds. Follow my voice — say “pause workout” to pause, “skip” to skip.`,
+      `${preset.name} shuru! ${preset.rounds.length} rounds. Awaz par chalo — pause ke liye “pause workout”, skip ke liye “skip”.`,
+    );
     return {
       messages: [{ text: msg, meta: 'HIIT timer · spoken cues · auto-logs on finish' }],
-      speak: `${preset.name} shuru! Taiyaar? 3, 2, 1, GO!`,
+      speak: localized(`${preset.name}! Ready? 3, 2, 1, GO!`, `${preset.name} shuru! Taiyaar? 3, 2, 1, GO!`),
       card: { kind: 'workout' },
     };
   }
@@ -319,7 +348,7 @@ export async function handleFeatureTurn(
   // 3. Email: cancel / tone change / slot-fill / new.
   if (/^(cancel (email|mail|draft)|email cancel|mail rehne do)$/i.test(text.trim()) && f.emailSession) {
     f.setEmailSession(null);
-    return { messages: [{ text: 'Email draft discarded.' }], speak: 'Discarded. Kuch aur?' };
+    return { messages: [{ text: 'Email draft discarded.' }], speak: localized('Discarded. Anything else?', 'Discarded. Kuch aur?') };
   }
   const toneM = text.match(/make it (formal|friendly|hinglish)|(formal|friendly|hinglish) (tone|mein|me|karo)/i);
   if (toneM && f.card?.kind === 'email') {
@@ -329,7 +358,7 @@ export async function handleFeatureTurn(
     const next: FeatureCard = { ...card, draft };
     return {
       messages: [{ text: `Tone changed to ${tone}. Review the updated draft.` }],
-      speak: `Done — ${tone} tone mein taiyaar hai.`,
+      speak: localized(`Done — it’s ready in a ${tone} tone.`, `Done — ${tone} tone mein taiyaar hai.`),
       card: next,
     };
   }
@@ -337,7 +366,7 @@ export async function handleFeatureTurn(
     const slot = f.emailSession.awaiting;
     const filled = fillSlotFromAnswer(slot, text);
     if (!filled) {
-      const q = `${slotQuestion(slot, f.emailSession.slots.kind)} (Dobara bolo — ya “cancel email” bolo.)`;
+      const q = `${slotQuestion(slot, f.emailSession.slots.kind)} ${localized('(Say it again — or say “cancel email”.)', '(Dobara bolo — ya “cancel email” bolo.)')}`;
       return { messages: [{ text: q }], speak: q };
     }
     const slots = { ...f.emailSession.slots, ...filled };
@@ -384,7 +413,10 @@ export async function handleFeatureTurn(
     if (resolved.status === 'ok') {
       return saveFitnessLog(resolved.log, 'voice');
     }
-    const msg = `${f.card.value} kya hai — pushups, rupaye (kharcha), paani, ya khana? Ek shabd bolo.`;
+    const msg = localized(
+      `What is ${f.card.value} — pushups, money spent, water, or food? One word is enough.`,
+      `${f.card.value} kya hai — pushups, rupaye (kharcha), paani, ya khana? Ek shabd bolo.`,
+    );
     return { messages: [{ text: msg }], speak: msg };
   }
   if (/(aaj ka )?(fitness|workout|kharcha|health) (summary|hisab|total|report)|fitness summary|meri progress/.test(text.toLowerCase())) {
@@ -411,9 +443,12 @@ export async function handleFeatureTurn(
   if (fit.status === 'ambiguous') {
     const ambCard: FeatureCard = { kind: 'fitness-ambiguous', value: fit.value, candidates: fit.candidates };
     f.setCard(ambCard);
-    const msg = `${fit.value} samjha — lekin kya? Pushups, rupaye kharcha, ya paani ke glass?`;
+    const msg = localized(
+      `Got ${fit.value} — but of what? Pushups, money spent, or glasses of water?`,
+      `${fit.value} samjha — lekin kya? Pushups, rupaye kharcha, ya paani ke glass?`,
+    );
     return {
-      messages: [{ text: msg, meta: 'One-word answer works: “pushups”, “rupaye”, “paani”…' }],
+      messages: [{ text: msg, meta: localized('One-word answer works: “pushups”, “money”, “water”…', 'One-word answer works: “pushups”, “rupaye”, “paani”…') }],
       speak: msg,
       card: ambCard,
     };
@@ -426,27 +461,36 @@ export async function handleFeatureTurn(
     if (!trans && !tIntent) return null;
     if (tIntent?.action === 'exit' && !trans) return null;
     f.setTranslator(null);
-    const msg = 'Translator off. Wapas normal baat karte hain!';
+    const msg = localized('Translator off. Back to normal chat!', 'Translator off. Wapas normal baat karte hain!');
     return { messages: [{ text: msg }], speak: msg, card: null };
   }
   if (tIntent?.action === 'swap' && trans) {
     const pair = pairById(trans.pairId);
     const flipped = pairById(pair.id); // pairs are bidirectional; swap = same pair
     f.setTranslator({ ...trans, pairId: flipped.id });
-    const msg = `Languages swapped — ab ${flipped.label}.`;
+    const msg = localized(`Languages swapped — now ${flipped.label}.`, `Languages swapped — ab ${flipped.label}.`);
     return { messages: [{ text: msg }], speak: msg };
   }
   if (tIntent?.action === 'pair') {
     f.setTranslator({
       pairId: tIntent.id, startedAt: Date.now(), turns: 0, lastFrom: '', lastTo: '', fromLang: '', toLang: '',
     });
-    const msg = `Translator on — ${pairById(tIntent.id).label}. Bolo, main turant translate karunga. Band karne ke liye “translator band”.`;
+    const msg = localized(
+      `Translator on — ${pairById(tIntent.id).label}. Speak and I’ll translate right away. Say “translator off” to stop.`,
+      `Translator on — ${pairById(tIntent.id).label}. Bolo, main turant translate karunga. Band karne ke liye “translator band”.`,
+    );
     return { messages: [{ text: msg, meta: 'Live translation · both sides spoken aloud' }], speak: msg, card: { kind: 'translator', pairId: tIntent.id, lastFrom: '', lastTo: '', fromLang: '', toLang: '' } };
   }
   if (tIntent?.action === 'enter' && !trans) {
-    f.setTranslator({ pairId: 'hi-en', startedAt: Date.now(), turns: 0, lastFrom: '', lastTo: '', fromLang: '', toLang: '' });
-    const msg = 'Translator on — Hindi ⇄ English. Bolo, main turant translate karunga. “Hindi to Marathi” bolo to pair badal dunga; “translator band” se exit.';
-    return { messages: [{ text: msg, meta: 'Live translation · both sides spoken aloud' }], speak: msg, card: { kind: 'translator', pairId: 'hi-en', lastFrom: '', lastTo: '', fromLang: '', toLang: '' } };
+    const locale = activeLocale();
+    const pairId = defaultPairId(locale.voice.reply, locale.indian);
+    const label = pairById(pairId).label;
+    f.setTranslator({ pairId, startedAt: Date.now(), turns: 0, lastFrom: '', lastTo: '', fromLang: '', toLang: '' });
+    const msg = localized(
+      `Translator on — ${label}. Speak and I’ll translate right away. Say “English to French” to change languages, or “translator off” to stop.`,
+      `Translator on — ${label}. Bolo, main turant translate karunga. “Hindi to Marathi” bolo to pair badal dunga; “translator band” se exit.`,
+    );
+    return { messages: [{ text: msg, meta: 'Live translation · both sides spoken aloud' }], speak: msg, card: { kind: 'translator', pairId, lastFrom: '', lastTo: '', fromLang: '', toLang: '' } };
   }
   if (trans) {
     return translateTurn(text, trans);
@@ -458,7 +502,7 @@ export async function handleFeatureTurn(
   if (pIntent?.action === 'exit') {
     if (!persona) return null;
     f.setPersona(null);
-    const msg = 'Mode off — wapas normal OneBrain. Badhiya session tha!';
+    const msg = localized('Mode off — back to normal OneBrain. Great session!', 'Mode off — wapas normal OneBrain. Badhiya session tha!');
     return { messages: [{ text: msg }], speak: msg, card: null };
   }
   if (pIntent?.action === 'enter') {
@@ -470,11 +514,11 @@ export async function handleFeatureTurn(
     }
     f.setPersona({ id: def.id, startedAt: Date.now(), turns: 0 });
     const hello = def.id === 'english-tutor'
-      ? 'Hello! I am your English tutor. Speak anything in English — I will gently correct mistakes. Chalo, introduce yourself!'
+      ? `Hello! I am your English tutor. Speak anything in English — I will gently correct mistakes. ${localized('Go on, introduce yourself!', 'Chalo, introduce yourself!')}`
       : def.id === 'gym-coach'
-        ? 'COACH HU MAIN! Aaj kya ukhada? Report your workout or ask for today’s target. NO EXCUSES!'
+        ? localized('COACH IN THE HOUSE! What did you smash today? Report your workout or ask for today’s target. NO EXCUSES!', 'COACH HU MAIN! Aaj kya ukhada? Report your workout or ask for today’s target. NO EXCUSES!')
         : def.id === 'study-buddy'
-          ? 'Study buddy ready! Kaunsa topic revise karna hai? Bol, quiz shuru karte hain!'
+          ? localized('Study buddy ready! Which topic are we revising? Tell me and we’ll start a quiz!', 'Study buddy ready! Kaunsa topic revise karna hai? Bol, quiz shuru karte hain!')
           : `${def.name} mode on. ${def.tagline}. Let's begin — ${def.id === 'upsc-interviewer' ? 'tell me your optional subject and background.' : def.id === 'interview-coach' ? 'which role and company?' : 'what are we working on?'}`;
     return {
       messages: [{ text: hello, meta: `${def.name} · per-mode memory on · “exit mode” to leave` }],
@@ -492,7 +536,7 @@ export async function handleFeatureTurn(
   if (sIntent?.action === 'exit') {
     if (!storySes) return null;
     f.setStory(null);
-    const msg = 'Kahani band. Meethe sapne! Shubh ratri!';
+    const msg = localized('Story time is over. Sweet dreams — good night!', 'Kahani band. Meethe sapne! Shubh ratri!');
     return { messages: [{ text: msg }], speak: msg, card: null };
   }
   if (sIntent && (sIntent.action === 'enter' || sIntent.action === 'continue' || sIntent.action === 'new')) {
@@ -520,16 +564,16 @@ export async function handleFeatureTurn(
     const tags = classifyNightNote(clean);
     const note = f.addNightNote(clean.slice(0, 500), tags);
     const count = f.nightNotes.length + 1;
-    const msg = 'Saved. 🌙 So jao — subah is par baat karenge.';
+    const msg = localized('Saved. 🌙 Get some sleep — we’ll talk about it in the morning.', 'Saved. 🌙 So jao — subah is par baat karenge.');
     return {
-      messages: [{ text: `Night note saved (${tags.join(', ')}). Subah digest mein milega.`, meta: 'Night capture · no questions at night, clarity in the morning' }],
+      messages: [{ text: localized(`Night note saved (${tags.join(', ')}). It’ll be in your morning digest.`, `Night note saved (${tags.join(', ')}). Subah digest mein milega.`), meta: 'Night capture · no questions at night, clarity in the morning' }],
       speak: msg,
       card: { kind: 'night', note, count },
     };
   }
 
-  // 9. Live transit and travel: local trains, metro, trains, flights.
-  const transitIntent = detectTransitIntent(text);
+  // 9. Live transit and travel: local trains, metro, trains, flights (India).
+  const transitIntent = transitAppliesTo(text, activeLocale().indian) ? detectTransitIntent(text) : null;
   if (transitIntent) {
     return transitTurn(transitIntent);
   }
@@ -630,7 +674,10 @@ export async function handleFeatureTurn(
   }
   if (/^scribe (mode|on|start|shuru)/i.test(text.trim())) {
     scribeBuffer = [];
-    const msg = 'Scribe listening. Bolo — meeting, lecture, jo bhi. Khatam ho to bolo “scribe done”.';
+    const msg = localized(
+      'Scribe listening. Go ahead — a meeting, a lecture, anything. Say “scribe done” when it’s over.',
+      'Scribe listening. Bolo — meeting, lecture, jo bhi. Khatam ho to bolo “scribe done”.',
+    );
     return { messages: [{ text: msg, meta: 'Scribe · collecting sentences' }], speak: msg, card: { kind: 'message', title: 'Scribe listening…', body: 'Speak your meeting. Say “scribe done” to get minutes.' } };
   }
   if (/^scribe (done|finish|khatam|band)/i.test(text.trim())) {
@@ -825,7 +872,7 @@ async function saveFitnessLog(
   const tk = dayKey(saved.createdAt);
   const totals = dayTotals(f.fitnessLogs.concat([saved]), tk);
   const streaks = computeStreaks(f.fitnessLogs.concat([saved]));
-  const totalsLine = `${totals.workoutCount} workout${totals.workoutCount === 1 ? '' : 's'} · ${totals.foodCalories} kcal ≈ · ₹${totals.spend} spent today`;
+  const totalsLine = `${totals.workoutCount} workout${totals.workoutCount === 1 ? '' : 's'} · ${totals.foodCalories} kcal ≈ · ${formatMoney(totals.spend)} spent today`;
   const streakLine = `🔥 ${streaks.logDays}-day log streak · 💪 ${streaks.workoutDays}-day workout streak`;
   const confirm = spokenConfirm(log);
   return {
@@ -846,8 +893,13 @@ const FITNESS_RANGE_QUESTIONS =
  *  Needs a fitness word plus either a date word ("yesterday expenses") or a
  *  question word ("how much did I spend"). Plain logs ("kharcha 200 chai",
  *  "I spent 200 on chai") have neither and fall through to the logger. */
+// "what did I eat yesterday" — eating words only count inside a question, so
+// "ate 2 eggs yesterday" still logs food.
+const FOOD_QUESTION = /\b(what|how much|how many)\b.*\b(eat|ate|eaten)\b/i;
+
 export function detectFitnessRangeQuery(text: string): boolean {
   const t = String(text || '').toLowerCase();
+  if (FOOD_QUESTION.test(t)) return true;
   if (!FITNESS_RANGE_WORDS.test(t)) return false;
   if (FITNESS_RANGE_DATES.test(t)) return true;
   return FITNESS_RANGE_QUESTIONS.test(t);
@@ -876,10 +928,10 @@ async function fitnessRangeTurn(text: string): Promise<FeatureTurn> {
   const kcal = food.reduce((s, l) => s + (l.calories ?? 0), 0);
 
   const wantsSpend = /(expense|kharch|kharche|spend|spent|spending|payment)/i.test(text);
-  const wantsFood = /(food|khana|meal|diet|calorie)/i.test(text) && !wantsSpend;
+  const wantsFood = (/(food|khana|meal|diet|calorie)/i.test(text) || FOOD_QUESTION.test(text)) && !wantsSpend;
 
   if (!inRange.length) {
-    const msg = `No ${wantsSpend ? 'expenses' : wantsFood ? 'food' : 'fitness entries'} logged ${range.label === 'today' ? 'today' : `for ${range.label}`} yet. Say “kharcha 200 chai” to log spending, or “2 roti khayi” for food.`;
+    const msg = `No ${wantsSpend ? 'expenses' : wantsFood ? 'food' : 'fitness entries'} logged ${range.label === 'today' ? 'today' : `for ${range.label}`} yet. ${localized('Say “spent 12 on lunch” to log spending, or “ate 2 eggs” for food.', 'Say “kharcha 200 chai” to log spending, or “2 roti khayi” for food.')}`;
     return {
       messages: [{ text: msg, meta: `Log check · ${range.label} · the Track tab shows the same numbers by day, week or month` }],
       speak: msg,
@@ -889,7 +941,7 @@ async function fitnessRangeTurn(text: string): Promise<FeatureTurn> {
 
   const lines: string[] = [];
   if (expenses.length) {
-    lines.push(`💸 Spending: ₹${spend} across ${expenses.length} item${expenses.length === 1 ? '' : 's'}`);
+    lines.push(`💸 Spending: ${formatMoney(spend)} across ${expenses.length} item${expenses.length === 1 ? '' : 's'}`);
     for (const l of expenses.slice(0, 10)) lines.push(`• ${formatLogLine(l)}`);
     if (expenses.length > 10) lines.push(`• …and ${expenses.length - 10} more (see Fitness panel)`);
   }
@@ -900,12 +952,25 @@ async function fitnessRangeTurn(text: string): Promise<FeatureTurn> {
   if (workouts.length && !wantsSpend && !wantsFood) {
     lines.push(`💪 Workouts: ${workouts.length} (${workouts.map((w) => w.label).join('; ')})`);
   }
-  const when = range.label === 'today' ? 'Aaj' : `${range.label} mein`;
-  const speak = wantsSpend || (!wantsFood && expenses.length)
-    ? `${when} ₹${spend} kharcha, ${expenses.length} cheezon par.${food.length ? ` Khana: ${food.length} items.` : ''}`
-    : wantsFood
-      ? `${when} ${food.length} cheezein khayi${kcal ? `, lagbhag ${kcal} calories` : ''}.`
-      : `${when}: ${workouts.length} workouts, ${food.length} food items, ₹${spend} kharcha.`;
+  const money = formatMoney(spend);
+  const items = (n: number) => `${n} item${n === 1 ? '' : 's'}`;
+  const speak = activeLocale().hinglish
+    ? (() => {
+        const when = range.label === 'today' ? 'Aaj' : `${range.label} mein`;
+        return wantsSpend || (!wantsFood && expenses.length)
+          ? `${when} ${money} kharcha, ${expenses.length} cheezon par.${food.length ? ` Khana: ${food.length} items.` : ''}`
+          : wantsFood
+            ? `${when} ${food.length} cheezein khayi${kcal ? `, lagbhag ${kcal} calories` : ''}.`
+            : `${when}: ${workouts.length} workouts, ${food.length} food items, ${money} kharcha.`;
+      })()
+    : (() => {
+        const when = range.label === 'today' ? 'Today' : `For ${range.label}`;
+        return wantsSpend || (!wantsFood && expenses.length)
+          ? `${when}: ${money} spent across ${items(expenses.length)}.${food.length ? ` Food: ${items(food.length)}.` : ''}`
+          : wantsFood
+            ? `${when}: you ate ${items(food.length)}${kcal ? `, roughly ${kcal} calories` : ''}.`
+            : `${when}: ${workouts.length} workout${workouts.length === 1 ? '' : 's'}, ${items(food.length)} of food, ${money} spent.`;
+      })();
   const body = `${lines.join('\n')}`;
   const lens: TrackLens = wantsSpend
     ? 'expenses'
@@ -1032,10 +1097,13 @@ async function fitnessSummary(): Promise<FeatureTurn> {
     energy: totals.energy,
     workoutsLast3Days: f.fitnessLogs.filter((l) => l.kind === 'workout' && l.createdAt >= Date.now() - 3 * 86400000).length,
   });
-  const body = `Today: ${totals.workoutCount} workouts (${totals.workouts.join('; ') || 'none yet'}) · ${totals.foodCalories} kcal ≈ from ${totals.foodItems} items · ₹${totals.spend} spent${totals.sleepHrs ? ` · slept ${totals.sleepHrs}h` : ''}. Streaks: ${streaks.logDays} days logging, ${streaks.workoutDays} days training. ${rec}`;
+  const body = `Today: ${totals.workoutCount} workouts (${totals.workouts.join('; ') || 'none yet'}) · ${totals.foodCalories} kcal ≈ from ${totals.foodItems} items · ${formatMoney(totals.spend)} spent${totals.sleepHrs ? ` · slept ${totals.sleepHrs}h` : ''}. Streaks: ${streaks.logDays} days logging, ${streaks.workoutDays} days training. ${rec}`;
   return {
     messages: [{ text: body, meta: 'Fitness summary · the Track tab has the day/week/month view' }],
-    speak: `Aaj: ${totals.workoutCount} workouts, lagbhag ${totals.foodCalories} calories, ₹${totals.spend} kharcha. ${streaks.logDays} din ki streak! ${rec}`,
+    speak: localized(
+      `Today: ${totals.workoutCount} workouts, about ${totals.foodCalories} calories, ${formatMoney(totals.spend)} spent. ${streaks.logDays}-day streak! ${rec}`,
+      `Aaj: ${totals.workoutCount} workouts, lagbhag ${totals.foodCalories} calories, ${formatMoney(totals.spend)} kharcha. ${streaks.logDays} din ki streak! ${rec}`,
+    ),
     card: {
       kind: 'track',
       title: 'Fitness summary',
@@ -1056,8 +1124,7 @@ async function translateTurn(text: string, ses: { pairId: string; startedAt: num
     const msg = quotaMessage('translate', f.plan);
     return { messages: [{ text: msg }], speak: msg, card: { kind: 'plan', reason: 'translate-quota' } };
   }
-  const detected = detectLang(text);
-  const from = detected === pair.a || detected === pair.b ? detected : pair.a;
+  const from = detectLangInPair(text, pair);
   const to = from === pair.a ? pair.b : pair.a;
   let out = offlineTranslate(text, from, to);
   let live = false;
@@ -1078,6 +1145,8 @@ async function translateTurn(text: string, ses: { pairId: string; startedAt: num
   return {
     messages: [{ text: `${LANG_NAMES[from]}: “${text}”\n${LANG_NAMES[to]}: “${out}”`, meta: live ? 'Live translation' : 'Offline phrasebook' }],
     speak: out,
+    // Speak the translation in its own language's voice (English in the user's accent).
+    speakLang: to === 'en' ? activeLocale().english : LANG_TTS[to],
     card: { kind: 'translator', pairId: pair.id, lastFrom: text.slice(0, 200), lastTo: out, fromLang: LANG_NAMES[from], toLang: LANG_NAMES[to] },
   };
 }
@@ -1087,7 +1156,7 @@ async function personaTurn(text: string, personaId: string): Promise<FeatureTurn
   const def = personaById(personaId);
   if (!def) {
     f.setPersona(null);
-    return { messages: [{ text: 'That mode ended.' }], speak: 'Mode band.' };
+    return { messages: [{ text: 'That mode ended.' }], speak: localized('Mode ended.', 'Mode band.') };
   }
   const notes = f.personaNotes[personaId] || [];
   // Offline-first for tutor + coach.
@@ -1149,16 +1218,15 @@ function storyAgeFrom(text: string): AgeBand | null {
 
 async function storyTurn(text: string, action: 'enter' | 'continue' | 'new', kidSaid?: string): Promise<FeatureTurn> {
   const f = useFeaturesStore.getState();
-  const lang = useAssistantStore.getState().settings.language;
-  const storyLang = lang === 'marathi' ? 'marathi' : lang === 'hi-IN' ? 'hindi' : lang.startsWith('en') ? 'english' : 'hinglish';
+  const storyLang = storyLanguageFor(activeLocale().voice.reply);
   let thread: StoryThread | undefined;
   if (action === 'new' || !f.stories.length) {
     const age: AgeBand = storyAgeFrom(text) || '7-10';
     thread = {
       id: `story-${Date.now()}`,
-      title: action === 'new' && text ? titleFromLine(text) : 'Jungle Doston ki Kahani',
+      title: action === 'new' && text ? titleFromLine(text) : defaultStoryTitle(storyLang),
       ageBand: age,
-      language: storyLang as StoryThread['language'],
+      language: storyLang,
       characters: [],
       threads: [],
       episodes: [],
@@ -1170,7 +1238,7 @@ async function storyTurn(text: string, action: 'enter' | 'continue' | 'new', kid
     thread = f.stories.find((s) => s.id === ses?.threadId) || f.stories[0];
   }
   if (!thread) {
-    const msg = 'Kahani shuru nahi ho payi. Dobara bolo “kahani sunao”.';
+    const msg = localized('I couldn’t start the story. Say “tell me a bedtime story” again.', 'Kahani shuru nahi ho payi. Dobara bolo “kahani sunao”.');
     return { messages: [{ text: msg }], speak: msg };
   }
   // Trial + bedtime gates.
@@ -1186,7 +1254,10 @@ async function storyTurn(text: string, action: 'enter' | 'continue' | 'new', kid
   }
   const cap = useFeaturesStore.getState().storyCap || BEDTIME_CAP;
   if (episodesToday(thread) >= cap && action === 'continue') {
-    const msg = 'Bas aaj ke liye itna! Kahani kal aage badhegi. Meethe sapne — shubh ratri!';
+    const msg = localized(
+      'That’s all for tonight! The story continues tomorrow. Sweet dreams — good night!',
+      'Bas aaj ke liye itna! Kahani kal aage badhegi. Meethe sapne — shubh ratri!',
+    );
     return { messages: [{ text: msg, meta: `Bedtime cap · ${cap} episodes/day (parents can change it)` }], speak: msg };
   }
   const intro = storySpokenIntro(thread, thread.episodes.length === 0);
@@ -1222,7 +1293,7 @@ async function storyTurn(text: string, action: 'enter' | 'continue' | 'new', kid
     f.trackUse({ storyTrial: f.usage.storyTrial + 1 });
   }
   return {
-    messages: [{ text: `${intro}\n\n${episode}`, meta: `${next.title} · episode ${next.episodes.length}${offline ? ' · told offline' : ''} · “aage sunao” for more` }],
+    messages: [{ text: `${intro}\n\n${episode}`, meta: `${next.title} · episode ${next.episodes.length}${offline ? ' · told offline' : ''} · ${localized('“continue” for more', '“aage sunao” for more')}` }],
     speak: `${intro} ${episode}`,
     card: { kind: 'story', thread: next, episode, offline },
   };
@@ -1239,7 +1310,7 @@ async function transitTurn(intent: ReturnType<typeof detectTransitIntent> & obje
   const body = [
     result.lines.length ? result.lines.map((l) => `• ${l}`).join('\n') : '',
     result.sources.length
-      ? `Sources (${new Date(result.asOf).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}):\n${result.sources
+      ? `Sources (${formatDateTime(result.asOf)}):\n${result.sources
           .map((s) => `- ${s.title} — ${s.url}`)
           .join('\n')}`
       : '',
@@ -1310,7 +1381,11 @@ async function researchTurn(query: string): Promise<FeatureTurn> {
   if (!isLiveAnswer(answer)) {
     const brief = ungroundedBrief(query);
     brief.sources = sources;
-    brief.spoken = `Sources mil gaye (${sources.map((s) => s.title).join(', ')}) lekin AI summary net ke bina nahi ban paya. Links screen par hain — khud padh lo, ya net par “${query}” dobara poochho.`;
+    const titles = sources.map((s) => s.title).join(', ');
+    brief.spoken = localized(
+      `I found sources (${titles}) but couldn’t write the AI summary without a connection. The links are on screen — read them, or ask “${query}” again when you’re online.`,
+      `Sources mil gaye (${titles}) lekin AI summary net ke bina nahi ban paya. Links screen par hain — khud padh lo, ya net par “${query}” dobara poochho.`,
+    );
     return {
       messages: [{ text: brief.spoken, meta: 'Research · sources only, offline' }],
       speak: brief.spoken,

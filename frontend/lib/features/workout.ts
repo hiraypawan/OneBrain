@@ -2,6 +2,7 @@
 // speaks cues through the existing TTS engine and auto-logs the finished
 // workout to the fitness timeline. Pure schedule generation + tested.
 
+import { localized } from '../locale/active';
 import { findAllNumbers } from '../voice/numbers';
 
 export interface WorkoutRound {
@@ -149,7 +150,7 @@ export function buildCues(preset: WorkoutPreset): CueSchedule {
       cues.push({ atSec: at, text: 'Done! Next up!', kind: 'rest' });
     }
   });
-  cues.push({ atSec: at, text: 'Workout complete! Kya baat hai! Logging it to your fitness timeline.', kind: 'done' });
+  cues.push({ atSec: at, text: `Workout complete! ${localized('Brilliant!', 'Kya baat hai!')} Logging it to your fitness timeline.`, kind: 'done' });
   return { cues: cues.sort((a, b) => a.atSec - b.atSec), totalSec: at };
 }
 

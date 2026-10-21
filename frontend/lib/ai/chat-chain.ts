@@ -4,6 +4,7 @@
 // Puter -> API route -> offline). The provider is recorded so the UI can say
 // honestly who answered.
 import { askBrainDetailed } from "@/lib/ai/brain";
+import { activeLocale } from "@/lib/locale/active";
 import { useFeaturesStore } from "@/store/features";
 import { useAssistantStore } from "@/store/assistant";
 
@@ -22,8 +23,15 @@ export async function fetchChat(
   userKey?: string,
   extra?: ChatExtra,
 ) {
+  // Every turn carries where the user is and how they talk, so the model
+  // answers with their clock, units, money and language (lib/locale).
+  const locale = activeLocale();
+  const language = extra?.language && extra.language !== "auto" ? extra.language : locale.voice.id;
   const detailed = await askBrainDetailed(message, history, userKey, {
     ...extra,
+    language,
+    country: locale.country ?? undefined,
+    timeZone: locale.timeZone ?? undefined,
     priority: useFeaturesStore.getState().plan !== "free",
   });
   try {

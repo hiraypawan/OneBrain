@@ -10,17 +10,10 @@ import { useAssistantStore } from '@/store/assistant';
 import { useFeaturesStore } from '@/store/features';
 import { plainMoney } from '@/lib/features/track';
 import { PLANS } from '@/lib/platform/plans';
+import { voiceLanguageLabel } from '@/lib/locale/voice-languages';
+import { useLocale } from '@/hooks/useLocale';
 
 const planLabel = (id: string) => PLANS.find((p) => p.id === id)?.name || 'Free';
-
-const LANGUAGE_LABEL: Record<string, string> = {
-  hinglish: 'Hinglish',
-  'hi-IN': 'Hindi',
-  marathi: 'Marathi',
-  'en-IN': 'English (India)',
-  'en-US': 'English (US)',
-  'es-ES': 'Spanish',
-};
 
 function Card({
   title,
@@ -46,6 +39,7 @@ function Card({
 
 export function YouTab() {
   const settings = useAssistantStore((s) => s.settings);
+  const locale = useLocale();
   const user = useAssistantStore((s) => s.user);
   const authenticated = useAssistantStore((s) => s.isAuthenticated);
   const apiKey = useAssistantStore((s) => s.apiKey);
@@ -113,7 +107,11 @@ export function YouTab() {
           <dl>
             <div>
               <dt>Language</dt>
-              <dd>{LANGUAGE_LABEL[settings.language] || settings.language}</dd>
+              <dd>
+                {voiceLanguageLabel(locale.voice)}
+                {locale.voiceAuto ? ' (auto)' : ''}
+                {locale.info ? ` · ${locale.info.name}` : ''}
+              </dd>
             </div>
             <div>
               <dt>Answers</dt>

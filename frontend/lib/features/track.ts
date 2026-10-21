@@ -10,6 +10,8 @@ import {
   type FitnessLog,
   type Streaks,
 } from './fitness';
+import { activeLocale } from '../locale/active';
+import { CURRENCY_PREFIX, currencyFromText, formatDate, formatMoney } from '../locale/format';
 
 export type TrackLens = 'expenses' | 'food' | 'health' | 'workouts';
 export type TrackRangeKind = 'day' | 'week' | 'month';
@@ -68,10 +70,8 @@ function mondayOf(d: Date): Date {
   return c;
 }
 
-const fmtDay = (d: Date) =>
-  new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }).format(d);
-const fmtShortDay = (d: Date) =>
-  new Intl.DateTimeFormat('en-IN', { weekday: 'short' }).format(d);
+const fmtDay = (d: Date) => formatDate(d, { weekday: 'short', day: 'numeric', month: 'short' });
+const fmtShortDay = (d: Date) => formatDate(d, { weekday: 'short' });
 
 function dayLabel(key: string): string {
   const [y, m, d] = key.split('-').map(Number);
@@ -92,7 +92,7 @@ export function tickLabel(key: string, kind: TrackRangeKind): string {
 }
 
 function monthLabel(d: Date): string {
-  return new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(d);
+  return formatDate(d, { month: 'long', year: 'numeric' });
 }
 
 /** Resolve a day/week/month window from an anchor day key ("2026-09-16"). */
@@ -201,31 +201,9 @@ function cachedView<T>(
 
 // ---------------------------------------------------------------- money ----
 
-export function money(amount: number, currency = 'INR'): string {
-  const value = Number.isFinite(amount) ? amount : 0;
-  try {
-    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-    }).format(value);
-  } catch {
-    return `${currency === 'INR' ? '₹' : '$'}${Math.round(value)}`;
-  }
-}
-
-/** Money for headings and voice lines: grouped, no false precision. */
-export function plainMoney(amount: number, currency = 'INR'): string {
-  const sym = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency === 'EUR' ? '€' : `${currency} `;
-  const n = Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0;
-  const digits = n % 1 === 0 ? 0 : 2;
-  let body: string;
-  try {
-    body = n.toLocaleString('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  } catch {
-    body = n.toFixed(digits);
-  }
-  return `${sym}${body}`;
+/** Money for headings and voice lines: the user's symbol and grouping, no false precision. */
+export function plainMoney(amount: number, currency?: string): string {
+  return formatMoney(amount, currency);
 }
 
 // ------------------------------------------------------------ categories ----
@@ -332,7 +310,7 @@ function computeExpenseView(logs: FitnessLog[], range: TrackRange): ExpenseView 
     (best, p) => (p.value > 0 && (!best || p.value > best.value) ? p : best),
     undefined,
   );
-  const currency = items[0]?.currency || 'INR';
+  const currency = items[0]?.currency || activeLocale().currency;
   return {
     items,
     count: items.length,
@@ -374,7 +352,7 @@ export function budgetStatus(input: {
   currency?: string;
 }): BudgetState {
   const { spent, limit, monthDays, dayOfMonth } = input;
-  const currency = input.currency || 'INR';
+  const currency = input.currency || activeLocale().currency;
   const remaining = Math.round((limit - spent) * 100) / 100;
   const pct = limit > 0 ? spent / limit : 0;
   const elapsed = Math.max(1, Math.min(monthDays, dayOfMonth));
@@ -787,7 +765,7 @@ export function fitnessCsv(logs: FitnessLog[]): string {
     rows.push(
       [
         dayKey(l.createdAt),
-        d.toLocaleTimeString('en-IN'),
+        d.toTimeString().slice(0, 8), // HH:MM:SS, same in every locale (spreadsheet-friendly)
         l.kind,
         esc(l.label),
         l.qty ?? '',
@@ -857,6 +835,13 @@ const RANGE_WORDS: [RegExp, TrackRangeKind][] = [
   [/(today|aaj|day)/i, 'day'],
 ];
 
+const BUDGET_SET = new RegExp(
+  String.raw`^(?:set|make|rakh do|rakh|update|badal|change)(?:\s+my)?(?:\s+(?:monthly|month))?(?:\s+budget)?\s*(?:budget|limit)\s*(?:to|ko|ka|mein|me|=)?\s*${CURRENCY_PREFIX}?\s*([\d,]+(?:\.\d+)?)`,
+);
+const BUDGET_SHORT = new RegExp(
+  String.raw`^(?:monthly\s+)?budget\s*(?:ko|to|=)?\s*${CURRENCY_PREFIX}?\s*([\d,]+(?:\.\d+)?)\s*(?:karo|kar do|rakh do|set karo|record)?$`,
+);
+
 /**
  * Voice commands about the Track tab itself: set/read the monthly budget, or
  * open a view. Deliberately narrow — a plain "kharcha 200 chai" is a LOG, not
@@ -865,9 +850,7 @@ const RANGE_WORDS: [RegExp, TrackRangeKind][] = [
 export function parseTrackCommand(text: string, logs?: FitnessLog[], now = new Date()): TrackCommand | null {
   const t = normalizeText(text);
   if (!t) return null;
-  const budgetSet = t.match(
-    /^(?:set|make|rakh do|rakh|update|badal|change)(?:\s+my)?(?:\s+(?:monthly|month))?(?:\s+budget)?\s*(?:budget|limit)\s*(?:to|ko|ka|mein|me|=)?\s*(?:₹|\$|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)/,
-  ) || t.match(/^(?:monthly\s+)?budget\s*(?:ko|to|=)?\s*(?:₹|\$|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(?:karo|kar do|rakh do|set karo|record)?$/);
+  const budgetSet = t.match(BUDGET_SET) || t.match(BUDGET_SHORT);
   const amount = budgetSet ? Number(String(budgetSet[1]).replace(/,/g, '')) : NaN;
   if (budgetSet && Number.isFinite(amount) && amount > 0 && amount <= 100000000) {
     return { action: 'set-budget', amount, currency: currencyOf(t) };
@@ -911,9 +894,7 @@ function normalizeText(text: string): string {
 }
 
 function currencyOf(t: string): string {
-  if (/\$|\bdollar\b|usd/.test(t)) return 'USD';
-  if (/€|euro/.test(t)) return 'EUR';
-  return 'INR';
+  return currencyFromText(t);
 }
 
 // ------------------------------------------------------ Today-strip helper ----
@@ -957,7 +938,7 @@ export function todayStrip(
       limit: goals.budget || 0,
       monthDays: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
       dayOfMonth: now.getDate(),
-      currency: goals.budgetCurrency || 'INR',
+      currency: goals.budgetCurrency || activeLocale().currency,
     }),
   };
 }

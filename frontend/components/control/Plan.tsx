@@ -6,6 +6,7 @@ import { useAssistantStore } from '@/store/assistant';
 import { validateBetaKey, PLANS, FREE_LIMITS, planAllows } from '@/lib/platform/plans';
 import { fetchEntitlements, redeemKeyOnServer } from '@/lib/platform/entitlements';
 import { dayKey } from '@/lib/features/fitness';
+import { activeLocale } from '@/lib/locale/active';
 
 const SOURCE_LABEL: Record<string, string> = {
   server: 'Decided by your account (server)',
@@ -131,8 +132,8 @@ export function Plan() {
     const fit = useFeaturesStore.getState().fitnessLogs.filter((l) => l.kind === 'expense');
     const rows = ['date,title,amount,currency,source'];
     const esc = (s: unknown) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-    for (const i of items) rows.push([new Date(i.createdAt).toISOString().slice(0, 10), esc(i.title), i.amount, i.currency || 'INR', 'memory'].join(','));
-    for (const l of fit) rows.push([dayKey(l.createdAt), esc(l.label), l.amount || l.qty || '', l.currency || 'INR', 'voice-log'].join(','));
+    for (const i of items) rows.push([new Date(i.createdAt).toISOString().slice(0, 10), esc(i.title), i.amount, i.currency || activeLocale().currency, 'memory'].join(','));
+    for (const l of fit) rows.push([dayKey(l.createdAt), esc(l.label), l.amount || l.qty || '', l.currency || activeLocale().currency, 'voice-log'].join(','));
     const url = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url;

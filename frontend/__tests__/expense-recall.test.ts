@@ -6,6 +6,7 @@ import { useAssistantStore } from '../store/assistant';
 import { INITIAL_WITNESS } from '../lib/features/witness';
 import { EMPTY_QUOTA } from '../lib/platform/plans';
 import type { FitnessLog } from '../lib/features/fitness';
+import { DEFAULT_TEST_DEVICE, useDevice, useHinglishSpeaker } from './helpers/locale';
 
 const DAY = 86400000;
 const mkLog = (over: Partial<FitnessLog> = {}): FitnessLog => ({
@@ -86,7 +87,12 @@ describe('yesterday expense recall (deterministic, offline)', () => {
   it('is honest when the range is empty and teaches the log phrase', async () => {
     const turn = await handleFeatureTurn('what did I spend last week');
     expect(turn?.messages[0].text).toMatch(/No expenses logged/);
-    expect(turn?.messages[0].text).toContain('kharcha 200 chai');
+    expect(turn?.messages[0].text).toContain('spent 12 on lunch');
+    // A Hinglish speaker is taught the Hinglish phrase.
+    useHinglishSpeaker();
+    const hinglish = await handleFeatureTurn('what did I spend last week');
+    expect(hinglish?.messages[0].text).toContain('kharcha 200 chai');
+    useDevice(DEFAULT_TEST_DEVICE);
   });
 
   it('still logs plain expense statements instead of querying', async () => {

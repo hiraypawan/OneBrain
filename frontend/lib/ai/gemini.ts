@@ -11,14 +11,25 @@ export const SYSTEM =
   'or appointments. When the prompt includes "Live web sources", answer from them: use the source for any number, date ' +
   'or status, name where it came from, and say plainly when those sources do not actually answer the question. ' +
   'Accept corrections without arguing. Do not ask users to dictate passwords or secrets. ' +
-  'Use short plain sentences suitable for speech, without decorative formatting. Default to under 80 words. ' +
-  'If useful for a non-English answer, add ---EN--- followed by a short English translation.';
+  'Use short plain sentences suitable for speech, without decorative formatting. Default to under 80 words.';
 
-// Fresh clock on every request, so "India me time kya hai" and date/maths
-// questions are answered from reality, not the model's training cutoff.
-export function buildSystem(now: Date = new Date()): string {
+/** True for IANA zones the runtime knows ("Europe/London"); false for junk. */
+export function isValidTimeZone(timeZone: unknown): timeZone is string {
+  if (typeof timeZone !== 'string' || !timeZone || timeZone.length > 64 || !/^[A-Za-z0-9_+\-/]+$/.test(timeZone)) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Fresh clock on every request, in the user's own time zone, so "what time is
+// it", "what's the date on Friday" and date maths are answered from reality,
+// not the model's training cutoff.
+export function buildSystem(now: Date = new Date(), timeZone?: string | null): string {
   const fmt = (tz: string) =>
-    new Intl.DateTimeFormat('en-IN', {
+    new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       weekday: 'long',
       year: 'numeric',
@@ -28,8 +39,11 @@ export function buildSystem(now: Date = new Date()): string {
       minute: '2-digit',
       hour12: true,
     }).format(now);
+  const clock = isValidTimeZone(timeZone)
+    ? `Current time for the user: ${fmt(timeZone)} (${timeZone}) | ${fmt('UTC')} UTC.`
+    : `Current time: ${fmt('UTC')} UTC. The user's time zone is unknown.`;
   return (
-    `${SYSTEM} Current time: ${fmt('Asia/Kolkata')} IST (India) | ${fmt('UTC')} UTC. ` +
+    `${SYSTEM} ${clock} ` +
     'Answer time/date questions from this clock. Do maths step by step and say the final answer clearly.'
   );
 }
@@ -167,7 +181,10 @@ export async function askPollinations(
 export function fallback(message: string): string {
   const m = (message || '').toLowerCase();
   if (m.includes('train') || m.includes('weather')) return 'Live information is unavailable. I have not checked current schedules or weather.';
-  if (m.includes('hello') || m.includes('namaste') || m.includes('हेलो') || m.includes('नमस्ते'))
-    return 'Namaste! Main sun raha hoon, boliye?';
-  return `Samajh gaya: "${message}". AI service unavailable; no external action was performed. You can use local capture or check Settings → AI key.`;
+  // Runs on the server too, where the user's locale is unknown: greet in the
+  // language of the greeting.
+  const hinglish = /[\u0900-\u097F]/.test(m) || /\b(namaste|namaskar|kaun|kya|kaise|aap|tum|hai|ho)\b/.test(m);
+  if (hinglish && /\b(hello|hi|hey|namaste|namaskar)\b|हेलो|नमस्ते/.test(m)) return 'Namaste! Main sun raha hoon, boliye?';
+  if (/\b(hello|hi|hey)\b/.test(m)) return 'Hi! I’m listening — go ahead.';
+  return `Understood: "${message}". The AI service is unavailable, so no external action was performed. You can still capture it locally, or check Settings → AI key.`;
 }

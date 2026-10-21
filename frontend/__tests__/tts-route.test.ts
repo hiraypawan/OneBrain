@@ -83,8 +83,19 @@ describe('synthesis helpers', () => {
 describe('read-aloud voice helpers', () => {
   it('speaks Indian English with the Indian accent and Indian languages natively', () => {
     expect(readAloudTarget('en-IN')).toEqual({ tl: 'en', host: 'translate.google.co.in' });
-    expect(readAloudTarget('')).toEqual({ tl: 'en', host: 'translate.google.co.in' });
-    expect(readAloudTarget('en-US')).toEqual({ tl: 'en', host: 'translate.google.com' });
+    expect(readAloudTarget('')).toEqual({ tl: 'en', host: 'translate.google.us' });
+    expect(readAloudTarget('en-US')).toEqual({ tl: 'en', host: 'translate.google.us' });
+    // Each English accent comes from its own Google domain (gTTS "Localized accents").
+    expect(readAloudTarget('en-GB')?.host).toBe('translate.google.co.uk');
+    expect(readAloudTarget('en-AU')?.host).toBe('translate.google.com.au');
+    expect(readAloudTarget('en-CA')?.host).toBe('translate.google.ca');
+    expect(readAloudTarget('en-ZA')?.host).toBe('translate.google.co.za');
+    expect(readAloudTarget('fr-CA')).toEqual({ tl: 'fr', host: 'translate.google.ca' });
+    expect(readAloudTarget('es-MX')).toEqual({ tl: 'es', host: 'translate.google.com.mx' });
+    expect(readAloudTarget('pt-BR')).toEqual({ tl: 'pt', host: 'translate.google.com.br' });
+    expect(readAloudTarget('de-DE')).toEqual({ tl: 'de', host: 'translate.google.com' });
+    // Unknown or hostile regions fall back to the language's default domain.
+    expect(readAloudTarget('en-__proto__')?.host).toBe('translate.google.us');
     expect(readAloudTarget('hi-IN')?.tl).toBe('hi');
     expect(readAloudTarget('mr-IN')?.tl).toBe('mr');
     expect(readAloudTarget('ta_IN')?.tl).toBe('ta');

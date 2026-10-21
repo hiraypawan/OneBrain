@@ -5,6 +5,8 @@
 
 import { findNumber } from '../voice/numbers';
 import { parseDateRef } from './timetravel';
+import { formatDate } from '../locale/format';
+import { localized } from '../locale/active';
 
 export type EmailTone = 'formal' | 'friendly' | 'hinglish';
 export type EmailKind = 'leave' | 'sick-leave' | 'generic' | 'followup' | 'thanks' | 'resignation';
@@ -67,7 +69,7 @@ export function extractEmailSlots(text: string, now: Date = new Date()): Partial
   if (range && range.key.length === 10) out.fromDate = new Date(range.start).toISOString();
   const reason =
     /(sick|bimar|bimari|fever|bukhar|tabiyat|health)/i.test(t) ? 'health'
-    : /(family|ghar|parivar|relative|shaadi|marriage|wedding|function)/i.test(t) ? 'family function'
+    : /(family|ghar|parivar|relative|shaadi|marriage|wedding|function|event)/i.test(t) ? 'family function'
     : /(travel|trip|gaon|village|out of station|bahar)/i.test(t) ? 'travel'
     : /(personal|urgent|kaam|work)/i.test(t) ? 'personal work'
     : /(exam|paper|study|padhai)/i.test(t) ? 'exams'
@@ -100,16 +102,16 @@ export function slotQuestion(slot: SlotName, kind: EmailKind): string {
   switch (slot) {
     case 'to':
       return kind === 'leave' || kind === 'sick-leave'
-        ? 'Kisko bhejna hai — manager, HR, ya teacher? Naam bolo.'
-        : 'Kisko bhejna hai? Naam ya email bolo.';
+        ? localized('Who should it go to — your manager, HR, or a teacher? Say their name.', 'Kisko bhejna hai — manager, HR, ya teacher? Naam bolo.')
+        : localized('Who is it for? Say a name or an email address.', 'Kisko bhejna hai? Naam ya email bolo.');
     case 'days':
-      return 'Kitne din ki chhutti chahiye?';
+      return localized('How many days of leave do you need?', 'Kitne din ki chhutti chahiye?');
     case 'fromDate':
-      return 'Kab se — kal se, ya koi date bolo?';
+      return localized('Starting when — tomorrow, or another date?', 'Kab se — kal se, ya koi date bolo?');
     case 'reason':
-      return 'Wajah kya likhun — tabiyat, family function, ya personal kaam?';
+      return localized('What reason should I give — health, a family event, travel, or personal work?', 'Wajah kya likhun — tabiyat, family function, ya personal kaam?');
     case 'context':
-      return 'Mail kis baare mein hai — ek line mein batao?';
+      return localized('What is the email about, in one line?', 'Mail kis baare mein hai — ek line mein batao?');
   }
 }
 
@@ -155,8 +157,7 @@ export function fillSlotFromAnswer(
 function fmtRange(fromIso: string, days: number): string {
   const from = new Date(fromIso);
   const to = new Date(from.getTime() + (days - 1) * 86400000);
-  const f = (d: Date) =>
-    new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' }).format(d);
+  const f = (d: Date) => formatDate(d, { day: 'numeric', month: 'short' });
   return days <= 1 ? f(from) : `${f(from)} – ${f(to)}`;
 }
 
