@@ -241,6 +241,29 @@ describe('voice capability notices', () => {
     expect(voiceInputNotice(detectPlatform({ userAgent: ua.instagram }), all)).toMatch(/Open in Safari/);
     expect(voiceInputNotice(detectPlatform({ userAgent: ua.edge }), all)).toBeNull();
   });
+  it('only suggests browsers that exist on the platform, never the current one', () => {
+    const noRecognition = { recognition: false, synthesis: true, microphone: true };
+    const notice = (userAgent: string) => voiceInputNotice(detectPlatform({ userAgent }), noRecognition) || '';
+    // Firefox on Windows: there is no Safari for Windows.
+    expect(notice(ua.firefox)).toMatch(/in Chrome or Edge to talk/);
+    expect(notice(ua.firefox)).not.toMatch(/Safari/);
+    // Chrome without recognition (an old or stripped-down build): the brand is
+    // not the problem, so it is never told to open Chrome.
+    const chromeLinux = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+    expect(notice(chromeLinux)).toMatch(/unavailable in this browser/);
+    expect(notice(chromeLinux)).toMatch(/in Edge to talk/);
+    expect(notice(chromeLinux)).not.toMatch(/in Chrome/);
+    // Android: Chrome is the one to use; Chrome itself gets no other suggestion.
+    expect(notice(ua.android)).toBe('Speech recognition is unavailable in this browser. You can still type below.');
+    const firefoxAndroid = 'Mozilla/5.0 (Android 15; Mobile; rv:144.0) Gecko/144.0 Firefox/144.0';
+    expect(notice(firefoxAndroid)).toMatch(/in Chrome to talk\.$/);
+    // iPhone: only Safari can listen, whatever the app icon says.
+    const chromeIphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/141.0.0.0 Mobile/15E148 Safari/604.1';
+    expect(notice(chromeIphone)).toBe('Chrome cannot recognise speech here. You can type below. Or open OneBrain in Safari to talk.');
+    // No microphone API (plain HTTP): HTTPS in a browser for this platform.
+    expect(voiceInputNotice(detectPlatform({ userAgent: ua.edge }), { ...noRecognition, recognition: true, microphone: false }))
+      .toBe('The microphone is unavailable on this page. Open OneBrain over HTTPS in Chrome or Edge to talk.');
+  });
   it('says exactly where to re-allow the microphone', () => {
     expect(micPermissionHelp(detectPlatform({ userAgent: ua.iphone }))).toMatch(/aA/);
     expect(micPermissionHelp(detectPlatform({ userAgent: ua.edge }))).toMatch(/Windows Settings/);

@@ -60,8 +60,31 @@ const BROWSER_NAME: Record<Browser, string> = {
 };
 
 /**
+ * Browsers that can talk to OneBrain on this platform, best first. iOS
+ * browsers are all WebKit and only Safari exposes speech recognition; there is
+ * no Safari on Windows, Linux or ChromeOS.
+ */
+export function talkBrowsers(os: Os): Browser[] {
+  switch (os) {
+    case 'ios': return ['safari'];
+    case 'android':
+    case 'chromeos': return ['chrome'];
+    case 'mac':
+    case 'other': return ['chrome', 'edge', 'safari'];
+    default: return ['chrome', 'edge'];
+  }
+}
+
+/** “Chrome”, “Chrome or Edge”, “Chrome, Edge or Safari”. */
+function browserList(browsers: Browser[]): string {
+  const names = browsers.map((b) => BROWSER_NAME[b]);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0] || '';
+}
+
+/**
  * Why talking will not work here, or null when it should. Shown before the
- * user tries, so nobody taps the mic and gets silence.
+ * user tries, so nobody taps the mic and gets silence. Never suggests the
+ * browser they are already in, or one that does not exist on their platform.
  */
 export function voiceInputNotice(platform: Platform, support: SpeechSupport): string | null {
   if (platform.inApp) {
@@ -69,13 +92,24 @@ export function voiceInputNotice(platform: Platform, support: SpeechSupport): st
       ? 'This in-app browser blocks the microphone. Tap ⋯ or the share icon → “Open in Safari” to talk to OneBrain.'
       : 'This in-app browser blocks the microphone. Tap ⋮ → “Open in Chrome” to talk to OneBrain.';
   }
+  const recommended = talkBrowsers(platform.os);
+  const elsewhere = recommended.filter((b) => b !== platform.browser);
+  const openElsewhere = elsewhere.length ? ` Or open OneBrain in ${browserList(elsewhere)} to talk.` : '';
   if (!support.recognition) {
     if (platform.browser === 'firefox') {
-      return 'Firefox does not support speech recognition yet. You can type below, or open OneBrain in Chrome, Edge or Safari to talk.';
+      return `Firefox does not support speech recognition yet. You can type below.${openElsewhere}`;
     }
-    return `${BROWSER_NAME[platform.browser] === 'your browser' ? 'This browser' : BROWSER_NAME[platform.browser]} cannot recognise speech. You can type below, or open OneBrain in Chrome, Edge or Safari to talk.`;
+    // A browser that normally can (an old version, or a build without
+    // Google's speech service) — it is not the brand that is the problem.
+    if (recommended.includes(platform.browser)) {
+      return `Speech recognition is unavailable in this browser. You can still type below.${openElsewhere}`;
+    }
+    const name = platform.browser === 'other' ? 'This browser' : BROWSER_NAME[platform.browser];
+    return `${name} cannot recognise speech here. You can type below.${openElsewhere}`;
   }
-  if (!support.microphone) return 'The microphone is unavailable here. Open OneBrain over HTTPS in Chrome, Edge or Safari to talk.';
+  if (!support.microphone) {
+    return `The microphone is unavailable on this page. Open OneBrain over HTTPS in ${browserList(recommended)} to talk.`;
+  }
   return null;
 }
 

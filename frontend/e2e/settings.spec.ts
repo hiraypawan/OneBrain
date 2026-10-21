@@ -277,30 +277,38 @@ test("settings navigation starts a fresh document and leaves a loaded provider b
 test("a saved local profile is not presented as a verified Google account", async ({
   page,
 }) => {
-  // Marked slow, not loosened: this test waits on the app's own cold-start
-  // IndexedDB seeding, and two Chromium workers on a two-core runner push that
-  // past 45s. The assertions are untouched; only the budget is honest.
-  test.slow();
   await page.goto("/");
+  // The app creates its database just after hydration, which can be after
+  // `load`. Opening "onebrain" first would create an empty version-1 database
+  // (no "kv" store) and block the app's own upgrade — a hang, not a failure —
+  // so wait for the app's database, and reject on any error.
+  await page.waitForFunction(async () =>
+    (await indexedDB.databases()).some((d) => d.name === "onebrain"),
+  );
   await page.evaluate(async () => {
     await new Promise<void>((resolve, reject) => {
       const open = indexedDB.open("onebrain");
       open.onerror = () => reject(open.error);
       open.onsuccess = () => {
-        const database = open.result,
-          tx = database.transaction("kv", "readwrite");
-        tx.objectStore("kv").put({
-          key: "user",
-          value: {
-            id: "cached-not-authenticated",
-            email: "cached-only@example.test",
-          },
-        });
-        tx.oncomplete = () => {
+        const database = open.result;
+        try {
+          const tx = database.transaction("kv", "readwrite");
+          tx.objectStore("kv").put({
+            key: "user",
+            value: {
+              id: "cached-not-authenticated",
+              email: "cached-only@example.test",
+            },
+          });
+          tx.oncomplete = () => {
+            database.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        } catch (error) {
           database.close();
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
+          reject(error);
+        }
       };
     });
   });

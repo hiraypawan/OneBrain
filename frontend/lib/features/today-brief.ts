@@ -2,6 +2,8 @@
 // that are true today (tasks, money, food, sleep, workouts), each linking to
 // its Track view. Pure — components/today renders it.
 
+import { formatDate } from '../locale/format';
+import type { ResolvedLocale } from '../locale/resolve';
 import { dayKey } from './fitness';
 import { plainMoney, trackHref, type TodayStrip } from './track';
 import type { TodoCounts } from './todo';
@@ -27,15 +29,15 @@ export function greetingFor(now: Date = new Date()): Greeting {
   return 'Good evening';
 }
 
-/** “Wednesday · 17 September” — no year: this line is about today. */
-export function dateLine(now: Date = new Date()): string {
-  try {
-    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(now);
-    const day = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' }).format(now);
-    return `${weekday} · ${day}`;
-  } catch {
-    return now.toDateString();
-  }
+/**
+ * “Wednesday · 17 September” (UK, India) / “Wednesday · September 17” (US) —
+ * no year: this line is about today. Client-only text: it depends on the
+ * device clock and language, so render it after hydration (hooks/useNow.ts).
+ */
+export function dateLine(now: Date, locale?: Pick<ResolvedLocale, 'formatLocale'>): string {
+  const weekday = formatDate(now, { weekday: 'long' }, locale);
+  const day = formatDate(now, { day: 'numeric', month: 'long' }, locale);
+  return weekday && day ? `${weekday} · ${day}` : now.toDateString();
 }
 
 export type BriefFactId = 'tasks' | 'money' | 'food' | 'sleep' | 'workouts';

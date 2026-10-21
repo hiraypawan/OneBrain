@@ -19,7 +19,7 @@ unless the user explicitly shares it.
 |---|---|
 | `frontend/app/` | Next.js routes. `app/api/*` are server route handlers (chat, speech/tts, geo, web proxy, media, utilities, Google sign-in, platform proxy). |
 | `frontend/components/` | React UI, grouped by surface: `today/`, `voice/`, `track/`, `control/` (Your space panels), `settings/`, `features/` (feature cards), `workspace/`, `ui/`. |
-| `frontend/hooks/` | `useAssistant.ts` (the voice session state machine), `useVoicePrint.ts`, `useLocale.ts`, `useBackgroundKeepalive.ts`. |
+| `frontend/hooks/` | `useAssistant.ts` (the voice session state machine), `useVoicePrint.ts`, `useLocale.ts`, `useNow.ts` (hydration-safe clock), `useBackgroundKeepalive.ts`. |
 | `frontend/lib/` | All logic, pure and unit-tested, in domain folders: `core`, `locale`, `voice`, `ai`, `features`, `platform`, `server` (server-only), `storage`, `workspace`. |
 | `frontend/store/` | Zustand stores: `assistant` (session, settings, messages), `features`, `media`, `workspace`. |
 | `frontend/__tests__/` | Vitest unit tests (+ `helpers/`). `frontend/e2e/` Playwright browser tests. |
@@ -109,6 +109,13 @@ Before you finish a change: typecheck, lint and unit tests must pass; run
    `lib/locale/countries.ts`; unknown countries get findahelpline.com.
 7. **iPhone audio rules.** Audio unlock runs synchronously inside the user's
    gesture (`lib/voice/audio.ts`); don't move it behind an `await`.
+8. **Server HTML knows nothing about the device.** Pages are prerendered at
+   build time in UTC/en-US, so text that depends on the device's clock, time
+   zone or language must not render until hydration: use `useNow()` (null
+   until then) and `useLocale()` (neutral until then), and hold the space with
+   a placeholder (see `components/today/TodayView.tsx`). Calling `new Date()`,
+   `toLocale*String()` or `activeLocale()` in render is only safe for data
+   that loads after mount. A mismatch is React error #418 in the browser suite.
 
 ## Gotchas
 
@@ -117,5 +124,7 @@ Before you finish a change: typecheck, lint and unit tests must pass; run
 - The sandbox/CI has no access to Google or Cloudflare: live TTS, OAuth and
   provider health can't be verified there — say so instead of claiming it.
 - Playwright needs the Workers API running with a local D1
-  (`scripts/setup-platform.mjs`); see `docs/PLATFORM-SETUP.md`.
+  (`scripts/setup-platform.mjs`); see `docs/PLATFORM-SETUP.md`. Browser tests
+  run on a pinned device (`en-IN`, `Asia/Kolkata`) while the server renders in
+  UTC — that difference is what catches invariant 8.
 - Pushing to `main` deploys production. Work on a branch and open a PR.

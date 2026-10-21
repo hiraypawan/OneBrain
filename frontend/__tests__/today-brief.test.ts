@@ -23,6 +23,12 @@ describe('greeting and date', () => {
     expect(dateLine(new Date(2026, 8, 17))).toContain('17');
     expect(dateLine(new Date(2026, 8, 17))).not.toMatch(/2026/);
   });
+  it('writes the date the way the user\'s country does', () => {
+    const day = new Date(2026, 8, 17);
+    expect(dateLine(day)).toBe('Thursday · 17 September'); // the pinned test device is in India
+    expect(dateLine(day, { formatLocale: 'en-US' })).toBe('Thursday · September 17');
+    expect(dateLine(day, { formatLocale: 'en-GB' })).toBe('Thursday · 17 September');
+  });
 });
 
 describe('briefFacts', () => {

@@ -90,6 +90,10 @@ Client code reads it through `activeLocale()` / `useLocale()`; the chat
 request carries `language`, `country` and `timeZone`, which the server
 validates before building the prompt.
 
+Prerendered HTML cannot know any of this (or the device's clock), so
+components render locale- and clock-dependent text only after hydration:
+`useLocale()` returns a neutral locale and `useNow()` returns null until then.
+
 ## Data and privacy boundaries
 
 | Where | What | Notes |
