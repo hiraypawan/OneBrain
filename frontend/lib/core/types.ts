@@ -1,3 +1,7 @@
+// Shared app-wide types: assistant status, users, messages, conversations,
+// reminders and the persisted UserSettings shape (normalised in
+// lib/storage/settings.ts — always add new settings there too).
+
 export type AssistantStatus = 'idle' | 'listening' | 'processing' | 'speaking' | 'error' | 'paused';
 
 export interface User {

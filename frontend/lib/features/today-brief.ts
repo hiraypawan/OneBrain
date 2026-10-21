@@ -1,3 +1,7 @@
+// The Today screen's calm brief: greeting, date line and only the numbers
+// that are true today (tasks, money, food, sleep, workouts), each linking to
+// its Track view. Pure — components/today renders it.
+
 import { dayKey } from './fitness';
 import { plainMoney, trackHref, type TodayStrip } from './track';
 import type { TodoCounts } from './todo';

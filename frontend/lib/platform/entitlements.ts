@@ -1,3 +1,7 @@
+// Which plan applies and who decided it: the server entitlement (signed-in
+// account), a device-only beta key, or the free default. Caches the last
+// confirmed server plan for a 24-hour grace period, labelled unverified.
+
 import { platformApi, PlatformRequestError } from './platform';
 import type { PlanId, QuotaUse } from './plans';
 import { EMPTY_QUOTA } from './plans';

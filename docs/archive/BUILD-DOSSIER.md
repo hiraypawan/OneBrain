@@ -82,7 +82,7 @@ plain-language fix-it message instead of failing silently.
 - Frontend + backend typecheck clean; **42/42 unit tests pass** (brain chain,
   speech scrub, pitch DSP, reminders, background states, keyless providers);
   12/12 frontend pages + backend auth→sync→digest chain tested live over HTTP.
-- Not yet done by anyone: real-phone testing → see `PHONE-TEST.md`.
+- Not yet done by anyone: real-phone testing → see `docs/PHONE-TEST.md`.
 - Deliberately refused: geolocation keepalive (buys zero mic time, burns battery).
 
 ## 10. Run it

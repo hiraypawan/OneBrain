@@ -1,3 +1,7 @@
+// Workspace records on this device: item kinds, capture drafts ("task: …",
+// brain dumps), amount parsing, safe calculations, day summaries and search.
+// Pure; storage is lib/storage/db.ts, server sync is the platform API.
+
 import { CURRENCY_PREFIX, currencyFromText } from "../locale/format";
 import { isSupportedCurrency } from "../locale/countries";
 export type ItemKind =

@@ -1,3 +1,6 @@
+// Validation for workspace captures before they are saved: kinds, title and
+// body limits, due dates, money (two decimals, a supported currency).
+
 import type { BrainItem, CaptureDraft } from "./model";
 import { SUPPORTED_CURRENCIES, isSupportedCurrency } from "../locale/countries";
 export const ITEM_KINDS = [

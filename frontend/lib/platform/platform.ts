@@ -1,3 +1,6 @@
+// Browser client for the Workers platform API, always via the same-origin
+// proxy at /api/platform/* (cookies stay httpOnly). Shared types for spaces,
+// records, connections and jobs live here too.
 export interface Space {id:string;name:string;role:'owner'|'admin'|'editor'|'viewer'}
 export interface SharedRecord {id:string;kind:string;title:string;revision:number;data:Record<string,any>;created_at:number;updated_at:number}
 export interface Connection {id:string;name:string;provider:string;status:string;config:Record<string,any>}

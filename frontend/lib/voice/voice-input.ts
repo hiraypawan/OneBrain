@@ -1,3 +1,6 @@
+// Last step before a spoken line becomes a turn: honour the optional wake
+// phrase ("OneBrain, …") and the user's recognition aliases from Settings.
+// Returns null when the line should be ignored. Pure.
 export function prepareVoiceInput(text:string,settings:{wakePhrase?:boolean;speechAliases?:Record<string,string>}):string|null{
  let input=text.trim();
  if(settings.wakePhrase && !/^(stop|stop listening|pause|pause session|pause listening)$/i.test(input)){

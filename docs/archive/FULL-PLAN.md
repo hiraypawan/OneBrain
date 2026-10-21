@@ -59,7 +59,7 @@ DEPLOY STATUS: pages_build_output_dir intact in wrangler.jsonc; requires CLOUDFL
 
 --- NEXT ACTIONS ---
 1. Live verification: needs network/devices/operator auth (transit feeds, media streams, web sources)
-2. Real device testing: PHONE-TEST.md (voice background/resume/network/earbuds)
+2. Real device testing: docs/PHONE-TEST.md (voice background/resume/network/earbuds)
 3. Browser/compatibility: requires browser binaries (CI runs, sandbox cannot)
 4. Full 175-item scope: incomplete; remaining items tracked in docs/IMPLEMENTATION-STATUS.md
 5. Production deploy: requires CLOUDFLARE_API_TOKEN + GOOGLE_LOGIN_REDIRECT + D1 migrations + operator entitlement setup

@@ -1,3 +1,6 @@
+// Voice capture into a *shared* server workspace ("shared task: …",
+// "server reminder: …"). Always a two-step flow: preview the destination,
+// then save only after the user says "save shared". Never uploads silently.
 import { platformApi } from '../platform/platform';
 export interface SharedPreview {requestId:string;spaceId:string;spaceName:string;userId:string;kind:string;title:string;body:string;firstRun:number}
 export function sharedIntent(input:string){

@@ -1,3 +1,7 @@
+// On-device database (IndexedDB through Dexie): conversations, messages,
+// reminders, workspace items, receipts, fitness logs and drafts. Everything
+// the app remembers locally lives here; the vault is separate (vault-storage).
+
 import Dexie, { Table } from 'dexie';
 import type { BrainItem, ActionReceipt } from '../workspace/model';
 import type { FitnessLog } from '../features/fitness';

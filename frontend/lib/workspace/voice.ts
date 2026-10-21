@@ -1,3 +1,7 @@
+// Local interpretation of a typed/spoken line on Today: capture drafts to
+// review, or an instant local answer (calculation, day summary, search).
+// Returns null to hand the line to the assistant. Pure.
+
 import {
   draftCapture,
   draftBrainDump,

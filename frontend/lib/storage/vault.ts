@@ -1,3 +1,6 @@
+// Private vault crypto: PBKDF2 (600k iterations) password-derived AES-GCM
+// envelopes for the local vault and its encrypted backups. Not an audited
+// password manager; never used for voice or AI input.
 export interface VaultEnvelope {version:1;salt:string;iv:string;ciphertext:string;iterations:600000}
 export interface VaultEntry {id:string;title:string;value:string;updatedAt:number}
 const encode=(bytes:Uint8Array)=>btoa(String.fromCharCode(...bytes));

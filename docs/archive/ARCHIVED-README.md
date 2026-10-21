@@ -26,7 +26,7 @@ Works in English, Hindi, Hinglish, Marathi — and 10+ more scripts.
 - 🎵 **Free music, podcasts & videos** — "play kesariya" searches keyless sources,
   no accounts, no keys, with a mini-player
   *(removed 2026-09-11, reintroduced 2026-09-15 as an opt-in panel; see
-  [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) row 170 — still unverified
+  [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) row 170 — still unverified
   against live sources)*
 - 🔔 **Reminders** — daily or one-time, spoken confirmation, fire notifications
 - 📰 **Live facts** — Wikipedia layer answers current-affairs questions keylessly
@@ -107,4 +107,4 @@ Data export downloads everything; Delete everything wipes it.
 
 **Today** is the main screen: save a thought, ask a question, start talking, and revisit your records. **Your space** is the second screen: find account controls, preferences, reminders, connected work, utilities, vault and conversation history in searchable panels. Old feature links redirect there.
 
-See [UI design, feature locations and verification boundaries](docs/UI-DESIGN.md). This rework does not change the draft PR's incomplete-product or no-deployment status.
+See [UI design, feature locations and verification boundaries](../UI-DESIGN.md). This rework does not change the draft PR's incomplete-product or no-deployment status.

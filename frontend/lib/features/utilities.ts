@@ -1,3 +1,5 @@
+// Everyday tools behind Your space → Utilities: unit conversion, calendar
+// day maths and session-only timers. Pure; no network.
 export function convertUnit(amount:number,from:string,to:string):number {
  if(!Number.isFinite(amount))throw new Error('Use a finite number.');
  const units:Record<string,[string,number]>={m:['length',1],km:['length',1000],cm:['length',.01],mm:['length',.001],in:['length',.0254],ft:['length',.3048],mi:['length',1609.344],kg:['mass',1],g:['mass',.001],lb:['mass',.45359237],oz:['mass',.028349523125],l:['volume',1],ml:['volume',.001],s:['time',1],min:['time',60],h:['time',3600],day:['time',86400]};

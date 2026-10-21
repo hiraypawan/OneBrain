@@ -1,3 +1,7 @@
+// User settings: defaults and normalisation of untrusted stored/imported
+// values (strings never grant consent), plus one-time migrations keyed by
+// SETTINGS_VERSION. The store (store/assistant.ts) persists the result.
+
 import type { UserSettings } from '../core/types';
 import { DEFAULT_PROACTIVE, normalizeProactive } from '../features/proactive';
 import { AUTO_LANGUAGE, isLanguageSetting } from '../locale/voice-languages';

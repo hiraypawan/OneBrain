@@ -32,10 +32,14 @@ the browser voice kept only as a fallback.
    helpers in `frontend/lib/server/tts-server.ts`):
    - the caller's own Gemini key (their quota, their plan) → natural speech with
      Indian-language support;
-   - a keyless read-aloud voice (Google Translate's public text-to-speech:
-     English with an Indian accent via `translate.google.co.in`, Hindi,
-     Marathi, Bengali, Gujarati, Punjabi, Tamil, Telugu, Kannada, Malayalam,
-     Urdu and more) → sound for zero-setup users. Text goes out in ≤180-character
+   - a keyless read-aloud voice (Google Translate's public text-to-speech)
+     → sound for zero-setup users. English is spoken in the user's own accent
+     — the Google domain picks it, as gTTS documents: `translate.google.us`,
+     `.co.uk`, `.com.au`, `.ca`, `.co.in`, `.ie`, `.co.za`, `.com.ng` — and so
+     are French (France/Canada), Portuguese (Brazil/Portugal) and Spanish
+     (Spain/Mexico/US); German, Japanese, Hindi, Marathi, Tamil and the other
+     supported languages have one voice each. The accent follows the user's
+     locale (`frontend/lib/locale/`). Text goes out in ≤180-character
      pieces (the endpoint's limit is 200), fetched three at a time and joined
      in order; a blocked request falls back to the `batchexecute` RPC that gTTS
      uses; any missing piece returns the whole reply to the browser voice;
@@ -71,7 +75,12 @@ the browser voice kept only as a fallback.
    primed after `await el.play()` and only on the first `pointerdown`, so on
    iPhone it was never unlocked: "Speech was queued but never started".)*
    A playing reply is never paused or replaced by an unlock.
-5. **Hardened browser-voice fallback** (`speakChunksWithBrowserVoice`):
+5. **Natural browser voices.** `pickTtsVoice` skips the novelty and retro
+   voices macOS/iOS list first ("Albert", "Bubbles", Eloquence "Eddy"…),
+   prefers Edge's "Online (Natural)", Apple's Premium/Enhanced and Chrome's
+   Google voices, and falls back to the nearest accent (en-AU → en-NZ →
+   en-GB) when the exact one is not installed.
+6. **Hardened browser-voice fallback** (`speakChunksWithBrowserVoice`):
    the engine is cancelled only when it is actually busy (and then given time
    to settle), `voice` and `lang` are always kept consistent — with the engine's
    exact tag (`en-IN`, not `en-in`) — a stall is detected in 5 s and retried
@@ -85,8 +94,8 @@ the browser voice kept only as a fallback.
    Replies are fetched progressively: a short first piece (≤220 characters)
    so the first words come quickly, then ≤900-character pieces fetched while
    the previous one plays.
-6. **Automated browsers are skipped deliberately**: headless/WebDriver sessions have no audio device and must not send reply text to a provider, so they go straight to the browser voice (`navigator.webdriver`). An operator can force the same with `NEXT_PUBLIC_ENABLE_CLOUD_SPEECH=0`.
-7. **Honest reporting and a one-tap retry**: every outcome is logged as a
+7. **Automated browsers are skipped deliberately**: headless/WebDriver sessions have no audio device and must not send reply text to a provider, so they go straight to the browser voice (`navigator.webdriver`). An operator can force the same with `NEXT_PUBLIC_ENABLE_CLOUD_SPEECH=0`.
+8. **Honest reporting and a one-tap retry**: every outcome is logged as a
    `tts-*` background event, and when audio could not play the notice offers
    **Hear it** ("Say that again" / "Play it now" on the voice screen). It is
    available for every reply — not only when audio was cached — and unlocks
