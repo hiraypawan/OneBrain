@@ -68,14 +68,14 @@ test("voice preferences are shared with quick settings and persist without micro
   await page.getByRole("checkbox", { name: /^Proactive conversation/ }).check();
   await page.getByRole("checkbox", { name: /^Silent Mode/ }).check();
   await page
-    .getByRole("combobox", { name: "Recognition language", exact: true })
+    .getByRole("combobox", { name: "Language", exact: true })
     .selectOption("hi-IN");
   await page
     .getByRole("combobox", { name: "Answer length", exact: true })
     .selectOption("long");
   await page.reload();
   await expect(
-    page.getByRole("combobox", { name: "Recognition language", exact: true }),
+    page.getByRole("combobox", { name: "Language", exact: true }),
   ).toHaveValue("hi-IN");
   await expect(
     page.getByRole("combobox", { name: "Answer length", exact: true }),
@@ -90,7 +90,7 @@ test("voice preferences are shared with quick settings and persist without micro
     page.getByRole("checkbox", { name: /^Silent Mode/ }),
   ).toBeChecked();
   await expect(
-    page.getByRole("combobox", { name: "Recognition language", exact: true }),
+    page.getByRole("combobox", { name: "Language", exact: true }),
   ).toHaveValue("hi-IN");
 });
 test("account is verified on the server; failed sign-out is not presented as success", async ({

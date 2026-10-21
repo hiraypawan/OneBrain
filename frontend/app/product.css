@@ -4763,6 +4763,35 @@ html[data-ob-theme='light'] .track-window-kind button[aria-pressed='true'] {
 .resume-answer {
   color: var(--ob-accent);
 }
+/* Voice: why talking cannot work in this browser, before the first tap. */
+.voice-capability {
+  margin: 4px 0 0;
+  max-width: 46ch;
+  padding: 8px 12px;
+  border: 1px solid var(--ob-line);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+/* Keyboard shortcut hint: only where there is a keyboard and a fine pointer. */
+.voice-shortcuts {
+  display: none;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ob-muted);
+}
+.voice-shortcuts kbd {
+  padding: 0 5px;
+  border: 1px solid var(--ob-line);
+  border-radius: 4px;
+  font: inherit;
+}
+@media (hover: hover) and (pointer: fine) {
+  .voice-shortcuts {
+    display: block;
+  }
+}
 
 /* ================================================================
    Glass water system: frosted OS chrome, liquid buttons, water motion.

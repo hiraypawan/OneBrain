@@ -17,6 +17,11 @@ export default defineConfig({
   timeout: 45000,
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000",
+    // The app adapts to the device's country and language (lib/locale). Pin a
+    // device — like the unit tests — so results never depend on the CI
+    // machine's time zone. Tests for other countries use test.use({ … }).
+    locale: "en-IN",
+    timezoneId: "Asia/Kolkata",
     launchOptions: {
       executablePath: process.env.CHROMIUM_PATH,
       args: [

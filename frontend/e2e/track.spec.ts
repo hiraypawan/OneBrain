@@ -63,6 +63,17 @@ test("an expense spoken on Today is findable in Track in under ten seconds", asy
   await expect(page.locator(".track-item").first()).toContainText("₹250");
 });
 
+test.describe("a user in the United Kingdom", () => {
+  // Same flow on a British device: the amount is pounds, end to end.
+  test.use({ locale: "en-GB", timezoneId: "Europe/London" });
+  test("logs and shows pounds, not rupees", async ({ page }) => {
+    await logExpense(page, "spent 8 on lunch");
+    await page.getByRole("link", { name: "Track", exact: true }).click();
+    await expect(page.locator(".track-stat").filter({ hasText: "Spent" })).toContainText("£8");
+    await expect(page.locator(".track-item").first()).toContainText("£8");
+  });
+});
+
 test("an empty window is answered honestly, with no invented rows", async ({ page }) => {
   await page.goto("/track?lens=expenses&range=month&day=2026-01-05");
   await expect(page.getByRole("heading", { name: "Track" })).toBeVisible();

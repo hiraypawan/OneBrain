@@ -2,6 +2,7 @@
 // Language + region pickers. "Auto" follows the device (language from the
 // browser, region from the time zone / network) and says what it detected,
 // so the user can see why OneBrain sounds British, Australian or Indian.
+import { useId } from "react";
 import { useAssistantStore } from "@/store/assistant";
 import { useLocale } from "@/hooks/useLocale";
 import { COUNTRIES } from "@/lib/locale/countries";
@@ -28,16 +29,20 @@ export function LanguageRegion() {
   const updateSettings = useAssistantStore((s) => s.updateSettings);
   const locale = useLocale();
   const detectedCountry = locale.countrySource !== "setting" && locale.info ? locale.info.name : null;
+  const languageHint = useId();
+  const regionHint = useId();
   return (
     <>
       <label>
         Language
-        <small>
+        <small id={languageHint}>
           OneBrain listens and answers in this language. Auto follows your
           device; it stays in English unless your device uses another
           supported language.
         </small>
         <select
+          aria-label="Language"
+          aria-describedby={languageHint}
           value={settings.language || AUTO_LANGUAGE}
           onChange={(e) => updateSettings({ language: e.target.value })}
         >
@@ -57,8 +62,10 @@ export function LanguageRegion() {
       </label>
       <label>
         Region
-        <small>Dates, money, units, the clock and crisis helplines follow your region.</small>
+        <small id={regionHint}>Dates, money, units, the clock and crisis helplines follow your region.</small>
         <select
+          aria-label="Region"
+          aria-describedby={regionHint}
           value={settings.country || ""}
           onChange={(e) => updateSettings({ country: e.target.value })}
         >

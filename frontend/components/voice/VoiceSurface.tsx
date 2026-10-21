@@ -14,6 +14,7 @@ import { unlockAudioOutput } from '@/lib/voice/audio';
 import { FeatureCards, FeatureHint } from '@/components/features/FeatureCards';
 import { Icon } from '@/components/ui/Icon';
 import { environmentTuning } from '@/lib/voice/environment';
+import { detectPlatform, speechSupport, voiceInputNotice } from '@/lib/voice/capabilities';
 import { quickPhrases, visibleHints } from '@/lib/features/intents';
 import { useLocale } from '@/hooks/useLocale';
 
@@ -80,6 +81,39 @@ export function VoiceSurface() {
     }
   };
 
+  // Why talking will not work in this browser (Firefox, in-app browsers),
+  // shown before the first tap. Computed after mount so the server and the
+  // first client render agree.
+  const [capability, setCapability] = useState<string | null>(null);
+  useEffect(() => setCapability(voiceInputNotice(detectPlatform(), speechSupport())), []);
+
+  // Desktop shortcuts: Space starts/stops listening, Esc interrupts the reply
+  // (or stops listening). Ignored while typing and when a control has focus —
+  // Space already presses a focused button.
+  const shortcuts = useRef({ toggle: () => {}, interrupt: () => {} });
+  shortcuts.current = {
+    toggle: () => (assistant.isActive ? assistant.stopActive() : void start()),
+    interrupt: () => {
+      if (assistant.currentStatus === 'speaking') assistant.stopSpeaking();
+      else if (assistant.isActive) assistant.stopActive();
+    },
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON|A|SUMMARY)$/.test(el.tagName))) return;
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
+        shortcuts.current.toggle();
+      } else if (e.key === 'Escape') {
+        shortcuts.current.interrupt();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const lastAssistant = useMemo(
     () => state.messages.filter((m) => m.role === 'assistant').slice(-1)[0],
     [state.messages],
@@ -121,6 +155,11 @@ export function VoiceSurface() {
             {environmentTuning(state.micEnvironment).label} · {environmentTuning(state.micEnvironment).advice}
           </p>
         )}
+        {capability && !listening && (
+          <p className="voice-capability" role="note" data-testid="voice-capability">
+            {capability}
+          </p>
+        )}
         <button
           className={`voice-primary${listening ? ' is-listening' : ''}`}
           data-testid={listening ? 'stop-button' : 'active-button'}
@@ -130,6 +169,9 @@ export function VoiceSurface() {
           {listening ? 'Stop listening' : starting ? 'Requesting microphone…' : 'Start talking'}
           <Icon name="mic" />
         </button>
+        <p className="voice-shortcuts" aria-hidden="true">
+          <kbd>Space</kbd> start / stop · <kbd>Esc</kbd> interrupt
+        </p>
         {starting && (
           <button
             className="text-button"
