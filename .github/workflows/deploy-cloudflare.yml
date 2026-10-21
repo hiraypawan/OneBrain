@@ -131,8 +131,12 @@ jobs:
       - run: npm ci --no-audit --no-fund
         working-directory: frontend
 
+      # OpenNext refuses Next.js majors older than two years unless told
+      # otherwise, and Next.js 15 reached that on 2026-10-21 — every build
+      # (and so every deploy) failed from that day. The flag lives in the
+      # build:cloudflare script; upgrading to Next.js 16 removes the need.
       - name: Build OpenNext
-        run: npx opennextjs-cloudflare build
+        run: npm run build:cloudflare
         working-directory: frontend
 
       - name: Publish OpenNext Worker
