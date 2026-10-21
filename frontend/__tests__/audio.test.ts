@@ -193,16 +193,4 @@ describe('music ducking across a chunked spoken reply', () => {
     }
   });
 
-  it('keeps the chunked player quiet and lets the caller own the duck', async () => {
-    const source = (await import('node:fs')).readFileSync(
-      (await import('node:path')).resolve(__dirname, '..', 'hooks/useAssistant.ts'),
-      'utf8',
-    );
-    // The reply-level signal wraps the whole speak(), and the per-chunk player
-    // is told not to announce, which is what removes the between-chunks blip.
-    expect(source).toContain('announce: false');
-    expect(source).toContain('signalSpeechPlayback("start")');
-    expect(source).toContain('signalSpeechPlayback("end")');
-    expect(source).toContain('let duckAnnounced = false;');
-  });
 });

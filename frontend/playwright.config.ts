@@ -8,6 +8,10 @@ export default defineConfig({
       }]
     : undefined,
   testDir: "./e2e",
+  // These three run in the edge-runtime suite (playwright.edge.config.ts)
+  // against the real OpenNext Worker on every push; running them here as well
+  // only doubled CI time.
+  testIgnore: ["**/capacity.spec.ts", "**/audit-auth.spec.ts", "**/operations.spec.ts"],
   fullyParallel: false,
   workers: 1,
   timeout: 45000,

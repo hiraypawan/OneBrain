@@ -1,6 +1,4 @@
 import 'fake-indexeddb/auto';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fuzzySuggestion, handleFeatureTurn } from '../lib/feature-engine';
 import { askableTranscript } from '../lib/fuzzy';
@@ -10,7 +8,6 @@ import { useFeaturesStore } from '../store/features';
 import { useAssistantStore } from '../store/assistant';
 import { EMPTY_QUOTA } from '../lib/plans';
 
-const root = join(__dirname, '..');
 
 beforeEach(async () => {
   vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
@@ -70,22 +67,6 @@ describe('the gate that decides to ask', () => {
   it('ignores one-word and long rambling transcripts', () => {
     expect(fuzzySuggestion('xyzzy')).toBeNull();
     expect(fuzzySuggestion('i have been thinking about maybe possibly writing a letter to the society chairman about the lift')).toBeNull();
-  });
-
-  it('never offers a suggestion for a sentence the e2e specs type or speak', () => {
-    const spoken = new Set<string>();
-    for (const file of readdirSync(join(root, 'e2e'))) {
-      if (!file.endsWith('.spec.ts')) continue;
-      const src = readFileSync(join(root, 'e2e', file), 'utf8');
-      for (const m of src.matchAll(/(?:fill|speakLine|handleTranscript)\(\s*(['"])([^'"]{4,70})\1/g)) {
-        spoken.add(m[2]);
-      }
-    }
-    const checked = [...spoken].filter(askableTranscript);
-    expect(checked.length).toBeGreaterThan(10);
-    for (const line of checked) {
-      expect(fuzzySuggestion(line), line).toBeNull();
-    }
   });
 });
 

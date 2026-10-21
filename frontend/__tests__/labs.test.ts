@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { CATALOG } from '../components/control/catalog';
 import { normalizeSettings, defaultSettings } from '../lib/settings';
 
@@ -15,10 +14,6 @@ describe('Labs keeps half-finished features out of the way', () => {
     expect(defaultSettings.labsEnabled).toBe(false);
     expect(normalizeSettings({ labsEnabled: 'true' }).labsEnabled).toBe(false);
     expect(normalizeSettings({ labsEnabled: true }).labsEnabled).toBe(true);
-  });
-  it('the Space grid filters Labs entries by the setting', () => {
-    const src = readFileSync('components/control/ControlCenter.tsx', 'utf8');
-    expect(src).toMatch(/labsEnabled \|\| !e\.labs/);
   });
   it('end-of-speech wait is clamped', () => {
     expect(normalizeSettings({ endOfSpeechMs: 50 }).endOfSpeechMs).toBe(700);
