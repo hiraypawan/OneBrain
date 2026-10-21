@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   classifyNightNote, detectNightIntent, compileMorningDigest, lastNightWindow,
   distressCheck, SUPPORTIVE_REPLY, isNightHour,
-} from '../lib/nightmind';
+} from '../lib/features/nightmind';
 
 describe('classifyNightNote', () => {
   it('tags worries, ideas, dreams', () => {

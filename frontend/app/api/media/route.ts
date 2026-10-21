@@ -7,7 +7,7 @@ import {
   MEDIA_SOURCE_TIMEOUT_MS,
   youtubeSearchUrlFor,
   type MediaTrack,
-} from '@/lib/media';
+} from '@/lib/features/media';
 
 // Keyless media search: songs (Saavn), podcasts (iTunes + RSS), videos
 // (Invidious rotation). Everything guarded — sources die often, so a dead

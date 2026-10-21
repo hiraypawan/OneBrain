@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllLocal, exportAllLocal, db } from "../lib/db";
+import { clearAllLocal, exportAllLocal, db } from "../lib/storage/db";
 import { useAssistantStore } from "../store/assistant";
 beforeEach(async () => {
   await clearAllLocal();

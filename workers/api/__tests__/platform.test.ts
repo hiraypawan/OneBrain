@@ -57,6 +57,9 @@ describe('real D1 shared workspaces',()=>{
   });
   it('refuses invalid money and unscoped assignees',async()=>{
     expect((await api(base()+'/records',owner,'POST',{kind:'expense',title:'Bad',data:{amount:1.234,currency:'INR'}})).status).toBe(400);
+    // Every real ISO 4217 currency works (users are not only in India); made-up codes do not.
+    expect((await api(base()+'/records',owner,'POST',{kind:'expense',title:'Flat white',data:{amount:4.5,currency:'AUD'}})).status).toBe(201);
+    expect((await api(base()+'/records',owner,'POST',{kind:'expense',title:'Fake',data:{amount:4.5,currency:'XYZ'}})).status).toBe(400);
     expect((await api(base()+'/records',owner,'POST',{kind:'task',title:'Bad owner',data:{assignee:outsider.user.id}})).status).toBe(400);
   });
 });

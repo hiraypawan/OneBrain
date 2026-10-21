@@ -80,13 +80,29 @@ node scripts/local-scheduler.mjs
 
 Refresh `/auth/login` or `/operations`. **Continue with Google** stays disabled until the server reports the required configuration. Missing configuration never enables password login or a fake success path.
 
-## 4. Staging/production secrets (operator action, not run by this PR)
+## 4. Production (onebrains.pages.dev): two secrets, then deploy
 
-In Cloudflare Dashboard → Workers & Pages → **the API Worker** → Settings → Variables and Secrets, add the client ID, client secret, exact login redirect and independent encryption key. Store `GOOGLE_CLIENT_SECRET` and `TOKEN_ENCRYPTION_KEY` as secrets. Alternatively, from `workers/api`, an authorized operator can use interactive `npx wrangler secret put GOOGLE_CLIENT_SECRET` and equivalent commands. Never pass a real secret as a shell command-line argument.
+Updated 2026-10-21. Production reported `configured: false` because the API Worker had none of the sign-in settings — and two deploy problems kept it that way: `wrangler deploy` **deleted any dashboard *variables*** on every push to `main` (no `keep_vars`), and the deploy never applied the D1 migrations that hold sign-in state. Both are fixed in the workflow. What is left for the operator is only what nobody else can do — creating the Google OAuth client:
+
+1. In Google Cloud (section 1), create the **Web application** OAuth client with this exact **Authorized redirect URI**:
+   `https://onebrains.pages.dev/api/auth/google/callback`
+2. In GitHub → this repository → **Settings → Secrets and variables → Actions → New repository secret**, add:
+   - `GOOGLE_CLIENT_ID` — the client ID (`….apps.googleusercontent.com`)
+   - `GOOGLE_CLIENT_SECRET` — the client secret
+3. Re-run **Actions → Deploy to Cloudflare** (or push to `main`).
+
+The deploy then, on its own:
+
+- applies the D1 migrations (`wrangler d1 migrations apply onebrain-db --remote`; wrangler records applied migrations, so this is a no-op once current). If the Cloudflare API token lacks **Account → D1 → Edit**, it warns instead — add that permission or run the command once from `workers/api`;
+- creates a random 32-byte `TOKEN_ENCRYPTION_KEY` on `onebrain-api` **only if it is missing** (it is never replaced: that would void stored connector credentials);
+- copies `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` to `onebrain-api` as Cloudflare secrets;
+- prints whether sign-in is on, and exactly which settings are still missing, in the job log and summary.
+
+`GOOGLE_LOGIN_REDIRECT` is optional now: when unset, the API derives `<first FRONTEND_URL>/api/auth/google/callback` (= the URI above). Set it only for a different domain; an invalid explicit value fails closed instead of falling back. If you prefer the Cloudflare dashboard over GitHub secrets, add the same names under Workers & Pages → **onebrain-api** → Settings → Variables and Secrets — as **secrets** (a plaintext variable with the same name blocks the deploy from writing the secret). Never pass a real secret as a shell command-line argument.
 
 The frontend runtime uses the private `PLATFORM_API` service binding in production. The client secret lives on the API Worker, not the browser. Google login requires a server-capable frontend (Next server/OpenNext); the historical static Pages export cannot serve the callback/proxy.
 
-Push to `main` auto-deploys the OpenNext Worker and API Worker via GitHub Actions. **Remote D1 migrations and Google authorization are still operator steps** — review backups, migrations, permissions and release gates before treating a deploy as a production cutover. Add the production callback `https://YOUR-APP-DOMAIN/api/auth/google/callback` in Google Cloud.
+Check the result at `https://onebrains.pages.dev/api/platform/capabilities`: `configured: true` and `googleSignIn.missing: []`. The sign-in page shows the same list under "Running this site? How to turn it on" while anything is missing.
 
 `GOOGLE_CONNECT_REDIRECT` is separate. Only configure it when enabling Calendar/Sheets/Gmail connections; its callback is `/api/platform/oauth/google/callback`, not the sign-in callback above.
 
@@ -114,6 +130,6 @@ Official references: [Google web-server OAuth](https://developers.google.com/ide
 ## Sign-in UX (2026-09-26)
 
 - **One entry point:** `/auth/login` (and `/auth/signup`, same page) is the only place with a Google button. Header, You tab, Account settings and Shared spaces all link to it with `?next=<page>`; after sign-in the callback returns there (validated same-site path, default `/`), not `/operations`.
-- **Distinct errors:** `?error=configuration` (platform API/Google not configured), `unreachable` (network), `cancelled` (consent declined), `expired` (state cookie missing — e.g. finished in another tab/browser), `google` (code exchange rejected).
-- **Why the button is disabled:** `GET /api/platform/capabilities` must return `authMode: "google-only"` and `configured: true`. That needs the Workers API deployed with `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and the login redirect set, and the frontend connected via the `PLATFORM_API` service binding (Cloudflare) or `PLATFORM_API_URL` (local Next.js).
+- **Distinct errors:** `?error=configuration` (the API answered 503: Google sign-in not configured, or no platform connection), `busy` (429 rate limit), `server` (5xx — e.g. D1 migrations not applied), `unreachable` (network/timeout), `cancelled` (consent declined), `expired` (state cookie missing or the API rejected the state — e.g. finished in another tab/browser), `account` (409: the email belongs to an unlinked legacy account), `google` (code exchange rejected). Before 2026-10-21 every server failure read "isn’t switched on".
+- **Why the button is disabled:** `GET /api/platform/capabilities` must return `authMode: "google-only"` and `configured: true`. That needs the Workers API deployed with `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, a valid 32-byte `TOKEN_ENCRYPTION_KEY` and a login callback (explicit or derived from `FRONTEND_URL`), and the frontend connected via the `PLATFORM_API` service binding (Cloudflare) or `PLATFORM_API_URL` (local Next.js). `googleSignIn.missing` in the same response names whatever is absent (names only, never values).
 - **Embedded previews:** Google refuses to show consent inside an iframe, so in a framed preview the button becomes “Open sign-in in a new tab”.

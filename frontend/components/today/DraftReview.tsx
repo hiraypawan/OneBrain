@@ -1,6 +1,8 @@
 "use client";
 import { Overlay, CAPTURE_KINDS } from "@/components/workspace/ItemSheet";
 import type { CaptureDraft, ItemKind } from "@/lib/workspace/model";
+import { useLocale } from "@/hooks/useLocale";
+import { currencyChoices } from "@/lib/locale/countries";
 
 /**
  * The review sheet between “I typed/said this” and “it is saved”. Nothing is
@@ -24,6 +26,7 @@ export function DraftReview({
   close: () => void;
   onSave: () => void;
 }) {
+  const locale = useLocale();
   return (
     <Overlay notice={notice} title="Review your capture" close={close}>
       <p className="sheet-description">
@@ -119,7 +122,7 @@ export function DraftReview({
                                 e.target.value === ""
                                   ? undefined
                                   : Number(e.target.value),
-                              currency: x.currency || "INR",
+                              currency: x.currency || locale.currency,
                             }
                           : x,
                       ),
@@ -130,7 +133,7 @@ export function DraftReview({
               <label>
                 Currency
                 <select
-                  value={d.currency || "INR"}
+                  value={d.currency || locale.currency}
                   onChange={(e) =>
                     setDrafts(
                       drafts.map((x, i) =>
@@ -139,7 +142,7 @@ export function DraftReview({
                     )
                   }
                 >
-                  {["INR", "USD", "EUR"].map((c) => (
+                  {currencyChoices(locale.currency, d.currency).map((c) => (
                     <option key={c}>{c}</option>
                   ))}
                 </select>

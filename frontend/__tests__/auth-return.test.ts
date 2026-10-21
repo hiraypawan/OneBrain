@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { safeReturnPath, loginHref, signInErrorMessage, NEXT_COOKIE } from '../lib/auth-return';
+import { safeReturnPath, loginHref, signInErrorMessage, NEXT_COOKIE } from '../lib/platform/auth-return';
 import { POST } from '../app/api/auth/google/start/route';
 import { GET } from '../app/api/auth/google/callback/route';
-import { authRequest, STATE_COOKIE } from '../lib/google-auth-server';
-vi.mock('../lib/google-auth-server', async () => ({ ...(await vi.importActual<any>('../lib/google-auth-server')), authRequest: vi.fn() }));
+import { authRequest, AuthRequestError, STATE_COOKIE } from '../lib/server/google-auth-server';
+vi.mock('../lib/server/google-auth-server', async () => ({ ...(await vi.importActual<any>('../lib/server/google-auth-server')), authRequest: vi.fn() }));
 beforeEach(() => vi.mocked(authRequest).mockReset());
 const state = 'a'.repeat(64), browser = 'b'.repeat(64), token = 'c'.repeat(64);
 
@@ -45,7 +45,8 @@ describe('Google start/callback routes', () => {
     expect(r.cookies.get(NEXT_COOKIE)?.value).toBe('/');
   });
   it('reports missing setup as configuration, network failure as unreachable', async () => {
-    vi.mocked(authRequest).mockRejectedValueOnce(new Error('Google sign-in was not completed'));
+    // The API answers 503 when Google sign-in is not configured.
+    vi.mocked(authRequest).mockRejectedValueOnce(new AuthRequestError(503));
     expect((await start('next=%2Fyou')).headers.get('location')).toBe('/auth/login?error=configuration&next=%2Fyou');
     vi.mocked(authRequest).mockRejectedValueOnce(new TypeError('fetch failed'));
     expect((await start('')).headers.get('location')).toBe('/auth/login?error=unreachable');

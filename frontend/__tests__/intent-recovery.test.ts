@@ -9,10 +9,10 @@ import {
   normalizePhrase,
   similarity,
   tokenCoverage,
-} from '@/lib/fuzzy';
-import { INTENT_HINTS } from '@/lib/intents';
-import { buildContextEnvelope, envelopeForPrompt, estimateTokens } from '@/lib/context-envelope';
-import type { FitnessLog } from '@/lib/fitness';
+} from '@/lib/features/fuzzy';
+import { INTENT_HINTS } from '@/lib/features/intents';
+import { buildContextEnvelope, envelopeForPrompt, estimateTokens } from '@/lib/ai/context-envelope';
+import type { FitnessLog } from '@/lib/features/fitness';
 
 
 describe('fuzzy phrase matching', () => {

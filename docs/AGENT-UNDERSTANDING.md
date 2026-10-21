@@ -61,7 +61,7 @@ Deep links point at real routes:
 4. **Long-term (promoted)** — commitments, money dues, saved conversations, night notes.
 
 When the token budget runs out, drop the least-urgent section first and report what was
-dropped (see `lib/context-envelope.ts`). Never silently hide context.
+dropped (see `lib/ai/context-envelope.ts`). Never silently hide context.
 
 ## Privacy
 

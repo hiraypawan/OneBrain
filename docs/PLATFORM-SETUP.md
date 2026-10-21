@@ -82,7 +82,7 @@ node scripts/mint-entitlement-keys.mjs --plan pro --count 5 --days 90 --label "B
 
 Plaintext keys are printed **once** and only the hash is stored. Keep them in the operator's password manager, never in the repository, logs or issues. Revoking access means updating the owner's `entitlements` row; there is no self-service portal.
 
-**No payment, checkout, invoice, subscription renewal or conversion reporting exists in this codebase, and none may be implied by UI copy.** Pro and Family are granted by an operator. The client cannot mint a plan: `lib/plans.ts` no longer exports a key generator, and a signed-out redemption is labelled as browser-only. If the server is unreachable the client keeps the last confirmed plan for up to 24 hours, marks it unverified in the UI, and never silently upgrades or downgrades. Translator minutes stay device-counted because a session is a device-local concept; the server ledger counts research, email, scribe and story.
+**No payment, checkout, invoice, subscription renewal or conversion reporting exists in this codebase, and none may be implied by UI copy.** Pro and Family are granted by an operator. The client cannot mint a plan: `lib/platform/plans.ts` no longer exports a key generator, and a signed-out redemption is labelled as browser-only. If the server is unreachable the client keeps the last confirmed plan for up to 24 hours, marks it unverified in the UI, and never silently upgrades or downgrades. Translator minutes stay device-counted because a session is a device-local concept; the server ledger counts research, email, scribe and story.
 
 ## Connector implementation versus live authorization
 

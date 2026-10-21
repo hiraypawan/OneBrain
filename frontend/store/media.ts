@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { localized } from '../lib/locale/active';
 import { useAssistantStore } from './assistant';
 import { useFeaturesStore } from './features';
 import {
@@ -11,7 +12,7 @@ import {
   youtubeSearchUrlFor,
   type MediaKind,
   type MediaTrack,
-} from '@/lib/media';
+} from '@/lib/features/media';
 
 /**
  * Music, podcasts and video playback state.
@@ -130,7 +131,10 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       say(`Playing: ${first.title}${first.artist ? ` — ${first.artist}` : ''} (${mediaSourceLabel(first.source)})`, false);
       return;
     }
-    const spoken = `Kuch nahi mila "${term}" ke liye. Free sources busy hain — YouTube link player mein hai.`;
+    const spoken = localized(
+      `I couldn’t find "${term}". The free sources are busy — the YouTube link is in the player.`,
+      `Kuch nahi mila "${term}" ke liye. Free sources busy hain — YouTube link player mein hai.`,
+    );
     say(spoken, true);
   },
 

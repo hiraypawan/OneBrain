@@ -5,6 +5,7 @@ export default defineConfig({
  ...base,
  outputDir:'./edge-test-results',
  testMatch:['**/capacity.spec.ts','**/audit-auth.spec.ts','**/operations.spec.ts'],
+ testIgnore:[],
  use:{...base.use,baseURL:process.env.PLAYWRIGHT_BASE_URL},
  webServer:process.env.CI?[
   {command:'npm --prefix ../workers/api run dev',url:'http://127.0.0.1:8787/api/health',timeout:120000},

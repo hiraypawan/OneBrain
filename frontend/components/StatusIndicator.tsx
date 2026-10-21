@@ -1,5 +1,5 @@
 'use client';
-import type { AssistantStatus } from '@/lib/types';
+import type { AssistantStatus } from '@/lib/core/types';
 
 const color: Record<AssistantStatus, string> = {
   idle: 'bg-gray-600',

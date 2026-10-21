@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { askBrain, askBrainDetailed } from '../lib/brain';
+import { askBrain, askBrainDetailed } from '../lib/ai/brain';
 
 afterEach(() => {
   vi.unstubAllGlobals();

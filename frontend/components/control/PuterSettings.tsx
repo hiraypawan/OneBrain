@@ -1,8 +1,9 @@
 "use client";
 import Script from "next/script";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listPuterModels, puterSessionReady, type PuterModelOption } from "@/lib/puter";
+import { listPuterModels, puterSessionReady, type PuterModelOption } from "@/lib/ai/puter";
 import { useAssistantStore } from "@/store/assistant";
+import { useLocale } from "@/hooks/useLocale";
 
 function currentPuter(): any {
   return typeof window === "undefined" ? null : (window as any).puter || null;
@@ -25,7 +26,7 @@ export function PuterSettings() {
   const puterSpeechEnabled = useAssistantStore((s) => s.settings.puterSpeechEnabled === true);
   const puterModel = useAssistantStore((s) => s.settings.puterModel || "");
   const puterProvider = useAssistantStore((s) => s.settings.puterProvider || "");
-  const language = useAssistantStore((s) => s.settings.language);
+  const locale = useLocale();
   const updateSettings = useAssistantStore((s) => s.updateSettings);
   const [sdkReady, setSdkReady] = useState(false);
   const [loadSdk, setLoadSdk] = useState(false);
@@ -118,7 +119,7 @@ export function PuterSettings() {
     setSttBusy(true);
     setSttText("");
     try {
-      const result = await puter.ai.speech2txt(audioFile, { language: language === "hinglish" ? "hi" : language });
+      const result = await puter.ai.speech2txt(audioFile, { language: locale.voice.recognition.split("-")[0] });
       const text = typeof result === "string" ? result : String(result?.text || result?.transcript || "");
       setSttText(text.trim() || "No transcript was returned.");
     } catch (e) {

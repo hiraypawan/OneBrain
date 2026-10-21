@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   planAllows, validateBetaKey, quotaMessage, PLANS, FREE_LIMITS,
-} from '../lib/plans';
+} from '../lib/platform/plans';
 import { mintTestBetaKey } from './helpers/beta-keys';
 
 describe('planAllows', () => {

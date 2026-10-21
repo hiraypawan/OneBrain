@@ -1,19 +1,20 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fallback, askGemini, askPollinations, buildSystem, foldPrompt } from '../lib/gemini';
-import { askPuter, puterReady } from '../lib/puter';
+import { fallback, askGemini, askPollinations, buildSystem, foldPrompt } from '../lib/ai/gemini';
+import { askPuter, puterReady } from '../lib/ai/puter';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('fallback (offline brain)', () => {
-  it('greets in Hinglish', () => {
+  it('greets in the language of the greeting', () => {
     expect(fallback('hello kaun ho')).toMatch(/Namaste/);
     expect(fallback('हेलो कौन हो आप')).toMatch(/Namaste/);
+    expect(fallback('hello there')).toMatch(/^Hi!/);
   });
 
   it('echoes anything else with a key hint', () => {
-    expect(fallback('random xyz')).toMatch(/Samajh gaya/);
+    expect(fallback('random xyz')).toMatch(/Understood/);
     expect(fallback('random xyz')).toMatch(/AI key/);
   });
 });

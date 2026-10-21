@@ -2,8 +2,8 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAssistantStore } from "@/store/assistant";
-import { getConversationMessages, type StoredMessage } from "@/lib/db";
-import { splitReply } from "@/lib/speech";
+import { getConversationMessages, type StoredMessage } from "@/lib/storage/db";
+import { splitReply } from "@/lib/voice/speech";
 
 function ConvView() {
   const params = useSearchParams();

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectWorkoutIntent, presetById, customPreset, buildCues, PRESETS, formatClock,
-} from '../lib/workout';
+} from '../lib/features/workout';
 
 describe('detectWorkoutIntent', () => {
   it('detects presets', () => {

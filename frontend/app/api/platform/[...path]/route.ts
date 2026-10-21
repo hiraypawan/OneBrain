@@ -1,7 +1,7 @@
-import { platformFetch } from '@/lib/platform-server';
-import { SESSION_HINT } from '@/lib/session-hint';
+import { platformFetch } from '@/lib/server/platform-server';
+import { SESSION_HINT } from '@/lib/platform/session-hint';
 import { NextRequest, NextResponse } from 'next/server';
-import { readBody, bodyError } from '@/lib/request-body';
+import { readBody, bodyError } from '@/lib/server/request-body';
 export const dynamic = 'force-dynamic';
 const COOKIE='onebrain-platform-session';
 async function proxy(request:NextRequest,{params}:{params:Promise<{path:string[]}>}){

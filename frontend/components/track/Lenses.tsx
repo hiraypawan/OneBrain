@@ -1,10 +1,12 @@
 'use client';
 // The four Track lenses. Presentational on purpose: every number is produced by
-// lib/track.ts (pure, unit-tested), so a rendering change can never move a total.
+// lib/features/track.ts (pure, unit-tested), so a rendering change can never move a total.
 
 import { useMemo, useState } from 'react';
 import { useFeaturesStore } from '@/store/features';
-import { dayKey, formatLogLine, type FitnessLog } from '@/lib/fitness';
+import { dayKey, formatLogLine, type FitnessLog } from '@/lib/features/fitness';
+import { formatTime, formatWeight, formatWeightChange } from '@/lib/locale/format';
+import { activeLocale, localized } from '@/lib/locale/active';
 import {
   barPct,
   budgetBar,
@@ -23,13 +25,13 @@ import {
   tickLabel,
   workoutView,
   type TrackRange,
-} from '@/lib/track';
+} from '@/lib/features/track';
 
 // ---------------------------------------------------------------- helpers ----
 
 function clockOf(ts: number): string {
   try {
-    return new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(ts));
+    return formatTime(ts);
   } catch {
     return '';
   }
@@ -159,7 +161,7 @@ export function ExpensesLens({ logs, range }: { logs: FitnessLog[]; range: Track
       limit: goals.budget || 0,
       monthDays: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
       dayOfMonth: now.getDate(),
-      currency: goals.budgetCurrency || 'INR',
+      currency: goals.budgetCurrency || activeLocale().currency,
     });
   }, [logs, goals.budget, goals.budgetCurrency]);
   const bar = budgetBar(month);
@@ -246,7 +248,7 @@ export function ExpensesLens({ logs, range }: { logs: FitnessLog[]; range: Track
             ))}
           </ul>
         ) : (
-          <Empty title="Nothing in this window" say="Say “kharcha 200 chai” — or use the quick log below. Categories are read from what you typed or said; nothing is guessed." />
+          <Empty title="Nothing in this window" say={`Say “${localized('spent 12 on lunch', 'kharcha 200 chai')}” — or use the quick log below. Categories are read from what you typed or said; nothing is guessed.`} />
         )}
       </section>
 
@@ -282,7 +284,7 @@ export function ExpensesLens({ logs, range }: { logs: FitnessLog[]; range: Track
                 <li key={l.id} className="track-item">
                   <span className="track-item-emoji" aria-hidden="true">{cat.emoji}</span>
                   <span className="track-item-main">
-                    <strong>{plainMoney(expenseAmount(l), l.currency || 'INR')}</strong>
+                    <strong>{plainMoney(expenseAmount(l), l.currency)}</strong>
                     <small>{formatLogLine(l).replace(/^💸\s*/, '')}</small>
                   </span>
                   <span className="track-item-cat">{cat.label}</span>
@@ -402,8 +404,8 @@ export function HealthLens({ logs, range }: { logs: FitnessLog[]; range: TrackRa
           <Stat label="Water" value={health.avgWater !== undefined ? `${health.avgWater} glasses avg` : 'not logged'} hint={`${health.waterGoalDays} day${health.waterGoalDays === 1 ? '' : 's'} at ${health.waterGoal}+ glasses`} />
           <Stat
             label="Weight"
-            value={health.latestWeight ? `${health.latestWeight.value} kg` : 'not logged'}
-            hint={health.weightChange !== undefined ? `${health.weightChange > 0 ? '+' : ''}${health.weightChange} kg across ${health.weight.length} logs` : `${health.weight.length} log${health.weight.length === 1 ? '' : 's'}`}
+            value={health.latestWeight ? formatWeight(health.latestWeight.value) : 'not logged'}
+            hint={health.weightChange !== undefined ? `${formatWeightChange(health.weightChange)} across ${health.weight.length} logs` : `${health.weight.length} log${health.weight.length === 1 ? '' : 's'}`}
           />
           <Stat label="Energy" value={`${energyCounts.high} high · ${energyCounts.low} low`} hint={`${health.energy.length} check-in${health.energy.length === 1 ? '' : 's'}`} />
         </StatRow>
@@ -426,11 +428,11 @@ export function HealthLens({ logs, range }: { logs: FitnessLog[]; range: TrackRa
             {health.weight.map((p) => (
               <li key={p.key}>
                 <span>{p.label}</span>
-                <b>{p.value} kg</b>
+                <b>{formatWeight(p.value)}</b>
                 <small>
                   {p.key === health.weight[0].key
                     ? 'first log in this window'
-                    : `${Math.round((p.value - health.weight[0].value) * 10) / 10 > 0 ? '+' : ''}${Math.round((p.value - health.weight[0].value) * 10) / 10} kg vs then`}
+                    : `${formatWeightChange(p.value - health.weight[0].value)} vs then`}
                 </small>
               </li>
             ))}

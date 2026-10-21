@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildTurnPrompt, detectReplyLanguage, normalizeHistory } from '../lib/prompt';
-import { parseVoiceCommand, isPauseCommand, stripCommandFillers } from '../lib/commands';
+import { buildTurnPrompt, detectReplyLanguage, normalizeHistory } from '../lib/ai/prompt';
+import { parseVoiceCommand, isPauseCommand, stripCommandFillers } from '../lib/voice/commands';
 
 describe('reply language follows the user, not a guess', () => {
   it.each([

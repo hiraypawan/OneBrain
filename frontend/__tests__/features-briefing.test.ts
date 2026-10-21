@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   detectCommitment, detectBriefIntent, compileMorningBrief, compileCloseDay,
   forgettingScan, followupRadar, moneyDue, todayKey, type BriefData,
-} from '../lib/briefing';
+} from '../lib/features/briefing';
 
 const data = (over: Partial<BriefData> = {}): BriefData => ({
   reminders: [], openTasks: [], overdueTasks: [], doneToday: [], commitments: [],

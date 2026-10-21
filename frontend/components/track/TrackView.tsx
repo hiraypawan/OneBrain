@@ -19,8 +19,8 @@ import {
   trackHref,
   type TrackLens,
   type TrackRangeKind,
-} from '@/lib/track';
-import { plainMoney } from '@/lib/track';
+} from '@/lib/features/track';
+import { plainMoney } from '@/lib/features/track';
 import { ExpensesLens, FoodLens, HealthLens, WorkoutsLens } from './Lenses';
 
 const RANGE_KINDS: { id: TrackRangeKind; label: string }[] = [

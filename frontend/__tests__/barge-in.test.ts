@@ -12,7 +12,7 @@ import {
   resumeText,
   sentencesSpoken,
   splitSentences,
-} from '../lib/barge-in';
+} from '../lib/voice/barge-in';
 
 describe('interrupting the assistant', () => {
   it('accepts real stop phrases, including Hinglish and the wake word', () => {

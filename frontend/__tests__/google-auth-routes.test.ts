@@ -2,8 +2,9 @@ import {describe,it,expect,vi,beforeEach} from 'vitest';
 import {NextRequest} from 'next/server';
 import {POST} from '../app/api/auth/google/start/route';
 import {GET} from '../app/api/auth/google/callback/route';
-import {authRequest,STATE_COOKIE,SESSION_COOKIE} from '../lib/google-auth-server';
-vi.mock('../lib/google-auth-server',async()=>({...await vi.importActual<any>('../lib/google-auth-server'),authRequest:vi.fn()}));
+import {authRequest,AuthRequestError,signInFailureCode,STATE_COOKIE,SESSION_COOKIE} from '../lib/server/google-auth-server';
+import {signInErrorMessage} from '../lib/platform/auth-return';
+vi.mock('../lib/server/google-auth-server',async()=>({...await vi.importActual<any>('../lib/server/google-auth-server'),authRequest:vi.fn()}));
 const state='a'.repeat(64),browser='b'.repeat(64),session='c'.repeat(64);
 beforeEach(()=>vi.mocked(authRequest).mockReset());
 describe('Google browser cookie boundary',()=>{
@@ -24,3 +25,32 @@ describe('Google browser cookie boundary',()=>{
   const r=await GET(new NextRequest(`https://app.example.test/api/auth/google/callback?state=${state}&code=forged`,{headers:{cookie:`${STATE_COOKIE}=wrong.${browser}`}}));expect(r.headers.get('location')).toBe('/auth/login?error=expired');expect(authRequest).not.toHaveBeenCalled();
  });
 });
+describe('sign-in failures say what actually happened',()=>{
+ const start=()=>POST(new NextRequest('https://app.example.test/api/auth/google/start',{method:'POST',headers:{host:'app.example.test',origin:'https://app.example.test'}}));
+ const finish=()=>GET(new NextRequest(`https://app.example.test/api/auth/google/callback?state=${state}&code=test-code`,{headers:{cookie:`${STATE_COOKIE}=${state}.${browser}`}}));
+ it.each([[503,'configuration'],[429,'busy'],[500,'server']])('start: HTTP %i -> ?error=%s',async(status,code)=>{
+  vi.mocked(authRequest).mockRejectedValueOnce(new AuthRequestError(status));
+  expect((await start()).headers.get('location')).toBe(`/auth/login?error=${code}`);
+ });
+ it('start: an unreachable sign-in server is not reported as "not switched on"',async()=>{
+  vi.mocked(authRequest).mockRejectedValueOnce(new TypeError('fetch failed'));
+  expect((await start()).headers.get('location')).toBe('/auth/login?error=unreachable');
+ });
+ it.each([[400,'expired'],[401,'google'],[409,'account'],[429,'busy'],[503,'configuration'],[502,'server']])('callback: HTTP %i -> ?error=%s',async(status,code)=>{
+  vi.mocked(authRequest).mockRejectedValueOnce(new AuthRequestError(status));
+  const r=await finish();
+  expect(r.headers.get('location')).toBe(`/auth/login?error=${code}`);
+  expect(r.cookies.get(SESSION_COOKIE)?.value||'').toBe('');
+ });
+ it('maps a missing platform connection to configuration and timeouts to unreachable',()=>{
+  expect(signInFailureCode(new Error('Configure the PLATFORM_API service binding, or the server-only PLATFORM_API_URL for local Next.js.'),'start')).toBe('configuration');
+  const timeout=new Error('The operation was aborted due to timeout');timeout.name='TimeoutError';
+  expect(signInFailureCode(timeout,'finish')).toBe('unreachable');
+ });
+ it('has a human message for every code the routes can produce',()=>{
+  for(const code of ['configuration','busy','server','unreachable','expired','google','account','cancelled'])expect(signInErrorMessage(code)).toBeTruthy();
+  expect(signInErrorMessage('busy')).not.toBe(signInErrorMessage('configuration'));
+  expect(signInErrorMessage('server')).not.toBe(signInErrorMessage('configuration'));
+ });
+});
+

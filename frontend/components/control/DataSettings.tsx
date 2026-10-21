@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { exportAllLocal } from "@/lib/db";
+import { exportAllLocal } from "@/lib/storage/db";
 import { useAssistantStore } from "@/store/assistant";
 import { SettingsShell } from "@/components/settings/SettingsShell";
 export default function DataExport() {

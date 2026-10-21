@@ -4,6 +4,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-06",
   "workers_dev": false,
+  // Keep variables set in the Cloudflare dashboard (e.g. GOOGLE_CLIENT_ID or a
+  // custom GOOGLE_LOGIN_REDIRECT) across deploys. Without this, every push to
+  // main deleted them and Google sign-in silently switched itself off again.
+  "keep_vars": true,
   "triggers": {
     "crons": [
       "*/5 * * * *"

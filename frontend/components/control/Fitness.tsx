@@ -4,8 +4,9 @@ import { useFeaturesStore } from '@/store/features';
 import {
   dayTotals, dayKey, computeStreaks, recoveryLine, formatLogLine,
   type FitnessKind, type FitnessLog,
-} from '@/lib/fitness';
-import { fitnessCsv, trackHref } from '@/lib/track';
+} from '@/lib/features/fitness';
+import { fitnessCsv, trackHref } from '@/lib/features/track';
+import { formatMoney, formatWeight } from '@/lib/locale/format';
 
 const KIND_LABEL: Record<FitnessKind, string> = {
   workout: 'Workout', food: 'Food', expense: 'Expense', sleep: 'Sleep',
@@ -42,7 +43,7 @@ export function Fitness() {
     return [...map.entries()].slice(0, 30);
   }, [logs]);
 
-  // One CSV builder for the whole log (lib/track) — the Track tab's filtered
+  // One CSV builder for the whole log (lib/features/track) — the Track tab's filtered
   // export and this one are the same file format, so a spreadsheet never has to
   // learn two dialects.
   const exportCsv = () => {
@@ -76,9 +77,9 @@ export function Fitness() {
       <section className="settings-section">
         <h3>Today</h3>
         <p>
-          {totals.workoutCount} workouts · {totals.foodCalories} kcal ≈ from {totals.foodItems} items · ₹{totals.spend} spent
+          {totals.workoutCount} workouts · {totals.foodCalories} kcal ≈ from {totals.foodItems} items · {formatMoney(totals.spend)} spent
           {totals.sleepHrs ? ` · slept ${totals.sleepHrs}h` : ''}{totals.energy ? ` · energy ${totals.energy}` : ''}
-          {totals.waterGlass ? ` · ${totals.waterGlass} glasses water` : ''}{totals.weightKg ? ` · ${totals.weightKg} kg` : ''}
+          {totals.waterGlass ? ` · ${totals.waterGlass} glasses water` : ''}{totals.weightKg ? ` · ${formatWeight(totals.weightKg)}` : ''}
         </p>
         <p>🔥 {streaks.logDays}-day log streak · 💪 {streaks.workoutDays}-day workout streak</p>
         <p><strong>{recovery}</strong></p>

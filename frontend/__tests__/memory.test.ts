@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildProfileBlock, estimateTokens } from '../lib/profile';
-import { keywords, recallRelevant, formatRecall } from '../lib/recall';
-import { extractiveSummary, rollingSummaryStep, splitForCompaction, SUMMARY_KEEP_MESSAGES } from '../lib/summarize';
-import { fitHistory, assemblePrompt, BUDGETS } from '../lib/context';
-import { monthKey } from '../lib/janitor';
+import { buildProfileBlock, estimateTokens } from '../lib/ai/profile';
+import { keywords, recallRelevant, formatRecall } from '../lib/ai/recall';
+import { extractiveSummary, rollingSummaryStep, splitForCompaction, SUMMARY_KEEP_MESSAGES } from '../lib/ai/summarize';
+import { fitHistory, assemblePrompt, BUDGETS } from '../lib/ai/context';
+import { monthKey } from '../lib/storage/janitor';
 
 describe('buildProfileBlock', () => {
   it('is empty with nothing known', () => {

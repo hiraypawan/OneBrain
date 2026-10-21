@@ -2,7 +2,7 @@ import { noteD1Failure, capacityRetryAfter } from './capacity';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
-import { startGoogleLogin, finishGoogleLogin, googleConfigured, sessionUser } from './google-auth';
+import { startGoogleLogin, finishGoogleLogin, googleSignInStatus, sessionUser, validEncryptionKey } from './google-auth';
 import { actor, audit, deleteAccountData, fail, hash, id, membership, number, object, publicConnection, randomToken, rateLimit, seal, text, unseal, type PlatformContext } from './core';
 import { jsonRequest, PROVIDERS, validateConnection, type Provider } from './connectors';
 import { prepareJob, runDue } from './jobs';
@@ -32,7 +32,7 @@ platform.use('*',async(c,next)=>{
 });
 platform.use('*',bodyLimit({maxSize:750000,onError:c=>c.json({error:'Request exceeds 750 KB.'},413)}));
 platform.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
-platform.get('/capabilities',c=>c.json({service:'OneBrain platform',configured:googleConfigured(c.env),authMode:'google-only',encryptedConnections:!!c.env.TOKEN_ENCRYPTION_KEY,googleOAuth:!!(c.env.GOOGLE_CLIENT_ID&&c.env.GOOGLE_CLIENT_SECRET&&c.env.GOOGLE_CONNECT_REDIRECT),providers:PROVIDERS,recordKinds:RECORD_KINDS,limits:{records:2000,connections:20,jobs:500,executionsPerDay:limitsFor('free').dispatchPerDay},entitlements:entitlementCatalog(),mode:c.env.PLATFORM_MODE||'normal',requestLimiter:c.env.API_RATE_LIMITER?'native':'d1-fallback',scheduler:{cadenceMinutes:5,batchSize:Number(c.env.SCHEDULED_JOB_BATCH_SIZE)||2},billing:'No paid overflow or payment collection enabled'}));
+platform.get('/capabilities',c=>{const googleSignIn=googleSignInStatus(c.env);return c.json({service:'OneBrain platform',configured:googleSignIn.ready,authMode:'google-only',googleSignIn,encryptedConnections:validEncryptionKey(c.env.TOKEN_ENCRYPTION_KEY),googleOAuth:!!(c.env.GOOGLE_CLIENT_ID&&c.env.GOOGLE_CLIENT_SECRET&&c.env.GOOGLE_CONNECT_REDIRECT),providers:PROVIDERS,recordKinds:RECORD_KINDS,limits:{records:2000,connections:20,jobs:500,executionsPerDay:limitsFor('free').dispatchPerDay},entitlements:entitlementCatalog(),mode:c.env.PLATFORM_MODE||'normal',requestLimiter:c.env.API_RATE_LIMITER?'native':'d1-fallback',scheduler:{cadenceMinutes:5,batchSize:Number(c.env.SCHEDULED_JOB_BATCH_SIZE)||2},billing:'No paid overflow or payment collection enabled'});});
 platform.post('/register',c=>c.json({error:'Password signup is disabled. Use Google sign-in.'},410));
 platform.post('/login',c=>c.json({error:'Password login is disabled. Use Google sign-in.'},410));
 platform.post('/auth/google/start',async c=>{await rateLimit(c,'google-start',20);return c.json(await startGoogleLogin(c.env));});

@@ -11,27 +11,27 @@ import {
   localDay,
   type ProactiveCandidate,
   type ProactiveHistory,
-} from "@/lib/proactive";
-import { previewShared, saveShared, sharedIntent, type SharedPreview } from "@/lib/shared-voice";
-import { prepareVoiceInput } from "@/lib/voice-input";
+} from "@/lib/features/proactive";
+import { previewShared, saveShared, sharedIntent, type SharedPreview } from "@/lib/features/shared-voice";
+import { prepareVoiceInput } from "@/lib/voice/voice-input";
 import {
   createUtteranceAssembler,
   type UtteranceAssembler,
-} from "@/lib/transcript-gate";
+} from "@/lib/voice/transcript-gate";
 import { useWorkspaceStore } from "@/store/workspace";
 import { interpretLocal } from "@/lib/workspace/voice";
 import {
   workspaceContextBlock,
   type CaptureDraft,
 } from "@/lib/workspace/model";
-import { db, getRecentMessages } from "@/lib/db";
+import { db, getRecentMessages } from "@/lib/storage/db";
 import { aiKeyConfig, useAssistantStore } from "@/store/assistant";
-import { fetchChat } from "@/lib/chat-chain";
+import { fetchChat } from "@/lib/ai/chat-chain";
 import {
   handleFeatureTurn,
   observeTranscript,
   type FeatureTurn,
-} from "@/lib/feature-engine";
+} from "@/lib/features/feature-engine";
 import { useFeaturesStore } from "@/store/features";
 import {
   cleanForSpeech,
@@ -39,28 +39,33 @@ import {
   pickTtsVoice,
   splitReply,
   splitForSpeech,
+  splitForProgressiveSpeech,
   speakChunksWithBrowserVoice,
   ttsLangFor,
   waitForVoices,
-} from "@/lib/speech";
+} from "@/lib/voice/speech";
 import {
   micConstraints,
   diagnoseMicError,
   countAudioInputs,
   activeSinkId,
+  audioUnlockState,
+  isAppleTouchDevice,
   playSpeechBlob,
+  preferPlaybackAudioSession,
   primeAudioOutputOnGesture,
   signalSpeechPlayback,
   startOutputRouting,
   stopSpeechPlayback,
-} from "@/lib/audio";
-import { synthesizeSpeech } from "@/lib/tts";
-import { digestMessages } from "@/lib/digest";
-import { buildProfileBlock } from "@/lib/profile";
-import { recallRelevant, formatRecall } from "@/lib/recall";
-import { rollingSummaryStep } from "@/lib/summarize";
-import { buildContextEnvelope, envelopeForPrompt } from "@/lib/context-envelope";
-import { fitHistory } from "@/lib/context";
+  unlockAudioOutput,
+} from "@/lib/voice/audio";
+import { synthesizeSpeech } from "@/lib/voice/tts";
+import { digestMessages } from "@/lib/ai/digest";
+import { buildProfileBlock } from "@/lib/ai/profile";
+import { recallRelevant, formatRecall } from "@/lib/ai/recall";
+import { rollingSummaryStep } from "@/lib/ai/summarize";
+import { buildContextEnvelope, envelopeForPrompt } from "@/lib/ai/context-envelope";
+import { fitHistory } from "@/lib/ai/context";
 import {
   showActiveNotification,
   dismissActiveNotification,
@@ -70,13 +75,13 @@ import {
   rangeFromPitch,
   isDifferentSpeaker,
   shouldIgnoreTranscript,
-} from "@/lib/voiceprint";
+} from "@/lib/voice/voiceprint";
 import {
   effectiveEndOfSpeechMs,
   environmentTuning,
   ownerRequiredHere,
   resetNoiseFloor,
-} from "@/lib/environment";
+} from "@/lib/voice/environment";
 import {
   classifyWhileSpeaking,
   isProgressStale,
@@ -84,13 +89,25 @@ import {
   recordInterruption,
   resumeOffer,
   resumePlan,
-} from "@/lib/barge-in";
-import { normalizeHinglish } from "@/lib/transliterate";
-import { correctProperNouns, pickBestAlternative, stationGrammar } from "@/lib/pronunciation";
-import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/commands";
+} from "@/lib/voice/barge-in";
+import { normalizeHinglish } from "@/lib/voice/transliterate";
+import { activeLocale, localized } from "@/lib/locale/active";
+import { detectPlatform, micBusyHelp, micPermissionHelp, speechSupport, voiceInputNotice } from "@/lib/voice/capabilities";
+import { correctProperNouns, pickBestAlternative, stationGrammar } from "@/lib/voice/pronunciation";
+import { parseVoiceCommand, parseMediaCommand, isPauseCommand, type VoiceCommand } from "@/lib/voice/commands";
 import { useVoicePrint } from "@/hooks/useVoicePrint";
 import { useMediaStore } from "@/store/media";
-import { parseReminderIntent } from "@/lib/reminders";
+import { parseReminderIntent } from "@/lib/features/reminders";
+
+// iPhone/iPad, once per page: on older iOS the built-in voice is muted by
+// Silent mode, and that silence raises no error the app could report — so say
+// it once, after the first answer spoken with that voice.
+let appleVoiceTipShown = false;
+function appleVoiceTipOnce(): string | null {
+  if (appleVoiceTipShown) return null;
+  appleVoiceTipShown = true;
+  return "Answered with this device’s built-in voice. Heard nothing? Turn off Silent mode and turn the volume up.";
+}
 
 /** Options for speak(): where this speech sits inside the whole reply. */
 export interface SpeakOptions {
@@ -98,6 +115,8 @@ export interface SpeakOptions {
   spokenBefore?: number;
   /** The full reply this speech belongs to; progress is measured against it. */
   origin?: string;
+  /** BCP-47 tag when the language is known (translator output); otherwise picked from the text + locale. */
+  lang?: string;
 }
 
 export function useAssistant() {
@@ -247,9 +266,11 @@ export function useAssistant() {
   // Guards the one-time getVoices() wait so engines that never publish a voice
   // list don't pay it on every reply.
   const voicesTriedRef = useRef(false);
-  // Last synthesized reply, kept so a single tap can replay it when a browser
-  // refused programmatic playback (iOS/Safari) or the user missed it.
-  const lastReplyRef = useRef<{ blobs: Blob[]; text: string } | null>(null);
+  // The last reply, kept so one tap can say it again — when a browser refused
+  // to start sound on its own (iOS/Safari), or the user simply missed it. The
+  // text is always kept, so "Hear it" works even when no audio was produced;
+  // the audio is reused only when it covers the whole reply.
+  const lastReplyRef = useRef<{ blobs: Blob[]; text: string; complete: boolean } | null>(null);
   const [hasReplay, setHasReplay] = useState(false);
 
   // Keep the cached voice list honest: a voice pack installed mid-session, or
@@ -352,33 +373,42 @@ export function useAssistant() {
           window.speechSynthesis?.cancel();
         } catch {}
       };
+      // Remember what is being said, so "Hear it" can always say it again —
+      // including when no audio was produced at all (the browser-voice path).
+      lastReplyRef.current = { blobs: [], text: clean, complete: false };
+      setHasReplay(true);
+      let restoreAudioSession: () => void = () => {};
       try {
         const settings = useAssistantStore.getState().settings;
-        const lang = ttsLangFor(clean, settings.language);
+        const locale = activeLocale();
+        const lang = opts?.lang || ttsLangFor(clean, locale.voice.id, locale.english);
         // ------------------------------------------------------------------
         // 1. REAL audio bytes. Played through an <audio> element this works on
         //    every platform, follows whatever the phone is currently playing
         //    through (neckband, earbuds, phone speaker) with nothing to pick,
-        //    and can be pinned to a chosen device on Chromium.
+        //    can be pinned to a chosen device on Chromium, and on iPhone is not
+        //    muted by the Ring/Silent switch.
         // ------------------------------------------------------------------
         // The audio service is skipped when the operator forces the browser
         // voice (NEXT_PUBLIC_ENABLE_CLOUD_SPEECH=0) and in automated/headless
         // browsers, which have no audio device and must not send reply text to
         // a provider (Playwright and WebDriver set navigator.webdriver).
         // Neither tier below spends host keys: the user's own key, then a
-        // keyless community voice.
+        // keyless read-aloud voice.
         const audioDisabled =
           process.env.NEXT_PUBLIC_ENABLE_CLOUD_SPEECH === "0" ||
           (typeof navigator !== "undefined" &&
             (navigator as { webdriver?: boolean }).webdriver === true);
-        const audioChunks = audioDisabled ? [] : splitForSpeech(clean, 900);
+        // A short first piece gets the first words out quickly; each next
+        // piece is fetched while the current one plays, so there are no gaps.
+        const audioChunks = audioDisabled ? [] : splitForProgressiveSpeech(clean, 220, 900);
         const spokenBlobs: Blob[] = [];
         const sink = activeSinkId(useAssistantStore.getState().speakerDeviceId);
         let audioRefused = false;
         let audioStoppedEarly = false;
-        for (const chunk of audioChunks) {
-          if (!current() || useAssistantStore.getState().settings.silentMode) return;
-          const audio = await synthesizeSpeech(
+        let audioPlayed = 0;
+        const fetchAudio = (chunk: string) =>
+          synthesizeSpeech(
             {
               text: chunk,
               lang,
@@ -386,8 +416,15 @@ export function useAssistant() {
               apiProvider: useAssistantStore.getState().aiProvider,
               puterSpeechEnabled: useAssistantStore.getState().settings.puterSpeechEnabled === true,
             },
-            { timeoutMs: 8000 },
+            { timeoutMs: 9000 },
           );
+        let nextAudio = audioChunks.length ? fetchAudio(audioChunks[0]) : null;
+        for (let i = 0; i < audioChunks.length; i++) {
+          const chunk = audioChunks[i];
+          if (!current() || useAssistantStore.getState().settings.silentMode) return;
+          const audio = await nextAudio;
+          // Start fetching the next piece now, while this one plays.
+          nextAudio = audio && i + 1 < audioChunks.length ? fetchAudio(audioChunks[i + 1]) : null;
           if (!current() || useAssistantStore.getState().settings.silentMode)
             return;
           if (!audio) break;
@@ -401,12 +438,8 @@ export function useAssistant() {
             return;
           }
           if (!playback) {
-            // The browser refused playback (usually autoplay policy).
+            // The browser refused playback (autoplay policy).
             audioRefused = true;
-            if (!spokenBlobs.length) {
-              lastReplyRef.current = { blobs: [audio.blob], text: clean };
-              setHasReplay(true);
-            }
             break;
           }
           spokenBlobs.push(audio.blob);
@@ -419,27 +452,31 @@ export function useAssistant() {
             audioStoppedEarly = true;
             break;
           }
-          spokenCharsRef.current += chunk.length;
-        }
-        if (spokenBlobs.length) {
-          lastReplyRef.current = { blobs: spokenBlobs, text: clean };
-          setHasReplay(true);
+          // +1 for the space that joined this piece to the next one.
+          spokenCharsRef.current += chunk.length + (i < audioChunks.length - 1 ? 1 : 0);
+          audioPlayed += 1;
         }
         // Success ONLY when audio was actually attempted and every chunk played.
         // With the audio tier skipped there is nothing played, so this must fall
         // through to the browser voice instead of reporting "done" in silence.
-        if (audioChunks.length && spokenBlobs.length === audioChunks.length) {
+        if (audioChunks.length && audioPlayed === audioChunks.length) {
+          // Heard to the end: nothing is left to resume.
+          spokenCharsRef.current = Math.max(spokenCharsRef.current, origin.length - spokenBefore);
+          lastReplyRef.current = { blobs: spokenBlobs, text: clean, complete: true };
           useAssistantStore.getState().setVoiceNotice(null);
           return;
         }
         if (audioRefused) {
+          // The browser wants a tap before it plays sound. Its voice engine
+          // follows the same rule, so offer the one-tap replay instead of
+          // waiting for a voice that cannot start either.
           useAssistantStore
             .getState()
             .logBgEvent("tts-audio-blocked", "play() refused");
           useAssistantStore
             .getState()
             .setVoiceNotice(
-              "Audio playback was blocked by your browser. Tap “Hear it” to listen to the answer.",
+              "Your browser wants a tap before it plays sound. Tap “Hear it” to listen to the answer.",
             );
           return;
         }
@@ -457,24 +494,19 @@ export function useAssistant() {
           useAssistantStore
             .getState()
             .logBgEvent(
-              audioRefused ? "tts-audio-blocked" : "tts-audio-unavailable",
-              audioRefused ? "play() refused" : "no audio bytes",
+              "tts-audio-unavailable",
+              audioPlayed ? `partial ${audioPlayed}/${audioChunks.length}` : "no audio bytes",
             );
-          if (spokenBlobs.length) {
-            // Partially spoken: the rest is offered by tap rather than replayed
-            // from the start in a different voice.
-            useAssistantStore
-              .getState()
-              .setVoiceNotice(
-                "Part of this answer could not be spoken. Tap “Hear it” to play what was prepared.",
-              );
-            return;
-          }
         }
+        // Whatever the audio voice could not deliver is spoken by the browser
+        // voice — never silence, and never the already-heard part again.
+        const remainder = audioPlayed ? audioChunks.slice(audioPlayed).join(" ") : clean;
+        const heardBefore = spokenCharsRef.current;
 
         // ------------------------------------------------------------------
         // 2. Browser voice fallback, hardened for the engine bugs that made
-        //    replies silent: the cancel()/speak() race and mismatched
+        //    replies silent: iOS refusing speech until a tap (unlocked in
+        //    lib/voice/audio.ts), the cancel()/speak() race, and mismatched
         //    voice+lang pairs.
         // ------------------------------------------------------------------
         const synth = window.speechSynthesis;
@@ -525,7 +557,25 @@ export function useAssistant() {
             .getState()
             .logBgEvent("tts-voice-substitute", `${lang} -> ${choice.lang}`);
         }
-        const chunks = splitForSpeech(clean);
+        // iPhone/iPad: the browser voice is "system speech", which iOS turns
+        // down while the microphone is open — so close the recognizer for the
+        // length of the answer (talking over it cannot work there anyway). And
+        // when nothing is capturing, ask for a playback audio session so the
+        // Ring/Silent switch does not mute the answer (iOS 17+).
+        const appleTouch = isAppleTouchDevice();
+        if (appleTouch && bargeInRef.current) {
+          bargeInRef.current = false;
+          try {
+            recogRef.current?.stop();
+          } catch {}
+        }
+        const capturing =
+          useAssistantStore.getState().isActive ||
+          !!streamRef.current?.getAudioTracks?.().some((t) => t.readyState === "live");
+        if (appleTouch && !capturing) {
+          restoreAudioSession = preferPlaybackAudioSession();
+        }
+        const chunks = splitForSpeech(remainder);
         const outcome = await speakChunksWithBrowserVoice(synth, chunks, {
           rate,
           choice,
@@ -535,7 +585,7 @@ export function useAssistant() {
             cancelSpeechRef.current = cancel;
           },
           onProgress: (chars) => {
-            spokenCharsRef.current = chars;
+            spokenCharsRef.current = heardBefore + chars;
           },
           onEvent: (event, detail) => {
             if (event !== "error" && event !== "stalled") return;
@@ -547,10 +597,14 @@ export function useAssistant() {
         if (!current()) return;
         const st = useAssistantStore.getState();
         if (outcome === "ok") {
-          st.setVoiceNotice(substituteNotice);
+          // Heard to the end: nothing is left to resume.
+          spokenCharsRef.current = Math.max(spokenCharsRef.current, origin.length - spokenBefore);
+          st.setVoiceNotice(substituteNotice ?? (appleTouch ? appleVoiceTipOnce() : null));
         } else if (outcome === "stalled") {
           st.setVoiceNotice(
-            `Speech was queued but never started (${choice.lang || lang} · ${choice.name || "no voice"}). Check the device volume and that a speech voice is installed, or tap “Hear it”.`,
+            audioUnlockState().speech
+              ? `Speech was queued but never started (${choice.lang || lang} · ${choice.name || "no voice"}). Check the device volume and that a speech voice is installed, or tap “Hear it”.`
+              : "Your browser needs one tap before it can talk. Tap “Hear it” to listen to the answer.",
           );
         } else if (outcome === "error") {
           st.setVoiceNotice(
@@ -562,6 +616,9 @@ export function useAssistant() {
           );
         }
       } finally {
+        // Back to the automatic audio session BEFORE the microphone resumes:
+        // a 'playback' session cannot record.
+        restoreAudioSession();
         if (duckAnnounced) {
           try {
             signalSpeechPlayback("end");
@@ -639,43 +696,48 @@ export function useAssistant() {
   }, [speak]);
 
   /**
-   * Replay the last spoken answer from cached audio. Called from a real tap,
-   * so a browser that blocked programmatic playback (iOS/Safari) will play it.
+   * Say the last answer again. Called from a real tap ("Hear it", "Say that
+   * again", "Play it now"), so it unlocks sound FIRST — synchronously, before
+   * anything awaits — and a browser that refused to start sound on its own
+   * (iOS/Safari) will now play it. Cached audio is reused when it covers the
+   * whole answer; otherwise the answer is spoken again through the normal
+   * pipeline (audio voice, then the browser voice).
    */
   const replayLastReply = useCallback(async () => {
+    void unlockAudioOutput();
     const last = lastReplyRef.current;
-    if (!last || !last.blobs.length) return false;
-    cancelSpeechRef.current();
-    const sink = activeSinkId(useAssistantStore.getState().speakerDeviceId);
+    if (!last || !last.text) return false;
     useAssistantStore.getState().logBgEvent("tts-replay", last.text.slice(0, 40));
-    let ok = true;
-    signalSpeechPlayback('start');
-    try {
-      for (const blob of last.blobs) {
-        const playback = await playSpeechBlob(blob, { sinkId: sink, text: last.text, announce: false });
-        if (!playback) {
-          ok = false;
-          break;
+    if (last.complete && last.blobs.length) {
+      cancelSpeechRef.current();
+      const sink = activeSinkId(useAssistantStore.getState().speakerDeviceId);
+      let ok = true;
+      signalSpeechPlayback('start');
+      try {
+        for (const blob of last.blobs) {
+          const playback = await playSpeechBlob(blob, { sinkId: sink, text: last.text, announce: false });
+          if (!playback) {
+            ok = false;
+            break;
+          }
+          cancelSpeechRef.current = () => playback.stop();
+          ok = await playback.ended;
+          cancelSpeechRef.current = () => {};
+          if (!ok) break;
         }
-        cancelSpeechRef.current = () => playback.stop();
-        ok = await playback.ended;
-        cancelSpeechRef.current = () => {};
-        if (!ok) break;
+      } finally {
+        signalSpeechPlayback('end');
       }
-    } finally {
-      signalSpeechPlayback('end');
-    }
-    if (!ok) {
-      useAssistantStore
-        .getState()
-        .setVoiceNotice(
-          "This device would not play the audio. Check the volume and any Bluetooth connection, then try again.",
-        );
-      return false;
+      if (ok) {
+        useAssistantStore.getState().setVoiceNotice(null);
+        return true;
+      }
+      // The cached audio would not play: fall through to speaking it again.
     }
     useAssistantStore.getState().setVoiceNotice(null);
+    await speak(last.text);
     return true;
-  }, []);
+  }, [speak]);
 
   // Median pitch of the last few seconds of mic audio -> who just spoke?
   // Tags the message (male/female voice) and flags voices far from the
@@ -737,7 +799,7 @@ export function useAssistant() {
             return;
           }
         } catch {
-          st.setMicNotice("Mic start nahi hua — Active button dabao.");
+          st.setMicNotice(localized("Couldn’t start the microphone — tap Active.", "Mic start nahi hua — Active button dabao."));
           return;
         }
         try {
@@ -751,7 +813,7 @@ export function useAssistant() {
       if (cmd === "new") {
         st.setSpeechProgress(null);
         st.newConversation();
-        const msg = "Nayi chat shuru ho gayi. Bolo, kya baat karein?";
+        const msg = localized("New chat started. What would you like to talk about?", "Nayi chat shuru ho gayi. Bolo, kya baat karein?");
         st.addMessage("assistant", msg);
         await ctl.speak(msg);
         if (useAssistantStore.getState().isActive)
@@ -777,7 +839,7 @@ export function useAssistant() {
         if (useAssistantStore.getState().isActive)
           st.setCurrentStatus("listening");
       } else {
-        const msg = "Abhi kuch dohraya nahi hai.";
+        const msg = localized("There’s nothing to repeat yet.", "Abhi kuch dohraya nahi hai.");
         st.addMessage("assistant", msg);
         await ctl.speak(msg);
       }
@@ -1039,7 +1101,7 @@ export function useAssistant() {
           // Fire the search, acknowledge honestly, then let the store report
           // the real outcome ("Playing: …" or why nothing could stream).
           const searching = mediaStore.request(media.query, media.kinds);
-          await speak(`Free sources ko ${media.query} dhundne bol raha hun.`);
+          await speak(localized(`Searching free sources for ${media.query}.`, `Free sources ko ${media.query} dhundne bol raha hun.`));
           await searching;
           if (turnGeneration !== sessionGenerationRef.current) return;
           if (store.isActive) store.setCurrentStatus("listening");
@@ -1079,7 +1141,7 @@ export function useAssistant() {
         // Rolling summary on a short turn window (was: every 20 user
         // messages, which left the first 19 turns carrying the whole
         // transcript and then folded everything at once). Policy in
-        // lib/summarize.
+        // lib/ai/summarize.
         try {
           const after = useAssistantStore.getState();
           const step = rollingSummaryStep(
@@ -1092,7 +1154,7 @@ export function useAssistant() {
             after.setSessionSummary(step.summary);
           }
         } catch {}
-        await speak(feat.speak);
+        await speak(feat.speak, feat.speakLang ? { lang: feat.speakLang } : undefined);
         if (store.isActive) store.setCurrentStatus("listening");
         return;
       }
@@ -1194,7 +1256,7 @@ export function useAssistant() {
         profile,
         recall,
         verbosity: st.settings.verbosity,
-        language: st.settings.language,
+        language: activeLocale().voice.id,
         ...aiKeyConfig(),
         onChunk: (text) => {
           if (sessionGenerationRef.current === generation) {
@@ -1410,7 +1472,7 @@ export function useAssistant() {
           useAssistantStore
             .getState()
             .setMicNotice(
-              "Mic wapas nahi mila. Stop dabakar dobara Active karo.",
+              localized("Lost the microphone. Tap Stop, then Active again.", "Mic wapas nahi mila. Stop dabakar dobara Active karo."),
             );
           return;
         }
@@ -1474,7 +1536,8 @@ export function useAssistant() {
         (window as any).webkitSpeechRecognition;
       if (!SR)
         throw new Error(
-          "Speech recognition is unavailable in this browser. You can still type below.",
+          voiceInputNotice(detectPlatform(), speechSupport()) ||
+            "Speech recognition is unavailable in this browser. You can still type below.",
         );
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error(
@@ -1531,23 +1594,18 @@ export function useAssistant() {
       useAssistantStore.getState().markSessionStart();
       useAssistantStore
         .getState()
-        .logBgEvent("session-start", store.settings.language);
+        .logBgEvent("session-start", activeLocale().voice.id);
       (window as any).__onebrain_start = () =>
         controlsRef.current.startActive();
 
-      // 2. Speech recognition loop (Web Speech API, free + Hinglish).
-      // Recognition language follows Settings so Marathi/Hindi/English each
-      // get their own acoustic model instead of one wrong guess.
+      // 2. Speech recognition loop (Web Speech API, free).
+      // The recognizer language follows the resolved locale (Settings, or the
+      // device language + country on "auto"), so a UK user gets the en-GB
+      // acoustic model, a Hinglish speaker the Hindi one, and so on.
+      const locale = activeLocale();
       if (SR) {
         const recog = new SR();
-        const recogLang: Record<string, string> = {
-          hinglish: "hi-IN",
-          marathi: "mr-IN",
-        };
-        recog.lang =
-          recogLang[store.settings.language] ||
-          store.settings.language ||
-          "en-IN";
+        recog.lang = locale.voice.recognition;
         recog.continuous = true;
         recog.interimResults = true;
         // Ask for n-best hypotheses: the top guess drops proper nouns
@@ -1561,7 +1619,8 @@ export function useAssistant() {
           const SG =
             (window as any).SpeechGrammarList ||
             (window as any).webkitSpeechGrammarList;
-          if (SG) {
+          // The gazetteer is Indian stations and cities: only bias toward it there.
+          if (SG && locale.indian) {
             const grammars = new SG();
             grammars.addFromString(stationGrammar(), 1);
             (recog as any).grammars = grammars;
@@ -1615,8 +1674,11 @@ export function useAssistant() {
             // ("Vangani" -> "vani") in every language model, so restore
             // station/city names from the phonetic gazetteer before the
             // transcript reaches intents, transit or the AI.
-            const roman = normalizeHinglish(text);
-            const repaired = correctProperNouns(roman);
+            // Both steps are India-specific (Devanagari -> Roman, Indian
+            // place names) and would corrupt other languages ("en", "se").
+            const indian = activeLocale().indian;
+            const roman = indian ? normalizeHinglish(text) : text;
+            const repaired = indian ? correctProperNouns(roman) : { text: roman, corrections: [] };
             if (repaired.corrections.length) {
               try {
                 useAssistantStore
@@ -1676,7 +1738,10 @@ export function useAssistant() {
               }
             } catch {}
             if (!hyps.length && res?.[0]) hyps.push(String(res[0].transcript || ''));
-            const bestText = hyps.length > 1 ? pickBestAlternative(hyps) : hyps[0] || '';
+            // Station-name rescoring is for Indian place names; elsewhere the
+            // engine's own first guess is the best one.
+            const bestText =
+              hyps.length > 1 && activeLocale().indian ? pickBestAlternative(hyps) : hyps[0] || '';
             const alt = res?.[0];
             if (!alt && !bestText) continue;
             const altForScore = {
@@ -1767,13 +1832,13 @@ export function useAssistant() {
             useAssistantStore
               .getState()
               .setMicNotice(
-                "Mic permission blocked — address bar ke lock icon se Allow karo.",
+                localized(micPermissionHelp(detectPlatform()), "Mic permission blocked — address bar ke lock icon se Allow karo."),
               );
           } else if (err === "audio-capture") {
             useAssistantStore
               .getState()
               .setMicNotice(
-                "🎤 Mic busy hai — laptop (multipoint) ya koi aur app use kar raha hai.",
+                localized(`🎤 ${micBusyHelp(detectPlatform())}`, "🎤 Mic busy hai — laptop (multipoint) ya koi aur app use kar raha hai."),
               );
           } else if (err === "network") {
             // Chrome's recognizer is a cloud service: tell the user instead

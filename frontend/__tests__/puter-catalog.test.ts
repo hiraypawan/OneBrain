@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { listPuterImageModels, listPuterModels } from '../lib/puter';
+import { listPuterImageModels, listPuterModels } from '../lib/ai/puter';
 
 describe('Puter runtime model discovery', () => {
   it('normalizes the live chat catalog, removes duplicate/invalid IDs, and preserves provider metadata', async () => {

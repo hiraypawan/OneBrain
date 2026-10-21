@@ -1,7 +1,7 @@
 "use client";
 import Script from "next/script";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listPuterImageModels, puterSessionReady, type PuterModelOption } from "@/lib/puter";
+import { listPuterImageModels, puterSessionReady, type PuterModelOption } from "@/lib/ai/puter";
 
 function currentPuter(): any {
   return typeof window === "undefined" ? null : (window as any).puter || null;

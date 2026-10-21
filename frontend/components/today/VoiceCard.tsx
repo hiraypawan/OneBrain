@@ -2,7 +2,7 @@
 import { Icon } from "@/components/ui/Icon";
 import { useAssistantStore } from "@/store/assistant";
 import type { useAssistant } from "@/hooks/useAssistant";
-import { unlockAudioOutput } from "@/lib/audio";
+import { unlockAudioOutput } from "@/lib/voice/audio";
 
 type Assistant = ReturnType<typeof useAssistant>;
 

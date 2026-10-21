@@ -13,19 +13,21 @@ import {
 } from "@/components/features/FeatureRunners";
 import { useAssistant } from "@/hooks/useAssistant";
 import { useBackgroundKeepalive } from "@/hooks/useBackgroundKeepalive";
+import { useLocale } from "@/hooks/useLocale";
+import { useNow } from "@/hooks/useNow";
 import { useAssistantStore } from "@/store/assistant";
 import { useFeaturesStore } from "@/store/features";
 import { useWorkspaceStore } from "@/store/workspace";
-import { normalizeProactive } from "@/lib/proactive";
-import { buildTodoList, todoCounts } from "@/lib/todo";
-import { todayStrip } from "@/lib/track";
-import { unlockAudioOutput } from "@/lib/audio";
+import { normalizeProactive } from "@/lib/features/proactive";
+import { buildTodoList, todoCounts } from "@/lib/features/todo";
+import { todayStrip } from "@/lib/features/track";
+import { unlockAudioOutput } from "@/lib/voice/audio";
 import {
   briefFacts,
   briefLine,
   dateLine,
   greetingFor,
-} from "@/lib/today-brief";
+} from "@/lib/features/today-brief";
 import {
   draftBrainDump,
   draftCapture,
@@ -69,7 +71,10 @@ export function TodayView() {
   const workspace = useWorkspaceStore();
   const goals = useFeaturesStore((s) => s.trackGoals);
   const fitnessLogs = useFeaturesStore((s) => s.fitnessLogs);
-  const [now] = useState(() => new Date());
+  // Null in the prerendered HTML and while hydrating: the server cannot know
+  // the device's clock or language (hooks/useNow.ts). Ticks every minute.
+  const clock = useNow();
+  const locale = useLocale();
   const [input, setInput] = useState("");
   const [captureKind, setCaptureKind] = useState<ComposerKind>("note");
   const [drafts, setDrafts] = useState<CaptureDraft[] | null>(null);
@@ -113,9 +118,9 @@ export function TodayView() {
       buildTodoList({
         tasks: workspace.items,
         reminders: state.reminders,
-        now: Date.now(),
+        now: clock?.getTime() ?? Date.now(),
       }),
-    [workspace.items, state.reminders],
+    [workspace.items, state.reminders, clock],
   );
   const counts = useMemo(() => todoCounts(todo), [todo]);
   const strip = useMemo(
@@ -123,17 +128,17 @@ export function TodayView() {
       todayStrip(
         fitnessLogs,
         { kcalGoal: goals.kcalGoal, budget: goals.budget, budgetCurrency: goals.budgetCurrency },
-        now,
+        clock ?? undefined,
       ),
-    [fitnessLogs, goals, now],
+    [fitnessLogs, goals, clock],
   );
   const facts = useMemo(
     () =>
       briefFacts(
         { counts, strip, goals, items: workspace.items.length },
-        now,
+        clock ?? undefined,
       ),
-    [counts, strip, goals, workspace.items.length, now],
+    [counts, strip, goals, workspace.items.length, clock],
   );
   const latest = state.messages
     .filter((m) => m.role === "assistant")
@@ -238,8 +243,13 @@ export function TodayView() {
       <main className="today-wrap">
         <section className="today-brief" aria-label="Your day so far">
           <div>
-            <p className="brief-date">{dateLine(now)}</p>
-            <h1>{greetingFor(now)}.</h1>
+            {/* Space is held (and hidden) until the device time is known. */}
+            <p className="brief-date" data-clock={clock ? "ready" : "pending"}>
+              {clock ? dateLine(clock, locale) : "\u00a0"}
+            </p>
+            <h1 data-clock={clock ? "ready" : "pending"}>
+              {clock ? `${greetingFor(clock)}.` : "\u00a0"}
+            </h1>
             <p className="brief-summary">
               {briefLine(
                 { counts, strip, goals, items: workspace.items.length },

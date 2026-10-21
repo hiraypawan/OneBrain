@@ -1,7 +1,7 @@
-import { SESSION_HINT } from '@/lib/session-hint';
+import { SESSION_HINT } from '@/lib/platform/session-hint';
 import { NextRequest } from 'next/server';
-import { authRequest,localRedirect,STATE_COOKIE,SESSION_COOKIE } from '@/lib/google-auth-server';
-import { NEXT_COOKIE,safeReturnPath } from '@/lib/auth-return';
+import { authRequest,localRedirect,signInFailureCode,STATE_COOKIE,SESSION_COOKIE } from '@/lib/server/google-auth-server';
+import { NEXT_COOKIE,safeReturnPath } from '@/lib/platform/auth-return';
 export const dynamic='force-dynamic';
 class Fail extends Error{constructor(readonly code:string){super(code);}}
 export async function GET(request:NextRequest){
@@ -18,7 +18,7 @@ export async function GET(request:NextRequest){
   response.cookies.set(SESSION_HINT,'1',{sameSite:'lax',secure,path:'/',maxAge:7*86400});
   response.cookies.set(SESSION_COOKIE,result.token,{httpOnly:true,sameSite:'lax',secure,path:'/api/platform',maxAge:7*86400});
  }catch(e){ /* Never put provider codes, tokens or secret error details in a URL or log. */
-  const code=e instanceof Fail?e.code:'google';response=localRedirect(`/auth/login?error=${code}${suffix}`);
+  const code=e instanceof Fail?e.code:signInFailureCode(e,'finish');response=localRedirect(`/auth/login?error=${code}${suffix}`);
  }
  response.cookies.set(STATE_COOKIE,'',{httpOnly:true,sameSite:'lax',path:'/api/auth/google',maxAge:0});
  response.cookies.set(NEXT_COOKIE,'',{httpOnly:true,sameSite:'lax',path:'/api/auth/google',maxAge:0});

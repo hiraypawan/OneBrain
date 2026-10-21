@@ -7,8 +7,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ControlContext } from "./ControlContext";
 import { CATALOG, EXTRA_PANELS, type ToolEntry } from "./catalog";
 import { Icon } from "../ui/Icon";
-import { searchSpace, SPACE_SEARCH_SCOPE, type SpaceHit } from "@/lib/space-search";
-import { db, getConversations } from "@/lib/db";
+import { searchSpace, SPACE_SEARCH_SCOPE, type SpaceHit } from "@/lib/features/space-search";
+import { db, getConversations } from "@/lib/storage/db";
 import { useFeaturesStore } from "@/store/features";
 const loading = () => (
   <div className="panel-loading" role="status">
@@ -85,7 +85,7 @@ function MovedPanel({ href, label }: { href: string; label: string }) {
 
 type SpaceRows = {
   items: import('@/lib/workspace/model').BrainItem[];
-  conversations: import('@/lib/db').StoredConversation[];
+  conversations: import('@/lib/storage/db').StoredConversation[];
   messages: { content: string; role: string; createdAt: number }[];
 };
 

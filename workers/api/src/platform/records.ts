@@ -1,4 +1,15 @@
 import { fail, number, object, text, type PlatformEnv } from './core';
+
+// Any real ISO 4217 currency: the app serves many countries, and the web app
+// offers each user their own currency. Computed once per isolate.
+const CURRENCIES: ReadonlySet<string> = (() => {
+  try {
+    return new Set(Intl.supportedValuesOf('currency'));
+  } catch {
+    return new Set(['USD', 'EUR', 'GBP', 'INR', 'JPY', 'AUD', 'CAD', 'NZD', 'SGD', 'ZAR', 'CHF', 'AED']);
+  }
+})();
+
 export const RECORD_KINDS = ['note','task','idea','person','company','project','decision','expense','payment','shopping','habit','mood','document','invoice'] as const;
 export async function validateRecord(env: PlatformEnv, space: string, input: unknown, recordId?: string, memberIds?: ReadonlySet<string>) {
   const source = object(input);
@@ -15,7 +26,7 @@ export async function validateRecord(env: PlatformEnv, space: string, input: unk
   for (const field of ['amount','budget','paid']) if (data[field] !== undefined) {
     number(data[field], field, 0, 1e12);
     if (Math.abs(Math.round(data[field] * 100) - data[field] * 100) > .001) fail(400, 'Money accepts at most two decimal places.');
-    if (!['INR','USD','EUR','GBP','JPY'].includes(data.currency)) fail(400, 'Select a supported currency.');
+    if (typeof data.currency !== 'string' || !CURRENCIES.has(data.currency)) fail(400, 'Select a supported currency.');
   }
   for (const field of ['energy','mood']) if (data[field] !== undefined) number(data[field],field,1,5);
   for (const field of ['category','invoiceNumber','counterparty','frequency']) if (data[field] !== undefined) text(data[field],field,200);

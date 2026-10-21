@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SPACE_SEARCH_SCOPE, scoreHit, searchSpace } from '@/lib/space-search';
+import { SPACE_SEARCH_SCOPE, scoreHit, searchSpace } from '@/lib/features/space-search';
 
 const NOW = Date.parse('2026-09-16T12:00:00');
 const day = (n: number) => NOW - n * 86400000;

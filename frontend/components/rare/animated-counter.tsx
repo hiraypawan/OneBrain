@@ -12,7 +12,7 @@ import {
   type Transition,
 } from "motion/react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/core/utils";
 
 const FACES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 // the trailing 0 makes the wrap from 9 back to 0 land on an identical face

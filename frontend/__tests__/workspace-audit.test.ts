@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { db } from "../lib/db";
+import { db } from "../lib/storage/db";
 import { useWorkspaceStore as workspace } from "../store/workspace";
 import { useAssistantStore as assistant } from "../store/assistant";
 import {
@@ -17,7 +17,7 @@ import {
   DEFAULT_PROACTIVE,
   canInitiate,
   localDay,
-} from "../lib/proactive";
+} from "../lib/features/proactive";
 
 beforeEach(async () => {
   await db.brainItems.clear();

@@ -8,11 +8,20 @@ export default defineConfig({
       }]
     : undefined,
   testDir: "./e2e",
+  // These three run in the edge-runtime suite (playwright.edge.config.ts)
+  // against the real OpenNext Worker on every push; running them here as well
+  // only doubled CI time.
+  testIgnore: ["**/capacity.spec.ts", "**/audit-auth.spec.ts", "**/operations.spec.ts"],
   fullyParallel: false,
   workers: 1,
   timeout: 45000,
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000",
+    // The app adapts to the device's country and language (lib/locale). Pin a
+    // device — like the unit tests — so results never depend on the CI
+    // machine's time zone. Tests for other countries use test.use({ … }).
+    locale: "en-IN",
+    timezoneId: "Asia/Kolkata",
     launchOptions: {
       executablePath: process.env.CHROMIUM_PATH,
       args: [

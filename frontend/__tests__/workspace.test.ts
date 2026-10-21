@@ -10,7 +10,7 @@ import {
   workspaceContextBlock,
 } from "../lib/workspace/model";
 import { interpretLocal } from "../lib/workspace/voice";
-import { db } from "../lib/db";
+import { db } from "../lib/storage/db";
 import { useWorkspaceStore } from "../store/workspace";
 import { useAssistantStore } from "../store/assistant";
 

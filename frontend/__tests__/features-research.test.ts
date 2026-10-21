@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectResearchIntent, planEntitySearches, parseSynthesis, ungroundedBrief,
-} from '../lib/research';
+} from '../lib/features/research';
 
 describe('detectResearchIntent', () => {
   it('detects research requests', () => {
@@ -37,6 +37,6 @@ describe('ungroundedBrief', () => {
     const b = ungroundedBrief('EV scooters');
     expect(b.grounded).toBe(false);
     expect(b.bullets.length).toBeGreaterThan(0);
-    expect(b.spoken).toMatch(/nahi bataunga/);
+    expect(b.spoken).toMatch(/won’t quote prices or specs/);
   });
 });

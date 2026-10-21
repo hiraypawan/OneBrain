@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useAssistantStore } from "@/store/assistant";
-import { fetchDigest, getToken } from "@/lib/sync";
-import { digestMessages, type Digest } from "@/lib/digest";
-import { db } from "@/lib/db";
+import { fetchDigest, getToken } from "@/lib/platform/sync";
+import { digestMessages, type Digest } from "@/lib/ai/digest";
+import { db } from "@/lib/storage/db";
 import { AnimatedCounter } from "@/components/rare/animated-counter";
 
 export default function MemoryPage() {

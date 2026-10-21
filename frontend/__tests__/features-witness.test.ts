@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   witnessReducer, INITIAL_WITNESS, detectWitnessIntent, evidenceText, smsHref,
-} from '../lib/witness';
+} from '../lib/features/witness';
 
 describe('detectWitnessIntent', () => {
   it('starts, stops, safes', () => {

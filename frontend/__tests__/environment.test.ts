@@ -9,7 +9,7 @@ import {
   rmsOf,
   updateNoiseFloor,
   ENVIRONMENT_TUNING,
-} from '../lib/environment';
+} from '../lib/voice/environment';
 
 describe('environment recognition', () => {
   it('measures frame energy', () => {

@@ -1,6 +1,6 @@
 "use client";
 import { create } from "zustand";
-import { db } from "../lib/db";
+import { db } from "../lib/storage/db";
 import { sameRecord, validateCapture } from "../lib/workspace/validation";
 import { useAssistantStore } from "./assistant";
 import type {

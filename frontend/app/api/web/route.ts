@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
+import { readJsonBody, bodyError, RequestBodyError } from '@/lib/server/request-body';
 import {
   searchDirect,
   readDirect,
   gatherSources,
   isSafePublicUrl,
   MAX_PAGE_CHARS,
-} from '@/lib/websearch';
+} from '@/lib/ai/websearch';
 
 // Live web access for the browser: search engines, arbitrary pages ("scraping")
 // and multi-source research bundles. All of it keyless.

@@ -69,6 +69,6 @@ export async function dismissActiveNotification() {
 }
 
 export async function showReminderNotification(title: string, body: string) {
-  const { fireReminderNotification } = await import('@/lib/reminders');
+  const { fireReminderNotification } = await import('@/lib/features/reminders');
   return fireReminderNotification(title, body);
 }

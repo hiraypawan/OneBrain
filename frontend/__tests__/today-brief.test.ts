@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { briefFacts, briefLine, dateLine, greetingFor } from '@/lib/today-brief';
-import type { TodayStrip } from '@/lib/track';
-import type { TodoCounts } from '@/lib/todo';
+import { briefFacts, briefLine, dateLine, greetingFor } from '@/lib/features/today-brief';
+import type { TodayStrip } from '@/lib/features/track';
+import type { TodoCounts } from '@/lib/features/todo';
 
 const counts = (over: Partial<TodoCounts> = {}): TodoCounts => ({
   open: 0, dueToday: 0, overdue: 0, done: 0, byOrigin: { device: 0, reminder: 0, server: 0 }, ...over,
@@ -22,6 +22,12 @@ describe('greeting and date', () => {
     expect(dateLine(new Date(2026, 8, 17))).toMatch(/Thursday/);
     expect(dateLine(new Date(2026, 8, 17))).toContain('17');
     expect(dateLine(new Date(2026, 8, 17))).not.toMatch(/2026/);
+  });
+  it('writes the date the way the user\'s country does', () => {
+    const day = new Date(2026, 8, 17);
+    expect(dateLine(day)).toBe('Thursday · 17 September'); // the pinned test device is in India
+    expect(dateLine(day, { formatLocale: 'en-US' })).toBe('Thursday · September 17');
+    expect(dateLine(day, { formatLocale: 'en-GB' })).toBe('Thursday · 17 September');
   });
 });
 

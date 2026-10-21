@@ -4429,6 +4429,21 @@ html[data-ob-theme='light'] .track-window-kind button[aria-pressed='true'] {
   letter-spacing: -0.02em;
   color: var(--ob-text);
 }
+/* The date and greeting depend on the device clock, which the prerendered
+   HTML cannot know (hooks/useNow.ts): their line is held, hidden, until the
+   time is known, then they fade in. */
+.today-brief [data-clock="pending"] {
+  visibility: hidden;
+}
+.today-brief [data-clock="ready"] {
+  animation: brief-clock-in 0.24s ease-out;
+}
+@keyframes brief-clock-in {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .today-brief [data-clock="ready"] { animation: none; }
+}
 .today-brief .brief-summary {
   margin: 0.75rem 0 0;
   max-width: 62ch;
@@ -4762,6 +4777,35 @@ html[data-ob-theme='light'] .track-window-kind button[aria-pressed='true'] {
 }
 .resume-answer {
   color: var(--ob-accent);
+}
+/* Voice: why talking cannot work in this browser, before the first tap. */
+.voice-capability {
+  margin: 4px 0 0;
+  max-width: 46ch;
+  padding: 8px 12px;
+  border: 1px solid var(--ob-line);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+/* Keyboard shortcut hint: only where there is a keyboard and a fine pointer. */
+.voice-shortcuts {
+  display: none;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ob-muted);
+}
+.voice-shortcuts kbd {
+  padding: 0 5px;
+  border: 1px solid var(--ob-line);
+  border-radius: 4px;
+  font: inherit;
+}
+@media (hover: hover) and (pointer: fine) {
+  .voice-shortcuts {
+    display: block;
+  }
 }
 
 /* ================================================================

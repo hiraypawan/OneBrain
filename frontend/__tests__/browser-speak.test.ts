@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { speakChunksWithBrowserVoice, utteranceVoicePlan, type VoiceChoice } from '../lib/speech';
+import { speakChunksWithBrowserVoice, utteranceVoicePlan, type VoiceChoice } from '../lib/voice/speech';
 
 beforeEach(() => {
   vi.stubGlobal('SpeechSynthesisUtterance', FakeUtterance);
@@ -69,6 +69,12 @@ describe('utteranceVoicePlan', () => {
   it('falls back to the requested language when no voice is installed', () => {
     expect(utteranceVoicePlan(null, 'mr-IN')).toEqual({ voice: null, lang: 'mr-IN' });
   });
+
+  it("keeps the engine's exact tag, not our lower-cased copy (Apple voices look it up verbatim)", () => {
+    const rishi = { name: 'Rishi', lang: 'en-IN' };
+    const plan = utteranceVoicePlan({ voice: rishi, match: 'exact', lang: 'en-in', name: 'Rishi' }, 'en-IN');
+    expect(plan).toEqual({ voice: rishi, lang: 'en-IN' });
+  });
 });
 
 describe('speakChunksWithBrowserVoice', () => {
@@ -79,8 +85,21 @@ describe('speakChunksWithBrowserVoice', () => {
     expect(synth.spoken).toEqual(['One.', 'Two.']);
   });
 
-  it('never calls speak() in the same tick as cancel() (the Safari silence bug)', async () => {
+  it('does not cancel an idle engine before speaking (cancel+speak is the Safari silence bug)', async () => {
     const synth = fakeSynth('ok');
+    const outcome = await speakChunksWithBrowserVoice(synth, ['Hello.'], { rate: 1, choice: voice, lang: 'hi-IN' });
+    expect(outcome).toBe('ok');
+    expect(synth.calls).toEqual(['speak']);
+  });
+
+  it('clears a busy engine first and never speaks in the same tick as cancel()', async () => {
+    const synth = fakeSynth('ok');
+    synth.speaking = true;
+    const cancel = synth.cancel.bind(synth);
+    synth.cancel = () => {
+      cancel();
+      synth.speaking = false;
+    };
     let ticked = false;
     setTimeout(() => {
       ticked = true;
@@ -93,7 +112,17 @@ describe('speakChunksWithBrowserVoice', () => {
     };
     await speakChunksWithBrowserVoice(synth, ['Hello.'], { rate: 1, choice: voice, lang: 'hi-IN' });
     expect(synth.calls[0]).toBe('cancel');
+    expect(synth.calls).toContain('speak');
     expect(spokeTooEarly).toBe(false);
+  });
+
+  it('reports the full length of a reply heard to the end (no bogus "continue" offer)', async () => {
+    const synth = fakeSynth('ok');
+    const progress: number[] = [];
+    const chunks = ['First sentence here.', 'Second one.', 'Third.'];
+    await speakChunksWithBrowserVoice(synth, chunks, { rate: 1, choice: voice, lang: 'hi-IN', onProgress: (n) => progress.push(n) });
+    expect(progress.at(-1)).toBe(chunks.join(' ').length);
+    expect(progress).toEqual([21, 33, 39]);
   });
 
   it('reports a stall instead of hanging, and retries once without the pinned voice', async () => {

@@ -1,3 +1,9 @@
+// Workspace records on this device: item kinds, capture drafts ("task: …",
+// brain dumps), amount parsing, safe calculations, day summaries and search.
+// Pure; storage is lib/storage/db.ts, server sync is the platform API.
+
+import { CURRENCY_PREFIX, currencyFromText } from "../locale/format";
+import { isSupportedCurrency } from "../locale/countries";
 export type ItemKind =
   | "note"
   | "task"
@@ -41,12 +47,16 @@ export type CaptureDraft = Pick<
   "kind" | "title" | "body" | "due" | "amount" | "currency"
 >;
 
+// An amount needs an explicit currency marker ("₹500", "$20", "£12", "usd 15").
+const AMOUNT_WITH_CURRENCY = new RegExp(
+  String.raw`${CURRENCY_PREFIX}\s*(\d[\d,]*(?:\.\d+)?)(?![\d.])`,
+  "i",
+);
+
 export function parseAmount(
   input: string,
 ): { amount: number; currency: string } | undefined {
-  const m = input.match(
-    /(?:₹\s*|\brs\.?\s*|\binr\s*|\$\s*|\busd\s*|€\s*|\beur\s*)(\d[\d,]*(?:\.\d+)?)(?![\d.])/i,
-  );
+  const m = input.match(AMOUNT_WITH_CURRENCY);
   if (!m) return undefined;
   if (m[1].includes(".") && m[1].split(".")[1].length > 2) return undefined;
   if (
@@ -58,14 +68,8 @@ export function parseAmount(
     return undefined;
   const amount = Number(m[1].replace(/,/g, ""));
   if (!Number.isFinite(amount) || amount < 0 || amount > 1e12) return undefined;
-  return {
-    amount,
-    currency: /\$|usd/i.test(m[0])
-      ? "USD"
-      : /€|eur/i.test(m[0])
-        ? "EUR"
-        : "INR",
-  };
+  // "$" is the user's own dollar (AUD for an Australian), "£" GBP, and so on.
+  return { amount, currency: currencyFromText(m[0]) };
 }
 
 // Conservative extraction: dates/relationships are edited in the preview, not guessed.
@@ -133,7 +137,7 @@ export function financialTotals(
       (item.kind !== "expense" && item.kind !== "payment") ||
       item.amount === undefined ||
       !item.currency ||
-      !["INR", "USD", "EUR"].includes(item.currency) ||
+      !isSupportedCurrency(item.currency) ||
       !Number.isFinite(item.amount)
     )
       continue;

@@ -9,7 +9,7 @@
 | Simulated recognition + speech + clock | Idle wait, permission-first invitation, revoked consent, startup cancellation/unmount/recovery and old speech-timeout isolation pass | Bluetooth, battery behavior, actual spoken-language quality |
 | Unit tests for the audio path (`tts-route`, `tts-client`, `browser-speak`, `output-routing`) | Provider fallback chain, WAV wrapping, no host-key spending, cache keys, cancel/speak ordering, stall retry, automatic device resolution, pinned-device fallback | Real audibility, real Bluetooth routing, real lock-screen behavior |
 
-The current production build passed **20 browser tests**. See [UI and bug audit](UI-AND-BUG-AUDIT.md) for the detailed scope. Keyboard/dialog checks are targeted regressions, not a full accessibility audit.
+The current production build passed **20 browser tests**. See [UI and bug audit](archive/UI-AND-BUG-AUDIT.md) for the detailed scope. Keyboard/dialog checks are targeted regressions, not a full accessibility audit.
 
 ## Physical device matrix — all unverified
 

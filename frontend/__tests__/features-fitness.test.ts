@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseFitnessLog, resolveAmbiguous, dayTotals, computeStreaks,
   recoveryLine, detectLogRepair, dayKey, type FitnessLog,
-} from '../lib/fitness';
+} from '../lib/features/fitness';
 
 const log = (over: Partial<FitnessLog> = {}): FitnessLog => ({
   id: Math.random().toString(), kind: 'workout', label: 'x', createdAt: Date.now(), source: 'voice', ...over,

@@ -9,8 +9,9 @@ import {
   timerRemaining,
   pauseTimer,
   resumeTimer,
-} from "@/lib/utilities";
+} from "@/lib/features/utilities";
 import { safeCalculation } from "@/lib/workspace/model";
+import { useLocale } from "@/hooks/useLocale";
 import "@/app/operations/operations.css";
 export default function Utilities() {
   const [expression, setExpression] = useState(""),
@@ -25,9 +26,12 @@ export default function Utilities() {
     [lat, setLat] = useState(""),
     [lon, setLon] = useState(""),
     [base, setBase] = useState("USD"),
-    [quote, setQuote] = useState("INR"),
+    // null = not chosen yet: convert into the user's own currency.
+    [chosenQuote, setQuote] = useState<string | null>(null),
     [source, setSource] = useState<any>(null),
     [busy, setBusy] = useState(false);
+  const locale = useLocale();
+  const quote = chosenQuote ?? (locale.currency === base ? "EUR" : locale.currency);
   function calculate(work: () => unknown) {
     try {
       setResult(String(work()));

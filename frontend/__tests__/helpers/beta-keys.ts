@@ -1,4 +1,4 @@
-import { BETA_ALPHABET } from '../../lib/plans';
+import { BETA_ALPHABET } from '../../lib/platform/plans';
 
 /**
  * Test-only minting of the legacy device-beta key format.

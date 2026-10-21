@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanForSpeech, diagnoseTts, pickTtsVoice, splitReply, splitForSpeech, ttsLangFor, waitForVoices } from '../lib/speech';
+import { cleanForSpeech, diagnoseTts, pickTtsVoice, splitReply, splitForSpeech, ttsLangFor, waitForVoices } from '../lib/voice/speech';
 
 describe('cleanForSpeech', () => {
   it('strips markdown but keeps the words', () => {

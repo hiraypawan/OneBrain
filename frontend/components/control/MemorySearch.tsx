@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { db, type StoredMessage } from "@/lib/db";
+import { db, type StoredMessage } from "@/lib/storage/db";
 
 export default function SearchPage() {
   const [q, setQ] = useState("");

@@ -14,15 +14,16 @@ import {
   watchAudioDevices,
   type AudioDevice,
   type OutputDevice,
-} from "@/lib/audio";
+} from "@/lib/voice/audio";
 import {
   diagnoseTts,
   pickTtsVoice,
   splitForSpeech,
   ttsLangFor,
   waitForVoices,
-} from "@/lib/speech";
+} from "@/lib/voice/speech";
 import { useAssistantStore } from "@/store/assistant";
+import { useLocale } from "@/hooks/useLocale";
 
 const SAMPLE = "OneBrain voice test. If you can hear this, your output device is working.";
 
@@ -37,7 +38,7 @@ export function AudioDevices() {
   const setSpeakerDeviceId = useAssistantStore((s) => s.setSpeakerDeviceId);
   const micDeviceId = useAssistantStore((s) => s.micDeviceId);
   const setMicDeviceId = useAssistantStore((s) => s.setMicDeviceId);
-  const language = useAssistantStore((s) => s.settings.language);
+  const locale = useLocale();
   const silentMode = useAssistantStore((s) => s.settings.silentMode);
   const updateSettings = useAssistantStore((s) => s.updateSettings);
 
@@ -97,7 +98,7 @@ export function AudioDevices() {
   });
   const choices = pickableOutputs(outputs);
 
-  const lang = ttsLangFor(SAMPLE, language);
+  const lang = ttsLangFor(SAMPLE, locale.voice.id, locale.english);
   const health = diagnoseTts({
     silentMode: false,
     synthSupported: typeof window !== "undefined" && "speechSynthesis" in window,
@@ -140,7 +141,7 @@ export function AudioDevices() {
     setStatus(null);
     const synth: any = typeof window !== "undefined" ? window.speechSynthesis : null;
     const list = await waitForVoices(synth, 1500);
-    const choice = pickTtsVoice(list, ttsLangFor(SAMPLE, language));
+    const choice = pickTtsVoice(list, ttsLangFor(SAMPLE, locale.voice.id, locale.english));
     if (!synth || !choice.voice) {
       setStatus(
         "No speech voice is installed, so the test cannot be spoken. Install one in your system Text-to-speech settings.",

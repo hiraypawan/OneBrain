@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveBgState, bgStateLabel, pushBgEvent, formatBgEvent } from '../lib/background';
+import { resolveBgState, bgStateLabel, pushBgEvent, formatBgEvent } from '../lib/voice/background';
 
 describe('resolveBgState', () => {
   it('is foreground when visible and not frozen', () => {

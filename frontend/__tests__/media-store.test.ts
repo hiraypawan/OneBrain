@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMediaStore } from '../store/media';
 import { useAssistantStore } from '../store/assistant';
 import { useFeaturesStore } from '../store/features';
-import type { MediaTrack } from '../lib/media';
+import type { MediaTrack } from '../lib/features/media';
 
 const song = (id: string, url = `https://cdn.example.test/${id}.mp4`): MediaTrack => ({
   kind: 'song',
@@ -85,7 +85,7 @@ describe('searching and playing', () => {
     expect(state.current).toBeNull();
     expect(state.notice).toMatch(/no free source returned a playable link/i);
     expect(state.youtubeSearchUrl).toContain('youtube.com/results');
-    expect(lastAssistantMessage()).toMatch(/Kuch nahi mila/);
+    expect(lastAssistantMessage()).toMatch(/couldn’t find/);
   });
 
   it('survives a dead network without inventing a result', async () => {
@@ -186,7 +186,7 @@ describe('spoken feedback', () => {
     useFeaturesStore.setState({ speaker: async (text: string) => void spoken.push(text) });
     stubSearch([]);
     await useMediaStore.getState().request('missing song');
-    expect(spoken.join(' ')).toMatch(/Kuch nahi mila/);
+    expect(spoken.join(' ')).toMatch(/couldn’t find/);
     useFeaturesStore.setState({ speaker: null });
     await expect(useMediaStore.getState().request('missing song')).resolves.toBeUndefined();
   });

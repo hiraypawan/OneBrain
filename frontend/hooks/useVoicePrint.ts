@@ -8,8 +8,8 @@
 
 import { useCallback, useRef } from "react";
 import { useAssistantStore } from "@/store/assistant";
-import { micConstraints } from "@/lib/audio";
-import { detectPitch, median } from "@/lib/voiceprint";
+import { micConstraints } from "@/lib/voice/audio";
+import { detectPitch, median } from "@/lib/voice/voiceprint";
 import {
   classifyEnvironment,
   environmentChanged,
@@ -18,13 +18,13 @@ import {
   updateNoiseFloor,
   type EnvironmentClass,
   type NoiseFloorState,
-} from "@/lib/environment";
+} from "@/lib/voice/environment";
 
 export function useVoicePrint() {
   const streamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const oscRef = useRef<OscillatorNode | null>(null);
-  // Environment + interruption state (lib/environment.ts, lib/barge-in.ts).
+  // Environment + interruption state (lib/voice/environment.ts, lib/voice/barge-in.ts).
   // The noise floor is smoothed across frames; the microphone is the same
   // stream used for pitch, so this costs no extra permission or battery.
   const noiseRef = useRef<NoiseFloorState>(resetNoiseFloor());
@@ -73,7 +73,7 @@ export function useVoicePrint() {
           analyser.getFloatTimeDomainData(buf);
           // Environment recognition: the same frame that carries a voice also
           // carries the room. Track the sustained floor and tell the app when
-          // the surroundings change (see lib/environment.ts for the rules).
+          // the surroundings change (see lib/voice/environment.ts for the rules).
           noiseRef.current = updateNoiseFloor(noiseRef.current, rmsOf(buf));
           // Voice activity, from the very same frame: energy well above the
           // smoothed floor is the person talking. The turn assembler reads

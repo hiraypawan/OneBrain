@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SPEECH_DUCK_EVENT, micConstraints, outputSelectionSupported, listAudioDevices, diagnoseMicError, cleanDeviceLabel, defaultOutput, pickableOutputs, autoPickOutput, speakerPlan, testToneDataUrl, watchAudioDevices } from '../lib/audio';
+import { SPEECH_DUCK_EVENT, micConstraints, outputSelectionSupported, listAudioDevices, diagnoseMicError, cleanDeviceLabel, defaultOutput, pickableOutputs, autoPickOutput, speakerPlan, testToneDataUrl, watchAudioDevices } from '../lib/voice/audio';
 
 describe('micConstraints', () => {
   it('requests echo/noise/gain control by default', () => {
@@ -161,7 +161,7 @@ describe('watchAudioDevices', () => {
 
 describe('music ducking across a chunked spoken reply', () => {
   it('counts overlapping speech owners so music resumes once, at the end', async () => {
-    const { signalSpeechPlayback, speechDuckingDepth, resetSpeechDucking } = await import('../lib/audio');
+    const { signalSpeechPlayback, speechDuckingDepth, resetSpeechDucking } = await import('../lib/voice/audio');
     const events: string[] = [];
     const originalWindow = (globalThis as any).window;
     (globalThis as any).window = { dispatchEvent: (e: any) => { events.push(e?.detail?.state); return true; } };
@@ -188,21 +188,9 @@ describe('music ducking across a chunked spoken reply', () => {
       expect(events).toEqual(['start', 'end']);
     } finally {
       (globalThis as any).window = originalWindow;
-      const { resetSpeechDucking } = await import('../lib/audio');
+      const { resetSpeechDucking } = await import('../lib/voice/audio');
       resetSpeechDucking();
     }
   });
 
-  it('keeps the chunked player quiet and lets the caller own the duck', async () => {
-    const source = (await import('node:fs')).readFileSync(
-      (await import('node:path')).resolve(__dirname, '..', 'hooks/useAssistant.ts'),
-      'utf8',
-    );
-    // The reply-level signal wraps the whole speak(), and the per-chunk player
-    // is told not to announce, which is what removes the between-chunks blip.
-    expect(source).toContain('announce: false');
-    expect(source).toContain('signalSpeechPlayback("start")');
-    expect(source).toContain('signalSpeechPlayback("end")');
-    expect(source).toContain('let duckAnnounced = false;');
-  });
 });

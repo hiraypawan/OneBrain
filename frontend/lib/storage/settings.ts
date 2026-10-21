@@ -1,0 +1,56 @@
+// User settings: defaults and normalisation of untrusted stored/imported
+// values (strings never grant consent), plus one-time migrations keyed by
+// SETTINGS_VERSION. The store (store/assistant.ts) persists the result.
+
+import type { UserSettings } from '../core/types';
+import { DEFAULT_PROACTIVE, normalizeProactive } from '../features/proactive';
+import { AUTO_LANGUAGE, isLanguageSetting } from '../locale/voice-languages';
+import { normalizeCountry } from '../locale/countries';
+
+/**
+ * Bump when stored settings need a one-time migration in normalizeSettings.
+ * 2: language defaults to "auto" (device language + country) instead of Hinglish.
+ */
+export const SETTINGS_VERSION = 2;
+
+export const defaultSettings: UserSettings = {
+  memoryEnabled: true, puterEnabled: false, puterFallbackEnabled: false, puterSpeechEnabled: false, puterModel: '', puterProvider: '', voiceSpeed: 1,
+  language: AUTO_LANGUAGE, country: '', settingsVersion: SETTINGS_VERSION, verbosity: 'short',
+  theme: 'dark', nightMode: false, autoDeleteDays: 0, ownerOnly: false,
+  proactive: DEFAULT_PROACTIVE, silentMode: false, musicEnabled: true, endOfSpeechMs: 1600, labsEnabled: false, bargeIn: true,
+};
+
+/** Storage/imports are untrusted. In particular, strings must never grant consent. */
+export function normalizeSettings(value: unknown): UserSettings {
+  const p: Record<string, unknown> = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+  const finite = (key: string, fallback: number, min: number, max: number) =>
+    typeof p[key] === 'number' && Number.isFinite(p[key]) ? Math.min(max, Math.max(min, p[key])) : fallback;
+  const aliases = p.speechAliases && typeof p.speechAliases === 'object' && !Array.isArray(p.speechAliases)
+    ? Object.fromEntries(Object.entries(p.speechAliases).filter(([k, v]) =>
+      !['__proto__', 'prototype', 'constructor'].includes(k) && k.length > 0 && k.length <= 80 && typeof v === 'string' && v.length <= 80).slice(0, 50)) : {};
+  return {
+    memoryEnabled: p.memoryEnabled === undefined ? true : p.memoryEnabled === true,
+    puterEnabled: p.puterEnabled === true,
+    puterFallbackEnabled: p.puterFallbackEnabled === true,
+    puterSpeechEnabled: p.puterSpeechEnabled === true,
+    puterModel: typeof p.puterModel === 'string' ? p.puterModel.trim().slice(0, 160) : '',
+    puterProvider: typeof p.puterProvider === 'string' && /^[a-z0-9._:-]{1,80}$/i.test(p.puterProvider.trim()) ? p.puterProvider.trim() : '',
+    voiceSpeed: finite('voiceSpeed', 1, 0.5, 2),
+    // Before v2 every user got 'hinglish' as the default, so an unversioned
+    // 'hinglish' is that default, not a choice: move it to "auto" once.
+    language: isLanguageSetting(p.language) && !(p.settingsVersion === undefined && p.language === 'hinglish')
+      ? p.language : AUTO_LANGUAGE,
+    country: normalizeCountry(p.country) ?? '',
+    settingsVersion: SETTINGS_VERSION,
+    verbosity: p.verbosity === 'medium' || p.verbosity === 'long' ? p.verbosity : 'short',
+    theme: p.theme === 'light' ? 'light' : 'dark', nightMode: p.nightMode === true,
+    autoDeleteDays: Math.floor(finite('autoDeleteDays', 0, 0, 3650)), ownerOnly: p.ownerOnly === true,
+    wakePhrase: p.wakePhrase === true, silentMode: p.silentMode === true,
+    musicEnabled: p.musicEnabled === undefined ? true : p.musicEnabled === true,
+    labsEnabled: p.labsEnabled === true,
+    bargeIn: p.bargeIn === undefined ? true : p.bargeIn === true,
+    endOfSpeechMs: Math.round(finite('endOfSpeechMs', 1600, 700, 4000)),
+    proactive: normalizeProactive(p.proactive), speechAliases: aliases,
+  };
+}

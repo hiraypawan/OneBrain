@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleFeatureTurn, observeTranscript } from '../lib/feature-engine';
+import { handleFeatureTurn, observeTranscript } from '../lib/features/feature-engine';
 import { useFeaturesStore } from '../store/features';
 import { useAssistantStore } from '../store/assistant';
-import { INITIAL_WITNESS } from '../lib/witness';
-import { EMPTY_QUOTA } from '../lib/plans';
+import { INITIAL_WITNESS } from '../lib/features/witness';
+import { EMPTY_QUOTA } from '../lib/platform/plans';
 import { mintTestBetaKey } from './helpers/beta-keys';
+import { DEFAULT_TEST_DEVICE, useDevice, useHinglishSpeaker } from './helpers/locale';
 
 beforeEach(async () => {
   vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
@@ -30,7 +31,7 @@ describe('witness mode', () => {
     observeTranscript('auto mein hun');
     expect(useFeaturesStore.getState().witness.log.length).toBeGreaterThan(1);
     const safe = await handleFeatureTurn('safe');
-    expect(safe?.speak).toMatch(/nazar/);
+    expect(safe?.speak).toMatch(/keeping watch/);
     const stop = await handleFeatureTurn('stop witness');
     expect(useFeaturesStore.getState().witness.phase).toBe('idle');
     expect(stop?.speak).toMatch(/off/);
@@ -41,7 +42,8 @@ describe('witness mode', () => {
 });
 
 describe('email drafter', () => {
-  it('runs the full slot-fill to draft', async () => {
+  it('runs the full slot-fill to draft (Hinglish speaker)', async () => {
+    useHinglishSpeaker();
     const q1 = await handleFeatureTurn('meri leave application likh do');
     expect(q1?.speak).toMatch(/Kisko/);
     const q2 = await handleFeatureTurn('mere manager Ramesh');
@@ -56,6 +58,20 @@ describe('email drafter', () => {
       expect(done.card.draft.subject).toMatch(/Leave Application/);
       expect(done.card.draft.body).toMatch(/Ramesh/);
     }
+    useDevice(DEFAULT_TEST_DEVICE);
+  });
+  it('runs the same flow in English', async () => {
+    const q1 = await handleFeatureTurn('write a leave email');
+    expect(q1?.speak).toMatch(/Who should it go to/);
+    const q2 = await handleFeatureTurn('my manager Sarah');
+    expect(q2?.speak).toMatch(/How many days/);
+    const q3 = await handleFeatureTurn('two days');
+    expect(q3?.speak).toMatch(/Starting when/);
+    const q4 = await handleFeatureTurn('from tomorrow');
+    expect(q4?.speak).toMatch(/What reason/);
+    const done = await handleFeatureTurn('I have a fever');
+    expect(done?.card).toMatchObject({ kind: 'email' });
+    if (done?.card?.kind === 'email') expect(done.card.draft.body).toMatch(/Sarah/);
   });
   it('cancels cleanly', async () => {
     await handleFeatureTurn('leave application likh do');

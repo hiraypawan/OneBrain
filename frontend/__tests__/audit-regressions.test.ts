@@ -1,13 +1,13 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { db, clearAllLocal } from '../lib/db';
+import { db, clearAllLocal } from '../lib/storage/db';
 import { useAssistantStore as store } from '../store/assistant';
-import { defaultSettings, normalizeSettings } from '../lib/settings';
-import { commitVault, VAULT_STORAGE } from '../lib/vault-storage';
-import type { VaultEnvelope } from '../lib/vault';
-import { dueReminders, fireReminderNotification, markFired, parseReminderIntent } from '../lib/reminders';
-import { readBody, readJsonBody } from '../lib/request-body';
+import { defaultSettings, normalizeSettings } from '../lib/storage/settings';
+import { commitVault, VAULT_STORAGE } from '../lib/storage/vault-storage';
+import type { VaultEnvelope } from '../lib/storage/vault';
+import { dueReminders, fireReminderNotification, markFired, parseReminderIntent } from '../lib/features/reminders';
+import { readBody, readJsonBody } from '../lib/server/request-body';
 import { POST as chat } from '../app/api/chat/route';
 import { POST as stt } from '../app/api/speech/stt/route';
 import { POST as tts } from '../app/api/speech/tts/route';
@@ -218,10 +218,13 @@ describe('API request and spending boundaries', () => {
     expect((await stt()).status).toBe(501);
     expect(await (await tts(request({ text: 'Hello' }))).json()).toEqual({ fallback: true });
     const answer = await (await chat(request({ message: 'hello' }))).json(); expect(answer.provider).toBe('offline');
-    // Both speech and chat may only reach the KEYLESS community endpoints —
-    // never a host-key provider, even with those keys configured.
+    // Both speech and chat may only reach KEYLESS endpoints (community chat,
+    // the public read-aloud voice) — never a host-key provider, even with
+    // those keys configured.
     expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(2);
-    for (const call of fetch.mock.calls) expect(String((call as unknown[])[0])).toMatch(/^https:\/\/text\.pollinations\.ai\//);
+    for (const call of fetch.mock.calls)
+      // translate.google.<accent domain>: us, co.uk, com.au, co.in… (lib/server/tts-server.ts)
+      expect(String((call as unknown[])[0])).toMatch(/^https:\/\/(text\.pollinations\.ai|translate\.google\.(?:[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2}))\//);
     const dumped = JSON.stringify(fetch.mock.calls);
     expect(dumped).not.toContain('test-only-host-key');
     expect(dumped).not.toContain('generativelanguage');

@@ -10,10 +10,10 @@ import {
   redeemKeyOnServer,
   resolvePlan,
   type ServerEntitlement,
-} from '../lib/entitlements';
+} from '../lib/platform/entitlements';
 import { useFeaturesStore } from '../store/features';
 import { useAssistantStore } from '../store/assistant';
-import { EMPTY_QUOTA } from '../lib/plans';
+import { EMPTY_QUOTA } from '../lib/platform/plans';
 
 const HOUR = 3600_000;
 const now = Date.UTC(2026, 8, 15, 12, 0, 0);

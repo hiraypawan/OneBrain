@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { askGemini, askPollinations, fallback, verbosityBudget } from '@/lib/gemini';
-import { askOpenAICompatible, sanitizeBaseUrl, sanitizeModel } from '@/lib/openai-compatible';
-import { buildTurnPrompt, normalizeHistory } from '@/lib/prompt';
-import { readJsonBody, bodyError, RequestBodyError } from '@/lib/request-body';
-import type { ChatHistory } from '@/lib/gemini';
-import { looksFactual, fetchWikipedia } from '@/lib/knowledge';
-import { looksLive, liveFacts } from '@/lib/websearch';
+import { askGemini, askPollinations, fallback, verbosityBudget } from '@/lib/ai/gemini';
+import { askOpenAICompatible, sanitizeBaseUrl, sanitizeModel } from '@/lib/ai/openai-compatible';
+import { buildTurnPrompt, normalizeHistory } from '@/lib/ai/prompt';
+import { readJsonBody, bodyError, RequestBodyError } from '@/lib/server/request-body';
+import type { ChatHistory } from '@/lib/ai/gemini';
+import { looksFactual, fetchWikipedia } from '@/lib/ai/knowledge';
+import { looksLive, liveFacts } from '@/lib/ai/websearch';
 
 export async function POST(req: NextRequest) {
   let input: Record<string, unknown>;
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     input = await readJsonBody(req);
     if (typeof input.message !== 'string' || !input.message.trim() || input.message.length > 8000)
       throw new RequestBodyError('Message must contain 1–8000 characters.', 400);
-    for (const [field, limit] of [['userKey', 512], ['profile', 12000], ['recall', 12000], ['language', 16], ['facts', 4000], ['baseUrl', 120], ['model', 120]] as const) {
+    for (const [field, limit] of [['userKey', 512], ['profile', 12000], ['recall', 12000], ['language', 16], ['country', 8], ['timeZone', 64], ['facts', 4000], ['baseUrl', 120], ['model', 120]] as const) {
       if (input[field] !== undefined && (typeof input[field] !== 'string' || (input[field] as string).length > limit))
         throw new RequestBodyError(`Invalid ${field}.`, 400);
     }
@@ -37,8 +37,9 @@ export async function POST(req: NextRequest) {
 
   // Explicit user key, keyless community API, then offline fallback.
   // Never spend host keys or silently overflow into a paid provider.
-  // Same prompt builder as the browser path (lib/prompt.ts): clock, how to
-  // understand voice turns, reply language, length, who they are, live facts.
+  // Same prompt builder as the browser path (lib/ai/prompt.ts): the user's
+  // clock, how to understand voice turns, reply language, units and money for
+  // their country, length, who they are, live facts.
   let facts = typeof input.facts === 'string' ? input.facts : '';
   if (!systemOverride && !facts) {
     try {
@@ -58,7 +59,13 @@ export async function POST(req: NextRequest) {
   }
   const prompt = systemOverride
     ? { system: systemOverride, history: normalizeHistory(history, message) }
-    : buildTurnPrompt({ message, history, profile, recall, verbosity, language: input.language as string | undefined, facts });
+    : buildTurnPrompt({
+        message, history, profile, recall, verbosity, facts,
+        language: input.language as string | undefined,
+        // Unknown countries and invalid zones are ignored inside the builder.
+        country: input.country as string | undefined,
+        timeZone: input.timeZone as string | undefined,
+      });
   const system = prompt.system;
   const turnHistory = prompt.history;
   const maxTokens = verbosityBudget(verbosity);
@@ -90,11 +97,14 @@ export async function POST(req: NextRequest) {
 
   // Everything failed: if the user's own key was rejected, say so plainly.
   if (userKey && keyBlame) {
+    const hinglish = ['hinglish', 'hi-IN', 'marathi'].includes(String(input.language || ''));
     const where = provider === 'openai'
-      ? 'Settings me endpoint, model aur key dobara check karo.'
-      : 'Settings me key dobara check karo, aistudio.google.com se nayi key lekar paste karo.';
+      ? (hinglish ? 'Settings me endpoint, model aur key dobara check karo.' : 'Check the endpoint, model and key in Settings.')
+      : (hinglish
+        ? 'Settings me key dobara check karo, aistudio.google.com se nayi key lekar paste karo.'
+        : 'Check the key in Settings, or paste a new one from aistudio.google.com.');
     return NextResponse.json({
-      answer: `Tumhari AI key kaam nahi kar rahi (${keyBlame}). ${where}`,
+      answer: hinglish ? `Tumhari AI key kaam nahi kar rahi (${keyBlame}). ${where}` : `Your AI key isn’t working (${keyBlame}). ${where}`,
       provider: 'key-error',
     });
   }

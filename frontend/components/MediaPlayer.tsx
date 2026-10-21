@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMediaStore } from '@/store/media';
 import { useAssistantStore } from '@/store/assistant';
-import { activeSinkId, SPEECH_DUCK_EVENT } from '@/lib/audio';
-import { mediaSourceLabel, type MediaKind, type MediaTrack } from '@/lib/media';
+import { activeSinkId, SPEECH_DUCK_EVENT } from '@/lib/voice/audio';
+import { mediaSourceLabel, type MediaKind, type MediaTrack } from '@/lib/features/media';
 import { Icon } from './ui/Icon';
 
 const KIND_LABELS: { id: MediaKind; label: string }[] = [
